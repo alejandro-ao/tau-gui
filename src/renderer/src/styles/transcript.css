@@ -7,15 +7,6 @@
   user-select: text;
 }
 
-/* Cap the reading measure without narrowing the scroll container: the
-   scrollbar stays at the window edge and the content column centers. Tool
-   output keeps `white-space: pre` and scrolls horizontally when wider. */
-.transcript > * {
-  max-width: var(--measure);
-  margin-left: auto;
-  margin-right: auto;
-}
-
 .transcript-empty {
   color: var(--text-faint);
   padding: var(--space-5) 0;
