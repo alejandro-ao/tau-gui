@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import type { RuntimeKind, RuntimeSettings } from '../../../../shared/domain.js';
+import type { RuntimeProbe } from '../../../../shared/ipc.js';
 import { useStore } from '../../state/store.js';
 import { Modal } from './Modal.js';
 
@@ -13,6 +14,11 @@ export function SettingsModal(): ReactNode {
   const kind = settings.agentRuntime;
   const runtime = settings.runtime[kind];
   const [extraArgs, setExtraArgs] = useState(runtime.extraArgs.join(' '));
+  const [probe, setProbe] = useState<RuntimeProbe | null>(null);
+
+  const detect = (): void => {
+    void actions.probeRuntime(kind, runtime.binary).then(setProbe);
+  };
 
   const patchRuntime = (patch: Partial<RuntimeSettings>): void => {
     const next: Record<RuntimeKind, RuntimeSettings> = {
@@ -55,8 +61,32 @@ export function SettingsModal(): ReactNode {
           type="text"
           spellCheck={false}
           value={runtime.binary}
-          onChange={(event) => patchRuntime({ binary: event.target.value || kind })}
+          onChange={(event) => {
+            setProbe(null);
+            patchRuntime({ binary: event.target.value || kind });
+          }}
         />
+
+        <span />
+        <div className="settings-inline">
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={detect}
+            data-testid="detect-runtime"
+          >
+            detect
+          </button>
+          {probe ? (
+            <span
+              className={probe.error ? 'settings-hint error' : 'settings-hint'}
+              data-testid="detect-result"
+            >
+              {probe.error ??
+                `${probe.resolved ?? runtime.binary}${probe.version ? ` · ${probe.version}` : ''}`}
+            </span>
+          ) : null}
+        </div>
 
         <label htmlFor="setting-provider">provider</label>
         <input

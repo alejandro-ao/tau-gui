@@ -126,7 +126,9 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
       return { ...state, streamingAssistantId: null, streamingThinkingId: null };
 
     case 'message_start': {
-      if (event.message.role === 'assistant') return state;
+      // Assistant text is assembled from deltas, and tool results are already
+      // represented by their tool block.
+      if (event.message.role === 'assistant' || event.message.role === 'toolResult') return state;
       return { ...state, blocks: [...state.blocks, ...blocksFromMessage(event.message, now)] };
     }
 

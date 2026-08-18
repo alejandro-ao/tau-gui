@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, session as electronSession } from 'electron';
+import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
@@ -9,6 +10,18 @@ import { SettingsStore } from './services/settings.js';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
 const isDev = !app.isPackaged;
+
+/**
+ * Test-only hook: redirect the whole userData tree (settings, cache, storage)
+ * into an isolated directory. End-to-end runs set it so they never read or
+ * overwrite a developer's real GUI settings. It must be applied before the app
+ * is ready, and it is ignored unless the environment variable is present.
+ */
+const isolatedUserData = process.env['TAU_GUI_USER_DATA_DIR'];
+if (isolatedUserData) {
+  mkdirSync(isolatedUserData, { recursive: true });
+  app.setPath('userData', isolatedUserData);
+}
 
 const CSP = [
   "default-src 'none'",

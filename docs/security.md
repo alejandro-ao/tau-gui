@@ -15,6 +15,13 @@
 - `setWindowOpenHandler` denying all popups and routing `https:` links to the OS
 - `will-navigate` blocked except for the dev server URL
 
+## Test-only hooks
+
+- `TAU_GUI_USER_DATA_DIR` (read once at startup in `src/main/index.ts`)
+  redirects the Electron `userData` tree so end-to-end runs never read or write
+  real settings. It only relocates app-owned storage; it grants no additional
+  capability to the renderer and is ignored when unset.
+
 ## IPC
 
 - One invoke channel and one event channel.

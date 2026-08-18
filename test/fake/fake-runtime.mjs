@@ -59,6 +59,7 @@ const state = {
   aborted: false,
   toolCalls: 0,
   turns: 0,
+  lastExtensionResponse: null,
 };
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -563,6 +564,26 @@ async function dispatch(command) {
         });
         return;
       }
+      case 'extension_dialog_probe':
+        // Test hook: emit both a blocking dialog and a fire-and-forget status.
+        write({
+          type: 'extension_ui_request',
+          id: 'dialog-1',
+          method: 'confirm',
+          message: 'Proceed?',
+        });
+        write({
+          type: 'extension_ui_request',
+          id: 'status-1',
+          method: 'setStatus',
+          statusKey: 'demo',
+          statusText: '\u001b[38;2;138;190;183mdemo\u001b[39m connected',
+        });
+        respond(id, type);
+        return;
+      case 'extension_ui_response':
+        state.lastExtensionResponse = command;
+        return;
       case 'get_commands':
         respond(id, type, {
           commands: [

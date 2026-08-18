@@ -77,6 +77,12 @@ export class RpcClient {
     });
   }
 
+  /** Writes an uncorrelated record, e.g. an extension dialog dismissal. */
+  notify(record: Record<string, unknown>): void {
+    if (this.closed) return;
+    this.options.write(encodeRecord(record));
+  }
+
   handleChunk(chunk: Uint8Array | string): void {
     for (const result of this.decoder.push(chunk)) this.handleRecord(result);
   }

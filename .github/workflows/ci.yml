@@ -36,7 +36,8 @@ jobs:
       - run: npm ci
       - run: npm run build
       # Electron needs a virtual display and no paid provider: the fake JSONL
-      # runtime backs every end-to-end flow.
+      # runtime backs every end-to-end flow. Visual snapshots stay skipped here
+      # (VISUAL is unset) because baselines are platform-specific.
       - run: xvfb-run --auto-servernum npx playwright test
         env:
           CI: '1'

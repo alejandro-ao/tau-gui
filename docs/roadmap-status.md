@@ -81,6 +81,16 @@ Tracks issue #1. Update this file whenever behavior changes.
 - Optional controls gated by capability with explanatory disabled states.
 - GUI settings and composer drafts survive a runtime switch.
 
+## Testing ✅
+
+- Unit/contract suites (`npm run verify`) plus a Playwright Electron suite in
+  `e2e/` covering startup, streaming, tools, cancellation, steering/follow-ups,
+  errors, model selection, sessions, modal focus, runtime crash/restart, shell
+  mode, and preload isolation against the fake JSONL runtime.
+- Screenshot regression for themes, roles, tool states, diffs, pickers, and
+  layouts behind `VISUAL=1` (`e2e/README.md`), plus an optional real-runtime
+  startup smoke behind `TAU_GUI_REAL_RUNTIME=1`.
+
 ## Phase 6 — missing RPC surfaces ⏳ upstream
 
 Capability flags exist and are `false` until both adapters can implement them
@@ -103,7 +113,8 @@ with conformance tests:
 
 ## Phase 7 — packaging and release ⏳ partial
 
-- ✅ Runtime binary discovery/first-run failure messaging, bounded diagnostics,
+- ✅ Runtime binary discovery (`src/main/services/discovery.ts`, `detect` in the
+  settings dialog) with first-run failure messaging, bounded diagnostics,
   `electron-builder` config for dmg/nsis/AppImage/deb, unsigned packaging in CI.
 - ⏳ Requires credentials or hardware and is therefore not wired up here: macOS
   signing/notarization secrets, Windows code signing, update strategy, and

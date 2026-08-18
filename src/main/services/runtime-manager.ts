@@ -10,6 +10,7 @@ import type {
 import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
 import { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
+import { probeRuntime } from './discovery.js';
 import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -80,6 +81,18 @@ export class RuntimeManager {
       extraArgs: runtimeSettings.extraArgs,
       projectTrust: settings.projectTrust,
     };
+
+    // First-run check: fail fast with an actionable message when the runtime
+    // binary is missing, instead of surfacing a raw spawn ENOENT.
+    const probe = await probeRuntime(config.kind, config.binary);
+    if (!probe.resolved) {
+      this.cwd = cwd;
+      const message = probe.error ?? `Runtime executable not found: ${config.binary}`;
+      this.setStatus('failed', message);
+      this.addDiagnostic(message);
+      throw new Error(message);
+    }
+    if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
 
     this.cwd = cwd;
     this.gitBranch = await readGitBranch(cwd);

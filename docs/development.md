@@ -25,7 +25,10 @@ npm install         # install pinned dependencies
 npm run dev         # electron-vite dev server + Electron
 npm run verify      # format:check + lint + typecheck + unit/contract tests
 npm run test        # vitest only
-npm run test:e2e    # build, then Playwright Electron tests
+npm run test:e2e    # build, then Playwright Electron tests (functional only)
+npm run test:visual # build, then VISUAL=1 screenshot comparisons
+npm run test:visual:update  # regenerate the platform-specific baselines
+npm run test:smoke:real     # optional smoke against a real installed runtime
 npm run build       # typecheck + production bundles into out/
 npm run package     # unpacked platform build into release/
 npm run dist        # installers/artifacts into release/
@@ -53,9 +56,16 @@ docs/             architecture, UI principles, RPC reference, roadmap status
 - **Contract** — `test/runtime-contract.test.ts` runs the same
   application-domain expectations against the `tau` and `pi` adapter
   configurations using `test/fake/fake-runtime.mjs`.
-- **Electron E2E** — Playwright drives the packaged main process with the fake
+- **Electron E2E** — Playwright drives the built main process with the fake
   runtime injected through settings, covering startup, streaming, cancellation,
-  tool expansion, pickers, and preload isolation.
+  steering/follow-ups, tool expansion, errors, model selection, sessions, modal
+  focus, runtime crash/restart, shell mode, and preload isolation. Each launch
+  gets a throwaway `userData` directory through the `TAU_GUI_USER_DATA_DIR`
+  main-process hook, so developer settings are never touched.
+- **Visual regression** — `e2e/visual.spec.ts` compares fixed-size screenshots
+  of every theme, transcript role, tool state, diff, picker, layout, and sidebar
+  mode. It is gated behind `VISUAL=1` because baselines are platform-specific;
+  see `e2e/README.md` for regeneration.
 
 The fake runtime replays deterministic scripts keyed off prompt text
 (`tool`, `thinking`, `error`, `compact`, `slow`), so CI never needs provider

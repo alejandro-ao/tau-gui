@@ -12,7 +12,9 @@ export default defineConfig({
     },
   },
   preload: {
-    plugins: [externalizeDepsPlugin()],
+    // The preload runs sandboxed, where `require` cannot resolve node_modules,
+    // so runtime dependencies reached through src/shared must be bundled in.
+    plugins: [externalizeDepsPlugin({ exclude: ['zod'] })],
     build: {
       rollupOptions: {
         input: { index: resolve(__dirname, 'src/preload/index.ts') },

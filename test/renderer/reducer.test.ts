@@ -146,6 +146,25 @@ describe('tools', () => {
     expect(state.blocks[0]).toMatchObject({ state: 'error' });
   });
 
+  it('does not duplicate a tool block from toolResult message_start', () => {
+    const state = replay([
+      ...toolRun,
+      {
+        type: 'message_start',
+        message: {
+          role: 'toolResult',
+          toolCallId: 'c1',
+          toolName: 'read',
+          text: 'full body',
+          details: {},
+          isError: false,
+          timestamp: 1,
+        },
+      },
+    ]);
+    expect(state.blocks).toHaveLength(1);
+  });
+
   it('ignores toolResult messages because tool blocks already cover them', () => {
     const state = replay([
       ...toolRun,

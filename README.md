@@ -1,8 +1,11 @@
 # Tau GUI
 
-A terminal-inspired Electron desktop frontend for Tau and Pi coding-agent runtimes.
+A terminal-inspired Electron desktop frontend for the Tau and Pi coding-agent
+runtimes.
 
-Tau GUI will launch either runtime over its strict JSONL RPC mode and present one shared desktop experience modeled after Tau's Textual TUI.
+Tau GUI launches either runtime over its strict JSONL RPC mode and presents one
+shared desktop experience modeled after Tau's Textual TUI — transcript-first, no
+permanent header or shortcut footer, vertical role bars, keyboard-first pickers.
 
 ```json
 {
@@ -10,18 +13,67 @@ Tau GUI will launch either runtime over its strict JSONL RPC mode and present on
 }
 ```
 
+Switching `agent_runtime` to `pi` preserves the ordinary coding-agent workflow.
+Renderer components never branch on which runtime is attached.
+
 ## Status
 
-Planning. The product roadmap is tracked in [issue #1](https://github.com/alejandro-ao/tau-gui/issues/1).
+Phases 0–5 of [issue #1](https://github.com/alejandro-ao/tau-gui/issues/1) are
+implemented: foundation, usable chat, Tau visual parity, interaction parity,
+models/context/sessions, and Tau/Pi interchangeability. Phase 6 waits on upstream
+RPC surfaces; Phase 7 packaging is configured but signing, updates, and
+clean-machine release smoke tests still need credentials and hardware. See
+[docs/roadmap-status.md](docs/roadmap-status.md).
 
-## Architectural boundary
+## What works
+
+- Open a project directory, pick Tau or Pi, start or resume a session.
+- Prompt and watch text, thinking, and tool activity stream live.
+- Cancel (`Esc`), steer (`Enter` while running), or queue follow-ups
+  (`Alt+Enter`) without waiting for the current run.
+- Inspect exact tool commands, arguments, output, and patches through collapsed
+  or expanded blocks (`Ctrl+O` toggles everything).
+- Switch models (`Ctrl+P`) and thinking levels (`Shift+Tab`).
+- Run direct shell commands with `!` (adds output to context) and `!!` (does not).
+- Compact, name, branch, resume, and export sessions.
+- Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file
+  completion, drag/drop paths, three themes, and native completion notifications.
+
+Optional protocol surfaces that one runtime lacks are shown disabled with the
+reason. Nothing is faked.
+
+## Architecture
 
 ```text
-Electron renderer → secure preload API → Electron main process → Tau/Pi RPC subprocess
+Electron renderer      React UI, normalized reducer state, virtualized transcript
+        ↓ typed, zod-validated IPC
+Electron preload       narrow context-isolated bridge (invoke + subscribe)
+        ↓ Electron IPC
+Electron main          runtime manager, settings, filesystem, notifications, diagnostics
+        ↓ strict LF-only JSONL
+Runtime subprocess     tau --mode rpc | pi --mode rpc
 ```
 
-The renderer consumes normalized application events. It does not access Node.js, spawn processes, parse runtime session files, or depend directly on Tau/Pi wire payloads.
+The renderer has no Node integration, spawns nothing, never reads credentials or
+session files, and consumes only normalized application-domain events. Details:
+[docs/architecture.md](docs/architecture.md),
+[docs/security.md](docs/security.md),
+[docs/rpc-protocol.md](docs/rpc-protocol.md),
+[docs/ui-principles.md](docs/ui-principles.md).
 
-## Development
+## Requirements
 
-The initial roadmap includes repository scaffolding, RPC transport, a fake deterministic runtime, transcript/composer UI, Tau visual parity, sessions/models/context, Tau/Pi switching, and desktop packaging.
+- Node.js 22+ for development.
+- An installed `tau` and/or `pi` binary on `PATH` (settings can point at an
+  absolute path; the settings dialog has a `detect` check).
+
+## Quick start
+
+```bash
+npm install
+npm run dev       # Electron + Vite dev server
+npm run verify    # format, lint, strict typecheck, unit + contract tests
+npm run test:e2e  # build, then Playwright Electron tests (fake runtime)
+```
+
+Full command list and testing model: [docs/development.md](docs/development.md).

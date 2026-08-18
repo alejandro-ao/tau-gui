@@ -242,3 +242,13 @@
 .status-link:hover {
   color: var(--accent);
 }
+
+.settings-hint {
+  color: var(--text-dim);
+  font-size: 0.85em;
+  user-select: text;
+}
+
+.settings-hint.error {
+  color: var(--role-error);
+}

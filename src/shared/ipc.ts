@@ -23,6 +23,13 @@ import type {
   TreeSnapshot,
 } from './domain.js';
 
+export interface RuntimeProbe {
+  binary: string;
+  resolved: string | null;
+  version: string | null;
+  error: string | null;
+}
+
 export const IPC_INVOKE_CHANNEL = 'tau:invoke';
 export const IPC_EVENT_CHANNEL = 'tau:event';
 
@@ -63,6 +70,10 @@ export const requestSchema = z.discriminatedUnion('action', [
     }),
   }),
   z.object({ action: z.literal('runtime.stop') }),
+  z.object({
+    action: z.literal('runtime.probe'),
+    payload: z.object({ kind: runtimeKind, binary: z.string().min(1) }).optional(),
+  }),
   z.object({ action: z.literal('runtime.snapshot') }),
 
   z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
@@ -158,6 +169,7 @@ export interface IpcResultMap {
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
+  'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
   'agent.prompt': null;
   'agent.steer': null;

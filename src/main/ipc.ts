@@ -1,6 +1,7 @@
 import { dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcRequest, IpcResult } from '../shared/ipc.js';
+import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import type { RuntimeManager } from './services/runtime-manager.js';
 import type { SettingsStore } from './services/settings.js';
@@ -35,6 +36,11 @@ export async function handleRequest(
       });
     case 'runtime.stop':
       return manager.stop();
+    case 'runtime.probe': {
+      const kind = request.payload?.kind ?? settings.current.agentRuntime;
+      const binary = request.payload?.binary ?? settings.current.runtime[kind].binary;
+      return probeRuntime(kind, binary);
+    }
     case 'runtime.snapshot':
       return manager.snapshot();
 
@@ -63,18 +69,30 @@ export async function handleRequest(
 
     case 'models.list':
       return manager.active.listModels();
-    case 'models.set':
-      return manager.active.setModel(request.payload);
-    case 'models.cycle':
-      return manager.active.cycleModel();
+    case 'models.set': {
+      // Model/thinking mutations change the authoritative agent state, so the
+      // snapshot is refreshed like it is for session mutations below.
+      const model = await manager.active.setModel(request.payload);
+      await manager.refreshState();
+      return model;
+    }
+    case 'models.cycle': {
+      const result = await manager.active.cycleModel();
+      await manager.refreshState();
+      return result;
+    }
 
     case 'thinking.list':
       return manager.active.listThinkingLevels();
     case 'thinking.set':
       await manager.active.setThinking(request.payload.level);
+      await manager.refreshState();
       return null;
-    case 'thinking.cycle':
-      return manager.active.cycleThinking();
+    case 'thinking.cycle': {
+      const level = await manager.active.cycleThinking();
+      await manager.refreshState();
+      return level;
+    }
 
     case 'session.new':
       await manager.active.newSession();

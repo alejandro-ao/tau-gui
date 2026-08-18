@@ -219,6 +219,26 @@ describe.each<RuntimeKind>(['tau', 'pi'])('%s adapter contract', (kind) => {
   });
 });
 
+describe('extension UI requests', () => {
+  it('dismisses blocking dialogs and records status updates as diagnostics', async () => {
+    active = await launch('pi');
+    // The fake runtime emits one confirm dialog and one fire-and-forget status.
+    await active.runtime.exportHtml('/tmp/tau-gui-extension.html');
+    const client = active.runtime as unknown as {
+      rpc: { request: (command: string) => Promise<unknown> };
+    };
+    await client.rpc.request('extension_dialog_probe');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(
+      active.diagnostics.some((line) => line.includes('Dismissed unsupported extension dialog')),
+    ).toBe(true);
+    expect(
+      active.diagnostics.some((line) => line.includes('extension setStatus: demo connected')),
+    ).toBe(true);
+    expect(active.events.some((event) => event.type === 'runtime_error')).toBe(false);
+  });
+});
+
 describe('capability gating', () => {
   it('refuses direct bash cancellation on Tau but allows it on Pi', async () => {
     active = await launch('tau');

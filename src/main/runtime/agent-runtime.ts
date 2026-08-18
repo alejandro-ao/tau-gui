@@ -70,6 +70,12 @@ export interface AgentRuntime {
   listCommands(): Promise<CommandInfo[]>;
 }
 
+/** Extension status text may carry terminal colour codes meant for a TUI. */
+function stripAnsi(text: string): string {
+  // eslint-disable-next-line no-control-regex
+  return text.replace(/\u001B\[[0-9;]*m/g, '');
+}
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 
@@ -120,6 +126,10 @@ export class JsonlAgentRuntime implements AgentRuntime {
         child.stdin.write(data);
       },
       onEvent: (wire) => {
+        if (wire['type'] === 'extension_ui_request') {
+          this.handleExtensionUiRequest(wire);
+          return;
+        }
         const event = normalizeEvent(wire);
         if (event) this.sink.event(event);
         else this.sink.diagnostic(`Ignored unknown runtime event: ${String(wire['type'])}`);
@@ -175,6 +185,30 @@ export class JsonlAgentRuntime implements AgentRuntime {
     });
     this.child = null;
     this.client = null;
+  }
+
+  /**
+   * Pi extensions can request interactive dialogs on the same stream. Desktop
+   * extension dialogs are gated behind `extensionDialogs`, so blocking dialog
+   * methods are dismissed immediately instead of hanging the runtime, and
+   * fire-and-forget status updates are recorded as diagnostics.
+   */
+  private handleExtensionUiRequest(wire: Record<string, unknown>): void {
+    const method = typeof wire['method'] === 'string' ? wire['method'] : 'unknown';
+    const id = wire['id'];
+    const blocking =
+      method === 'select' || method === 'confirm' || method === 'input' || method === 'editor';
+    if (blocking && (typeof id === 'string' || typeof id === 'number')) {
+      this.client?.notify({ type: 'extension_ui_response', id, cancelled: true });
+      this.sink.diagnostic(
+        `Dismissed unsupported extension dialog (${method}); desktop extension dialogs are not available yet`,
+      );
+      return;
+    }
+    const text = ['message', 'statusText', 'title', 'text']
+      .map((key) => (typeof wire[key] === 'string' ? wire[key] : ''))
+      .find((value) => value.length > 0);
+    this.sink.diagnostic(`extension ${method}${text ? `: ${stripAnsi(text)}` : ''}`);
   }
 
   private get rpc(): RpcClient {

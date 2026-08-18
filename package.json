@@ -4,6 +4,9 @@
   "description": "Terminal-inspired Electron desktop frontend for Tau and Pi coding-agent runtimes",
   "private": true,
   "license": "UNLICENSED",
+  "author": {
+    "name": "Alejandro AO"
+  },
   "main": "out/main/index.js",
   "type": "module",
   "engines": {
@@ -23,6 +26,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
+    "test:visual": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts",
+    "test:visual:update": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts --update-snapshots",
+    "test:smoke:real": "npm run build && TAU_GUI_REAL_RUNTIME=1 playwright test e2e/smoke.real.spec.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {

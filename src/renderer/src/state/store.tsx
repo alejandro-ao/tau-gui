@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { ModelRef, RuntimeKind, ThinkingLevel, TreeSnapshot } from '../../../shared/domain.js';
-import type { FileCompletion } from '../../../shared/ipc.js';
+import type { FileCompletion, RuntimeProbe } from '../../../shared/ipc.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
@@ -40,6 +40,7 @@ export interface Actions {
   exportHtml: () => Promise<void>;
   openDirectory: () => Promise<void>;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
+  probeRuntime: (kind: RuntimeKind, binary: string) => Promise<RuntimeProbe | null>;
   /** Persists the runtime choice, then restarts it without losing the draft. */
   switchRuntime: (kind: RuntimeKind) => Promise<void>;
   restart: () => Promise<void>;
@@ -331,6 +332,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           await refresh();
         });
       },
+      probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);
         if (settings) dispatch({ type: 'settings', settings });
