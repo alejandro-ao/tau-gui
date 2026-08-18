@@ -132,6 +132,24 @@ describe('transcript scroll anchoring', () => {
     expect(viewport.scrollTop).toBe(5_000);
   });
 
+  it('jumps to the bottom when the user sends a message while scrolled up', async () => {
+    const { view, viewport, dispatch } = await renderTranscript(20);
+
+    setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
+    await scroll(viewport);
+
+    await act(async () => {
+      dispatch({
+        type: 'localMessage',
+        block: { kind: 'user', id: 'user-1', text: 'hello', timestamp: 1 },
+      });
+      await Promise.resolve();
+    });
+
+    expect(viewport.scrollTop).toBe(5_000);
+    expect(view.container.querySelector('.new-output')).toBeNull();
+  });
+
   it('keeps following the tail while already at the bottom', async () => {
     const { view, viewport, dispatch } = await renderTranscript(5);
     setGeometry(viewport, { scrollTop: 4_600, clientHeight: 400, scrollHeight: 5_000 });

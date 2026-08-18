@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
 import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
@@ -25,6 +25,22 @@ export function Transcript(): ReactNode {
   const vwin = useVirtualWindow(ids, viewport);
   const signal = useMemo(() => streamSignal(visible), [visible]);
   const { hasNewOutput, scrollToBottom } = useAutoScroll(viewport, signal);
+
+  // Sending a message (or shell command) always jumps to the tail, even when
+  // the reader has scrolled up; incoming runtime output alone never does.
+  const sentCount = useMemo(
+    () =>
+      state.blocks.reduce(
+        (count, block) => (block.kind === 'user' || block.kind === 'shell' ? count + 1 : count),
+        0,
+      ),
+    [state.blocks],
+  );
+  const lastSentCount = useRef(sentCount);
+  useEffect(() => {
+    if (sentCount > lastSentCount.current) scrollToBottom();
+    lastSentCount.current = sentCount;
+  }, [sentCount, scrollToBottom]);
 
   const toggle = useCallback((id: string) => dispatch({ type: 'toggleExpanded', id }), [dispatch]);
   const expandedFor = useCallback((id: string) => isExpanded(state, id), [state]);
