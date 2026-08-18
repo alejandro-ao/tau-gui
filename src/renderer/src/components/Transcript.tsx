@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
-import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
+import { groupBlocks, isExpanded, isRunning, type BlockGroup } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import type { TranscriptBlock } from '../state/types.js';
 import { BlockView } from './BlockView.js';
@@ -18,7 +18,8 @@ export function Transcript(): ReactNode {
         : state.blocks.filter((block) => block.kind !== 'thinking'),
     [state.blocks, state.settings.showThinking],
   );
-  const groups = useMemo(() => groupBlocks(visible), [visible]);
+  const active = isRunning(state);
+  const groups = useMemo(() => groupBlocks(visible, active), [visible, active]);
 
   // Stable per-group ids so measured heights survive insertions and filtering.
   const ids = useMemo(() => groups.map(groupId), [groups]);
@@ -66,14 +67,31 @@ export function Transcript(): ReactNode {
           const key = ids[index];
           return (
             <div key={key ?? index} ref={(element) => vwin.measure(index, element)}>
-              {group.kind === 'tools' ? (
+              {group.kind === 'user-tools' ? (
+                <>
+                  <BlockView
+                    block={group.user}
+                    expanded={expandedFor(group.user.id)}
+                    onToggle={() => toggle(group.user.id)}
+                  />
+                  <ToolGroupView
+                    blocks={group.blocks}
+                    expanded={expandedFor(`run-${group.user.id}`)}
+                    onToggle={() => toggle(`run-${group.user.id}`)}
+                    isBlockExpanded={expandedFor}
+                    onToggleBlock={toggle}
+                    settled={false}
+                    nested
+                  />
+                </>
+              ) : group.kind === 'tools' ? (
                 <ToolGroupView
-                  name={group.name}
                   blocks={group.blocks}
-                  expanded={expandedFor(group.blocks[0]?.id ?? '')}
-                  onToggle={() => toggle(group.blocks[0]?.id ?? '')}
+                  expanded={expandedFor(`run-${group.blocks[0]?.id ?? ''}`)}
+                  onToggle={() => toggle(`run-${group.blocks[0]?.id ?? ''}`)}
                   isBlockExpanded={expandedFor}
                   onToggleBlock={toggle}
+                  settled={group.settled}
                 />
               ) : (
                 <BlockView
@@ -104,7 +122,9 @@ export function Transcript(): ReactNode {
 }
 
 function groupId(group: BlockGroup, index: number): string {
-  return (group.kind === 'tools' ? group.blocks[0]?.id : group.block.id) ?? `group-${index}`;
+  if (group.kind === 'user-tools') return group.user.id;
+  if (group.kind === 'tools') return group.blocks[0]?.id ?? `group-${index}`;
+  return group.block.id;
 }
 
 /** Cheap fingerprint of the transcript tail, used to drive scroll anchoring. */

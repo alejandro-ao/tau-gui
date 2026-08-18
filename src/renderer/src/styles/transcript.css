@@ -158,6 +158,85 @@
   color: var(--role-status);
 }
 
+/* Tool runs: inline activity while running, one disclosure after settlement. */
+.tool-run {
+  margin: 0 0 var(--space-3) calc(var(--bar-width) + var(--space-4));
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+}
+
+.tool-run-nested {
+  margin-top: calc(-1 * var(--space-2));
+}
+
+.tool-run-header,
+.tool-run-item {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.tool-run-header {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+}
+
+.tool-run-chevron {
+  color: var(--text-faint);
+}
+
+.tool-run-items {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+}
+
+.tool-run-item {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: min(100%, 34rem);
+  padding: 2px var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.tool-run-item .tool-intent {
+  max-width: 22rem;
+}
+
+.tool-run-item[data-state='running'] .tool-marker,
+.tool-run[data-state='running'] > .tool-run-header .tool-marker {
+  color: var(--tool-running);
+}
+
+.tool-run-item[data-state='success'] .tool-marker,
+.tool-run[data-state='success'] > .tool-run-header .tool-marker {
+  color: var(--tool-success);
+}
+
+.tool-run-item[data-state='error'] .tool-marker,
+.tool-run[data-state='error'] > .tool-run-header .tool-marker {
+  color: var(--tool-failure);
+}
+
+.tool-run-detail,
+.tool-run-expanded {
+  margin-top: var(--space-2);
+}
+
+.tool-run-detail .block,
+.tool-run-expanded .block {
+  margin-bottom: 0;
+}
+
 /* Tool blocks */
 .block-header {
   display: flex;

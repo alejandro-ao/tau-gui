@@ -9,7 +9,7 @@ import {
   resetBlockIds,
   windowTitle,
 } from '../../src/renderer/src/state/reducer.js';
-import type { AppState } from '../../src/renderer/src/state/types.js';
+import type { AppState, TranscriptBlock } from '../../src/renderer/src/state/types.js';
 
 const assistant = (text: string, thinking = ''): AssistantMessage => ({
   role: 'assistant',
@@ -213,7 +213,7 @@ describe('tools', () => {
     expect(state.blocks).toHaveLength(1);
   });
 
-  it('groups adjacent same-tool calls but keeps other tools separate', () => {
+  it('collects all adjacent tool calls into one run', () => {
     const state = replay([
       { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
       { type: 'tool_start', toolCallId: 'c2', toolName: 'read', args: { path: 'b.ts' } },
@@ -221,11 +221,35 @@ describe('tools', () => {
       { type: 'tool_start', toolCallId: 'c4', toolName: 'mystery_extension', args: {} },
     ]);
     const groups = groupBlocks(state.blocks);
-    expect(groups).toHaveLength(3);
-    expect(groups[0]).toMatchObject({ kind: 'tools', name: 'read' });
-    expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(2);
-    expect(groups[1]).toMatchObject({ kind: 'single' });
-    expect(groups[2]).toMatchObject({ kind: 'single' });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({ kind: 'tools', settled: true });
+    expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(4);
+  });
+
+  it('shows active tools below the prompt, then moves their summary after the answer', () => {
+    const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
+    const answer: TranscriptBlock = {
+      kind: 'assistant',
+      id: 'a',
+      text: 'done',
+      streaming: false,
+      aborted: false,
+      timestamp: 2,
+    };
+    const tool = replay([
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+    ]).blocks[0];
+    if (!tool) throw new Error('expected tool');
+
+    expect(groupBlocks([user, answer, tool], true).map((group) => group.kind)).toEqual([
+      'user-tools',
+      'single',
+    ]);
+    expect(groupBlocks([user, answer, tool], false).map((group) => group.kind)).toEqual([
+      'single',
+      'single',
+      'tools',
+    ]);
   });
 });
 

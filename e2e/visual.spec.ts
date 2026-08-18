@@ -250,6 +250,7 @@ test.describe('visual regression', () => {
     await play(handle, LONG_SCRIPT);
     await shot(handle, 'long-output-collapsed.png');
 
+    await handle.page.locator('.tool-run-header').last().click();
     await handle.page.locator('.block-tool .block-header').first().click();
     await expect(handle.page.locator('.tool-output')).toBeVisible();
     await handle.page.waitForTimeout(250);

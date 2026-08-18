@@ -16,8 +16,12 @@ test('tool blocks render with success state and reveal details on expansion', as
   await submitPrompt(page, 'use a tool to inspect the project');
   await waitForSettled(page);
 
-  // `read`/`edit` are groupable, so the outermost article is the group frame;
-  // `bash` is always rendered as a single block.
+  // Settled calls collapse into one turn summary after the final answer.
+  const summary = page.locator('.tool-run-header').last();
+  await expect(summary).toContainText('Worked for');
+  await expect(page.locator('.block-tool')).toHaveCount(0);
+  await summary.click();
+
   const read = page.locator('.block-tool[data-tool="read"]').first();
   const edit = page.locator('.block-tool[data-tool="edit"]').first();
   const bash = page.locator('.block-tool[data-tool="bash"]').first();
@@ -30,7 +34,7 @@ test('tool blocks render with success state and reveal details on expansion', as
   await expect(edit).toContainText('src/index.ts');
   await expect(bash).toContainText('Running tests');
 
-  // Collapsed: no invocation or output detail is mounted anywhere.
+  // The call list is visible, but invocation and output details stay collapsed.
   await expect(page.locator('.tool-args')).toHaveCount(0);
 
   // Per-block expansion reveals the exact command and output.

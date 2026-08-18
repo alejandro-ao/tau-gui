@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ToolGroupView } from '../../src/renderer/src/components/ToolGroupView.js';
 import { groupBlocks } from '../../src/renderer/src/state/reducer.js';
 import type { ToolBlock, TranscriptBlock } from '../../src/renderer/src/state/types.js';
-import { mount, texts } from './harness.js';
+import { mount } from './harness.js';
 
 function read(id: string, path: string, contents: string): ToolBlock {
   return {
@@ -20,54 +20,55 @@ function read(id: string, path: string, contents: string): ToolBlock {
   };
 }
 
-describe('grouped read rendering', () => {
+describe('tool run rendering', () => {
   const blocks: TranscriptBlock[] = [
     read('t1', 'src/a.ts', 'contents of a'),
     read('t2', 'src/b.ts', 'contents of b'),
     read('t3', 'src/c.ts', 'contents of c'),
   ];
 
-  it('groups adjacent reads through the reducer selector', () => {
+  it('groups adjacent calls through the reducer selector', () => {
     const groups = groupBlocks(blocks);
     expect(groups).toHaveLength(1);
-    expect(groups[0]?.kind).toBe('tools');
+    expect(groups[0]).toMatchObject({ kind: 'tools', settled: true });
   });
 
-  it('lists every path without repeating file contents', async () => {
-    const group = groupBlocks(blocks)[0];
-    if (group?.kind !== 'tools') throw new Error('expected a tool group');
+  it('shows compact calls during work instead of the final summary', async () => {
+    const toggle = vi.fn();
     const view = await mount(
       <ToolGroupView
-        name={group.name}
-        blocks={group.blocks}
+        blocks={blocks as ToolBlock[]}
         expanded={false}
         onToggle={() => {}}
         isBlockExpanded={() => false}
-        onToggleBlock={() => {}}
+        onToggleBlock={toggle}
+        settled={false}
       />,
     );
 
-    expect(texts(view.container, '.path-list li')).toEqual(['src/a.ts', 'src/b.ts', 'src/c.ts']);
-    expect(view.container.textContent).toContain('3 paths');
+    expect(view.container.querySelectorAll('.tool-run-item')).toHaveLength(3);
+    expect(view.container.textContent).toContain('src/a.ts');
+    expect(view.container.textContent).not.toContain('Worked for');
     expect(view.container.textContent).not.toContain('contents of a');
-    expect(view.container.textContent).not.toContain('contents of c');
+    view.container.querySelector<HTMLElement>('.tool-run-item')?.click();
+    expect(toggle).toHaveBeenCalledWith('t1');
     view.unmount();
   });
 
-  it('reveals per-call output only when the group and call are expanded', async () => {
-    const group = groupBlocks(blocks)[0];
-    if (group?.kind !== 'tools') throw new Error('expected a tool group');
+  it('shows one expandable summary only after settlement', async () => {
     const view = await mount(
       <ToolGroupView
-        name={group.name}
-        blocks={group.blocks}
+        blocks={blocks as ToolBlock[]}
         expanded
         onToggle={() => {}}
         isBlockExpanded={(id) => id === 't2'}
         onToggleBlock={() => {}}
+        settled
       />,
     );
 
+    expect(view.container.textContent).toContain('Worked for <1 minute · 3 tools called');
+    expect(view.container.querySelectorAll('.tool-run-item')).toHaveLength(0);
     expect(view.container.textContent).toContain('contents of b');
     expect(view.container.textContent).not.toContain('contents of a');
     view.unmount();

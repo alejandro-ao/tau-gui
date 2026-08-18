@@ -516,32 +516,65 @@ export function blocksFromMessage(
 
 /* --------------------------------------------------------------- selectors */
 
+type ToolTranscriptBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
+type UserTranscriptBlock = Extract<TranscriptBlock, { kind: 'user' }>;
+
 export type BlockGroup =
   | { kind: 'single'; block: TranscriptBlock }
-  | { kind: 'tools'; name: string; blocks: Extract<TranscriptBlock, { kind: 'tool' }>[] };
+  | { kind: 'tools'; blocks: ToolTranscriptBlock[]; settled: boolean }
+  | { kind: 'user-tools'; user: UserTranscriptBlock; blocks: ToolTranscriptBlock[] };
 
-const GROUPABLE_TOOLS = new Set(['read', 'edit', 'write', 'multiedit']);
-
-/** Groups adjacent calls of the same known built-in tool, as Tau's TUI does. */
-export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
+/**
+ * While the latest turn runs, moves its compact tool activity directly below
+ * the user prompt. Once settled, restores transcript order and puts one tool
+ * summary after the assistant's final answer.
+ */
+export function groupBlocks(blocks: TranscriptBlock[], active = false): BlockGroup[] {
   const groups: BlockGroup[] = [];
-  for (const block of blocks) {
-    const previous = groups.at(-1);
-    if (
-      block.kind === 'tool' &&
-      GROUPABLE_TOOLS.has(block.name) &&
-      previous?.kind === 'tools' &&
-      previous.name === block.name
-    ) {
-      previous.blocks.push(block);
+  const lastUserIndex = blocks.findLastIndex((block) => block.kind === 'user');
+  let index = 0;
+
+  while (index < blocks.length) {
+    const block = blocks[index];
+    if (!block) break;
+
+    if (block.kind === 'user') {
+      let end = index + 1;
+      while (end < blocks.length && blocks[end]?.kind !== 'user') end += 1;
+      const rest = blocks.slice(index + 1, end);
+      const tools = rest.filter((entry): entry is ToolTranscriptBlock => entry.kind === 'tool');
+      const isActiveTurn = active && index === lastUserIndex;
+
+      if (isActiveTurn && tools.length > 0) {
+        groups.push({ kind: 'user-tools', user: block, blocks: tools });
+      } else {
+        groups.push({ kind: 'single', block });
+      }
+      for (const entry of rest) {
+        if (entry.kind !== 'tool') groups.push({ kind: 'single', block: entry });
+      }
+      if (!isActiveTurn && tools.length > 0) {
+        groups.push({ kind: 'tools', blocks: tools, settled: true });
+      }
+      index = end;
       continue;
     }
-    if (block.kind === 'tool' && GROUPABLE_TOOLS.has(block.name)) {
-      groups.push({ kind: 'tools', name: block.name, blocks: [block] });
+
+    if (block.kind === 'tool') {
+      const tools: ToolTranscriptBlock[] = [block];
+      index += 1;
+      while (blocks[index]?.kind === 'tool') {
+        tools.push(blocks[index] as ToolTranscriptBlock);
+        index += 1;
+      }
+      groups.push({ kind: 'tools', blocks: tools, settled: !active });
       continue;
     }
+
     groups.push({ kind: 'single', block });
+    index += 1;
   }
+
   return groups;
 }
 

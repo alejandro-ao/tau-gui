@@ -68,6 +68,12 @@ describe('tool expansion', () => {
     expect(view.container.querySelectorAll('.tool-args')).toHaveLength(0);
 
     await act(async () => {
+      query(view.container, '.tool-run-header').dispatchEvent(
+        new MouseEvent('click', { bubbles: true }),
+      );
+      await Promise.resolve();
+    });
+    await act(async () => {
       query(view.container, '.block-header').dispatchEvent(
         new MouseEvent('click', { bubbles: true }),
       );
