@@ -17,6 +17,9 @@
 
   Production policy:
   `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'`
+  (production; in development `connect-src` additionally allows the Vite dev
+  server and `script-src` pins the sha256 of the react-refresh inline preamble —
+  see `src/shared/csp.ts`)
 
   Development builds differ in exactly one directive —
   `connect-src 'self' ws://localhost:* http://localhost:*` — so the Vite dev

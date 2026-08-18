@@ -21,11 +21,16 @@ describe('Content-Security-Policy', () => {
     expect(policy).not.toContain('localhost');
   });
 
-  it('only relaxes connect-src for the dev server', () => {
+  it('only relaxes connect-src and the react-refresh preamble in dev', () => {
     const dev = buildCsp(true).split('; ');
     const production = buildCsp(false).split('; ');
     const differing = dev.filter((directive, index) => directive !== production[index]);
-    expect(differing).toEqual(["connect-src 'self' ws://localhost:* http://localhost:*"]);
+    expect(differing).toEqual([
+      "script-src 'self' 'sha256-Z2/iFzh9VMlVkEOar1f/oSHWwQk3ve1qk/C2WdsC4Xk='",
+      "connect-src 'self' ws://localhost:* http://localhost:*",
+    ]);
+    // The dev policy must never fall back to unsafe-inline scripts.
+    expect(buildCsp(true)).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 
   it('keeps the document meta policy generated from the same source', () => {
