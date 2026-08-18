@@ -1,5 +1,6 @@
 .app {
   display: flex;
+  position: relative;
   height: 100%;
   width: 100%;
   background: var(--screen);
@@ -162,4 +163,16 @@
 
 .app[data-narrow='true'] {
   position: relative;
+}
+
+/* Invisible window drag strip for the hidden macOS title bar. Sits below every
+   interactive overlay and only intercepts the top band of the window. */
+.titlebar-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 1;
+  -webkit-app-region: drag;
 }

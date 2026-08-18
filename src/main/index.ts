@@ -47,6 +47,9 @@ function createWindow(): BrowserWindow {
     backgroundColor: '#0b0f10',
     title: 'τ',
     autoHideMenuBar: true,
+    // Blend the title bar into the app on macOS: the traffic lights stay as a
+    // small overlay and the renderer provides an invisible drag strip.
+    ...(process.platform === 'darwin' ? { titleBarStyle: 'hiddenInset' as const } : {}),
     webPreferences: {
       preload: join(dirname, '../preload/index.cjs'),
       contextIsolation: true,

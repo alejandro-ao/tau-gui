@@ -8,6 +8,7 @@ import { StatusRow } from './components/StatusRow.js';
 import { Transcript } from './components/Transcript.js';
 import { useGlobalKeys } from './hooks/useGlobalKeys.js';
 import { useNarrowViewport } from './hooks/useNarrowViewport.js';
+import { platform } from './bridge.js';
 import { useStore } from './state/store.js';
 
 export function App(): ReactNode {
@@ -47,6 +48,9 @@ export function App(): ReactNode {
       data-narrow={narrow}
       data-focused={state.windowFocused}
     >
+      {/* With the macOS title bar hidden, this transparent strip is the window
+          drag region; it stays invisible so the layout keeps no header. */}
+      {platform() === 'darwin' ? <div className="titlebar-drag" aria-hidden="true" /> : null}
       <main className="main">
         <ConnectionNotice />
         <Transcript />
