@@ -189,3 +189,12 @@
   z-index: 1;
   -webkit-app-region: drag;
 }
+
+/* macOS hiddenInset traffic lights overlay the top-left of the window (roughly
+   the first 80x28px). Push the leftmost column's content below them so the
+   sessions rail (or a left sidebar) never renders under the buttons, and so
+   its first entries stay clickable instead of hitting the drag strip. */
+.app[data-platform='darwin'] .sessions-rail,
+.app[data-platform='darwin'][data-sidebar='left'] .sidebar {
+  padding-top: 38px;
+}

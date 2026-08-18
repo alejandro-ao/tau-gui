@@ -45,6 +45,7 @@ export function App(): ReactNode {
     // notifications, so it is observable without inspecting store internals.
     <div
       className="app"
+      data-platform={platform()}
       data-sidebar={position}
       data-narrow={narrow}
       data-focused={state.windowFocused}
