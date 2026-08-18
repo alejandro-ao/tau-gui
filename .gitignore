@@ -1,11 +1,9 @@
 node_modules/
-dist/
 out/
-coverage/
-playwright-report/
-test-results/
-*.log
+dist/
+release/
 .DS_Store
-.env
-.env.*
-!.env.example
+*.log
+.vite/
+test-results/
+playwright-report/

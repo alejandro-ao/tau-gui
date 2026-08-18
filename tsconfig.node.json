@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "test/*.ts",
+    "e2e/**/*.ts",
+    "electron.vite.config.ts",
+    "vitest.config.ts",
+    "playwright.config.ts",
+    "eslint.config.js"
+  ],
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"],
+    "outDir": "node_modules/.tmp/types-node"
+  }
+}

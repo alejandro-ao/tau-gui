@@ -1,0 +1,42 @@
+appId: com.alejandroao.tau-gui
+productName: Tau GUI
+copyright: Copyright © 2026
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**
+  - package.json
+asar: true
+electronLanguages:
+  - en-US
+
+mac:
+  category: public.app-category.developer-tools
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  # Electron needs these entitlements for JIT; signing identity and notarization
+  # credentials come from the release environment, never from CI pull requests.
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+
+linux:
+  category: Development
+  target:
+    - AppImage
+    - deb
+
+publish: null

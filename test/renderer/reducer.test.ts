@@ -1,0 +1,296 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import type { AgentEvent, AssistantMessage } from '../../src/shared/domain.js';
+import {
+  INITIAL_STATE,
+  groupBlocks,
+  isExpanded,
+  isRunning,
+  reducer,
+  resetBlockIds,
+  windowTitle,
+} from '../../src/renderer/src/state/reducer.js';
+import type { AppState } from '../../src/renderer/src/state/types.js';
+
+const assistant = (text: string, thinking = ''): AssistantMessage => ({
+  role: 'assistant',
+  text,
+  thinking,
+  toolCalls: [],
+  provider: 'fake',
+  model: 'fake-large',
+  usage: null,
+  stopReason: 'stop',
+  errorMessage: null,
+  timestamp: 1,
+});
+
+const replay = (events: AgentEvent[], start: AppState = INITIAL_STATE): AppState =>
+  events.reduce((state, event) => reducer(state, { type: 'event', event, now: 1000 }), start);
+
+beforeEach(() => {
+  resetBlockIds();
+});
+
+describe('streaming assembly', () => {
+  it('creates a provisional assistant block from deltas', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'text', delta: 'Hel', message: assistant('Hel') },
+      { type: 'message_delta', kind: 'text', delta: 'lo', message: assistant('Hello') },
+    ]);
+    expect(state.blocks).toHaveLength(1);
+    expect(state.blocks[0]).toMatchObject({ kind: 'assistant', text: 'Hello', streaming: true });
+    expect(state.streamingAssistantId).not.toBeNull();
+  });
+
+  it('replaces provisional state with the authoritative message_end payload', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'text', delta: 'partial', message: assistant('partial') },
+      { type: 'message_end', message: assistant('final answer') },
+    ]);
+    expect(state.blocks).toHaveLength(1);
+    expect(state.blocks[0]).toMatchObject({
+      kind: 'assistant',
+      text: 'final answer',
+      streaming: false,
+    });
+    expect(state.streamingAssistantId).toBeNull();
+  });
+
+  it('keeps thinking and text as separate blocks', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'thinking', delta: 'why', message: assistant('', 'why') },
+      {
+        type: 'message_delta',
+        kind: 'text',
+        delta: 'because',
+        message: assistant('because', 'why'),
+      },
+      { type: 'message_end', message: assistant('because', 'why') },
+    ]);
+    expect(state.blocks.map((block) => block.kind)).toEqual(['thinking', 'assistant']);
+  });
+
+  it('renders user messages once from message_start', () => {
+    const state = replay([
+      { type: 'message_start', message: { role: 'user', text: 'do it', images: [], timestamp: 1 } },
+      { type: 'message_end', message: { role: 'user', text: 'do it', images: [], timestamp: 1 } },
+    ]);
+    expect(state.blocks).toHaveLength(1);
+    expect(state.blocks[0]).toMatchObject({ kind: 'user', text: 'do it' });
+  });
+
+  it('adds an error block for provider failures and keeps the transcript usable', () => {
+    const failed: AssistantMessage = {
+      ...assistant('I could not finish.'),
+      stopReason: 'error',
+      errorMessage: 'provider unavailable (503)',
+    };
+    const state = replay([{ type: 'agent_start' }, { type: 'message_end', message: failed }]);
+    expect(state.blocks.map((block) => block.kind)).toEqual(['assistant', 'error']);
+  });
+
+  it('clears streaming state on rpc_error', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'text', delta: 'x', message: assistant('x') },
+      { type: 'runtime_error', message: 'stream broke' },
+    ]);
+    expect(state.streamingAssistantId).toBeNull();
+    expect(state.blocks.at(-1)).toMatchObject({ kind: 'error', text: 'stream broke' });
+  });
+});
+
+describe('tools', () => {
+  const toolRun: AgentEvent[] = [
+    { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+    {
+      type: 'tool_update',
+      toolCallId: 'c1',
+      toolName: 'read',
+      args: { path: 'a.ts' },
+      partialText: 'partial',
+    },
+    {
+      type: 'tool_end',
+      toolCallId: 'c1',
+      toolName: 'read',
+      text: 'full body',
+      details: {},
+      isError: false,
+    },
+  ];
+
+  it('tracks tool lifecycle on one block', () => {
+    const running = replay(toolRun.slice(0, 2));
+    expect(running.blocks[0]).toMatchObject({ kind: 'tool', state: 'running', output: 'partial' });
+    const done = replay(toolRun);
+    expect(done.blocks).toHaveLength(1);
+    expect(done.blocks[0]).toMatchObject({ state: 'success', output: 'full body', endedAt: 1000 });
+  });
+
+  it('marks failures', () => {
+    const state = replay([
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'bash', args: {} },
+      {
+        type: 'tool_end',
+        toolCallId: 'c1',
+        toolName: 'bash',
+        text: 'boom',
+        details: {},
+        isError: true,
+      },
+    ]);
+    expect(state.blocks[0]).toMatchObject({ state: 'error' });
+  });
+
+  it('ignores toolResult messages because tool blocks already cover them', () => {
+    const state = replay([
+      ...toolRun,
+      {
+        type: 'message_end',
+        message: {
+          role: 'toolResult',
+          toolCallId: 'c1',
+          toolName: 'read',
+          text: 'full body',
+          details: {},
+          isError: false,
+          timestamp: 1,
+        },
+      },
+    ]);
+    expect(state.blocks).toHaveLength(1);
+  });
+
+  it('groups adjacent same-tool calls but keeps other tools separate', () => {
+    const state = replay([
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+      { type: 'tool_start', toolCallId: 'c2', toolName: 'read', args: { path: 'b.ts' } },
+      { type: 'tool_start', toolCallId: 'c3', toolName: 'bash', args: { command: 'ls' } },
+      { type: 'tool_start', toolCallId: 'c4', toolName: 'mystery_extension', args: {} },
+    ]);
+    const groups = groupBlocks(state.blocks);
+    expect(groups).toHaveLength(3);
+    expect(groups[0]).toMatchObject({ kind: 'tools', name: 'read' });
+    expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(2);
+    expect(groups[1]).toMatchObject({ kind: 'single' });
+    expect(groups[2]).toMatchObject({ kind: 'single' });
+  });
+});
+
+describe('lifecycle bookkeeping', () => {
+  it('records queue state', () => {
+    const state = replay([{ type: 'queue_update', steering: ['a'], followUp: ['b'] }]);
+    expect(state.queue).toEqual({ steering: ['a'], followUp: ['b'] });
+  });
+
+  it('adds status blocks for compaction and retries', () => {
+    const state = replay([
+      { type: 'compaction_start', reason: 'overflow' },
+      {
+        type: 'compaction_end',
+        reason: 'overflow',
+        aborted: false,
+        willRetry: true,
+        errorMessage: null,
+      },
+      { type: 'retry_start', attempt: 1, maxAttempts: 1, delayMs: 0, message: 'Context overflow' },
+      { type: 'retry_end', success: true, attempt: 1, finalError: null },
+    ]);
+    expect(state.blocks.map((block) => block.kind)).toEqual([
+      'status',
+      'status',
+      'status',
+      'status',
+    ]);
+  });
+
+  it('captures a completion preview on agent_settled', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_end', message: assistant('all done') },
+      { type: 'agent_settled' },
+    ]);
+    expect(state.lastCompletionPreview).toBe('all done');
+  });
+
+  it('treats running/compacting/retrying as active and idle as settled', () => {
+    const base = { ...INITIAL_STATE };
+    for (const status of ['running', 'compacting', 'retrying'] as const) {
+      expect(isRunning({ ...base, snapshot: { ...base.snapshot, status } })).toBe(true);
+    }
+    for (const status of ['idle', 'stopped', 'failed', 'disconnected'] as const) {
+      expect(isRunning({ ...base, snapshot: { ...base.snapshot, status } })).toBe(false);
+    }
+  });
+});
+
+describe('view state', () => {
+  it('toggles global and per-block expansion', () => {
+    let state = reducer(INITIAL_STATE, { type: 'toggleExpandAll' });
+    expect(isExpanded(state, 'tool-1')).toBe(true);
+    state = reducer(state, { type: 'toggleExpanded', id: 'tool-1' });
+    expect(isExpanded(state, 'tool-1')).toBe(false);
+    expect(isExpanded(state, 'tool-2')).toBe(true);
+  });
+
+  it('clears transcript state without touching settings', () => {
+    const seeded = replay([{ type: 'queue_update', steering: ['x'], followUp: [] }]);
+    const cleared = reducer(seeded, { type: 'clearTranscript' });
+    expect(cleared.blocks).toEqual([]);
+    expect(cleared.queue).toEqual({ steering: [], followUp: [] });
+    expect(cleared.settings).toBe(seeded.settings);
+  });
+
+  it('hydrates a transcript from durable messages', () => {
+    const state = reducer(INITIAL_STATE, {
+      type: 'hydrate',
+      now: 1,
+      messages: [
+        { role: 'user', text: 'hi', images: [], timestamp: 1 },
+        assistant('hello'),
+        {
+          role: 'bashExecution',
+          command: 'ls',
+          output: 'a\n',
+          exitCode: 0,
+          cancelled: false,
+          truncated: false,
+          excludeFromContext: false,
+          timestamp: 3,
+        },
+        { role: 'compactionSummary', summary: 'compacted', tokensBefore: 10, timestamp: 4 },
+      ],
+    });
+    expect(state.blocks.map((block) => block.kind)).toEqual([
+      'user',
+      'assistant',
+      'shell',
+      'compaction',
+    ]);
+  });
+
+  it('builds the window title from session name and run state', () => {
+    const idle: AppState = {
+      ...INITIAL_STATE,
+      agent: {
+        model: null,
+        thinkingLevel: 'medium',
+        isStreaming: false,
+        isCompacting: false,
+        sessionFile: null,
+        sessionId: 's',
+        sessionName: 'refactor',
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        pendingMessageCount: 0,
+      },
+    };
+    expect(windowTitle(idle, idle.settings)).toBe('τ | refactor');
+    const running: AppState = { ...idle, snapshot: { ...idle.snapshot, status: 'running' } };
+    expect(windowTitle(running, running.settings)).toBe('τ | refactor | running');
+  });
+});

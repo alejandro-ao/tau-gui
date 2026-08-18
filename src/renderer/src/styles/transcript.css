@@ -1,0 +1,272 @@
+.transcript {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-4) var(--space-5) var(--space-3);
+  user-select: text;
+}
+
+.transcript-empty {
+  color: var(--text-faint);
+  padding: var(--space-5) 0;
+}
+
+.boundary {
+  position: sticky;
+  z-index: 2;
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  background: var(--screen);
+  padding: var(--space-1) 0;
+  letter-spacing: 0.04em;
+}
+
+.boundary[data-edge='top'] {
+  top: 0;
+}
+
+.boundary[data-edge='bottom'] {
+  bottom: 0;
+}
+
+.new-output {
+  position: absolute;
+  right: var(--space-5);
+  bottom: var(--space-3);
+  z-index: 3;
+  background: var(--panel);
+  border-color: var(--accent-dim);
+  color: var(--accent);
+  height: 22px;
+}
+
+/* Blocks use a vertical role bar, never a chat bubble. */
+.block {
+  display: grid;
+  grid-template-columns: var(--bar-width) 1fr;
+  gap: var(--space-4);
+  padding: var(--space-2) 0;
+  margin-bottom: var(--space-2);
+}
+
+.block > .role-bar {
+  background: var(--role-tool);
+  border-radius: 1px;
+}
+
+.block-body {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.block-label {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.block-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+
+.block-user {
+  background: var(--panel);
+  padding: var(--space-3) 0;
+  border-radius: var(--radius);
+}
+
+.block-user > .role-bar {
+  background: var(--role-user);
+}
+
+.block-assistant > .role-bar {
+  background: var(--role-assistant);
+}
+
+.block-thinking > .role-bar {
+  background: var(--role-thinking);
+}
+
+.block-thinking .block-text {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+.block-error > .role-bar {
+  background: var(--role-error);
+}
+
+.block-error .block-text {
+  color: var(--role-error);
+}
+
+.block-status > .role-bar {
+  background: var(--role-status);
+}
+
+.block-status .block-text {
+  color: var(--role-status);
+}
+
+.block-custom > .role-bar {
+  background: var(--role-skill);
+}
+
+.block-branch > .role-bar {
+  background: var(--role-branch);
+}
+
+.block-compaction > .role-bar {
+  background: var(--role-compaction);
+}
+
+.block-shell > .role-bar {
+  background: var(--shell-prompt);
+}
+
+.block-tool[data-state='running'] > .role-bar {
+  background: var(--tool-running);
+}
+
+.block-tool[data-state='success'] > .role-bar {
+  background: var(--tool-success);
+}
+
+.block-tool[data-state='error'] > .role-bar {
+  background: var(--tool-failure);
+}
+
+.block-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.streaming-caret {
+  color: var(--accent);
+}
+
+.aborted-mark {
+  color: var(--role-status);
+}
+
+/* Tool blocks */
+.block-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  color: var(--role-tool);
+}
+
+.tool-marker {
+  flex: 0 0 auto;
+}
+
+.block-tool[data-state='running'] .tool-marker {
+  color: var(--tool-running);
+}
+
+.block-tool[data-state='success'] .tool-marker {
+  color: var(--tool-success);
+}
+
+.block-tool[data-state='error'] .tool-marker {
+  color: var(--tool-failure);
+}
+
+.tool-name {
+  color: var(--text);
+}
+
+.tool-intent {
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.tool-elapsed {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+.path-list {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+}
+
+.path-list li {
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-detail {
+  margin-top: var(--space-3);
+  border-left: 1px solid var(--border);
+  padding-left: var(--space-4);
+}
+
+.tool-detail h4 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+}
+
+.tool-output,
+.tool-args {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  color: var(--code-text);
+  font-size: var(--font-size-sm);
+  max-height: 420px;
+  overflow: auto;
+  white-space: pre;
+  user-select: text;
+}
+
+.shell-command {
+  margin: 0;
+  color: var(--shell-prompt);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.shell-exit[data-ok='false'] {
+  color: var(--tool-failure);
+}
+
+.shell-exit[data-ok='true'] {
+  color: var(--tool-success);
+}
+
+.summary-detail {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+}

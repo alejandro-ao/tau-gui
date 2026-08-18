@@ -1,0 +1,107 @@
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 280px;
+  min-width: 0;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  overflow-y: auto;
+  font-size: var(--font-size-sm);
+}
+
+.app[data-sidebar='left'] .sidebar {
+  border-left: 0;
+  border-right: 1px solid var(--border);
+}
+
+.sidebar-section {
+  padding: var(--space-4) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border);
+}
+
+.sidebar-section h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.sidebar-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+}
+
+.sidebar-row dt {
+  color: var(--text-faint);
+  flex: 0 0 auto;
+}
+
+.sidebar-row dd {
+  margin: 0;
+  color: var(--text);
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.sidebar dl {
+  margin: 0;
+}
+
+/* Cumulative usage is visually distinct from the live context window. */
+.usage-cumulative {
+  border-left: 2px solid var(--border-strong);
+  padding-left: var(--space-3);
+}
+
+.usage-context {
+  margin-top: var(--space-3);
+  border-left: 2px solid var(--accent-dim);
+  padding-left: var(--space-3);
+}
+
+.usage-bar {
+  position: relative;
+  height: 4px;
+  margin-top: var(--space-2);
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.usage-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent-dim);
+}
+
+.usage-bar[data-warn='true'] > span {
+  background: var(--tool-running);
+}
+
+.sidebar-state {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+}
+
+.sidebar-state[data-running='true'] {
+  color: var(--tool-running);
+}
+
+.version-mark {
+  margin-top: auto;
+  padding: var(--space-3) var(--space-4);
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  display: flex;
+  justify-content: space-between;
+}

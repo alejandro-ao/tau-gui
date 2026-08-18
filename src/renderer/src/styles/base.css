@@ -1,0 +1,112 @@
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--screen);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--selection);
+}
+
+/* Terminal-style scrollbars that do not steal attention. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: var(--radius);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+.ghost-button {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: var(--font-size-xs);
+  padding: 0 var(--space-3);
+}
+
+.ghost-button:hover:not(:disabled) {
+  border-color: var(--accent-dim);
+  color: var(--text);
+}
+
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.ghost-button:focus-visible,
+.block-header:focus-visible,
+textarea:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.dim {
+  color: var(--text-dim);
+}
+
+.faint {
+  color: var(--text-faint);
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* One run-wide activity animation; per-tool markers stay static. */
+@keyframes tau-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .activity-dot {
+    animation: none !important;
+  }
+}

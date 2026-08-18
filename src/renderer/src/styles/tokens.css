@@ -1,0 +1,173 @@
+/*
+ * Theme tokens. Every colour used by the UI resolves through these variables so
+ * that themes stay swappable at runtime via `:root[data-theme=...]`.
+ */
+
+:root,
+:root[data-theme='tau-dark'] {
+  color-scheme: dark;
+
+  --screen: #0d1117;
+  --panel: #161b22;
+  --panel-alt: #11161d;
+  --border: #2b333d;
+  --border-strong: #3a444f;
+
+  --text: #d6deeb;
+  --text-dim: #8b98a5;
+  --text-faint: #5c6773;
+
+  --accent: #5ce1e6;
+  --accent-dim: #2f8f93;
+  --selection: rgba(92, 225, 230, 0.24);
+
+  --role-user: #8ab4ff;
+  --role-assistant: #5ce1e6;
+  --role-thinking: #6f7b8a;
+  --role-tool: #c8d1dc;
+  --role-error: #ff6b6b;
+  --role-status: #d8b96a;
+  --role-skill: #c792ea;
+  --role-branch: #82aaff;
+  --role-compaction: #b39ddb;
+
+  --tool-running: #ff9d3f;
+  --tool-success: #4ec9a0;
+  --tool-failure: #ff6b6b;
+  --shell-prompt: #ffb454;
+
+  --code-bg: #0b0f14;
+  --code-border: #232b34;
+  --code-text: #d6deeb;
+  --diff-add: #4ec9a0;
+  --diff-add-bg: rgba(78, 201, 160, 0.12);
+  --diff-del: #ff7b72;
+  --diff-del-bg: rgba(255, 123, 114, 0.12);
+  --diff-meta: #8b98a5;
+
+  --hl-keyword: #c792ea;
+  --hl-string: #a5e075;
+  --hl-number: #f78c6c;
+  --hl-comment: #5c6773;
+  --hl-function: #82aaff;
+  --hl-type: #ffcb8b;
+  --hl-literal: #5ce1e6;
+  --hl-attr: #ffcb8b;
+
+  --font-mono:
+    ui-monospace, 'SFMono-Regular', 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+  --font-size: 13px;
+  --font-size-sm: 12px;
+  --font-size-xs: 11px;
+  --line-height: 1.55;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 8px;
+  --space-4: 12px;
+  --space-5: 16px;
+  --space-6: 24px;
+  --bar-width: 2px;
+  --radius: 3px;
+}
+
+:root[data-theme='tau-light'] {
+  color-scheme: light;
+
+  --screen: #fbfbfa;
+  --panel: #f1f2ef;
+  --panel-alt: #e9eae6;
+  --border: #d5d7d1;
+  --border-strong: #bcbfb8;
+
+  --text: #23272e;
+  --text-dim: #5c6470;
+  --text-faint: #868d97;
+
+  --accent: #0f8a8f;
+  --accent-dim: #0b6a6e;
+  --selection: rgba(15, 138, 143, 0.18);
+
+  --role-user: #2f5fbe;
+  --role-assistant: #0f8a8f;
+  --role-thinking: #7b8593;
+  --role-tool: #4b5361;
+  --role-error: #c62828;
+  --role-status: #9a6a00;
+  --role-skill: #7b3fbf;
+  --role-branch: #2f5fbe;
+  --role-compaction: #6b4bb3;
+
+  --tool-running: #c96a12;
+  --tool-success: #1a7f5a;
+  --tool-failure: #c62828;
+  --shell-prompt: #b26a00;
+
+  --code-bg: #f4f5f2;
+  --code-border: #dcded7;
+  --code-text: #23272e;
+  --diff-add: #1a7f5a;
+  --diff-add-bg: rgba(26, 127, 90, 0.12);
+  --diff-del: #c62828;
+  --diff-del-bg: rgba(198, 40, 40, 0.1);
+  --diff-meta: #5c6470;
+
+  --hl-keyword: #7b3fbf;
+  --hl-string: #1a7f5a;
+  --hl-number: #b2510a;
+  --hl-comment: #868d97;
+  --hl-function: #2f5fbe;
+  --hl-type: #9a6a00;
+  --hl-literal: #0f8a8f;
+  --hl-attr: #9a6a00;
+}
+
+:root[data-theme='high-contrast'] {
+  color-scheme: dark;
+
+  --screen: #000000;
+  --panel: #0a0a0a;
+  --panel-alt: #131313;
+  --border: #6b6b6b;
+  --border-strong: #ffffff;
+
+  --text: #ffffff;
+  --text-dim: #d0d0d0;
+  --text-faint: #a8a8a8;
+
+  --accent: #00ffe1;
+  --accent-dim: #00c7ae;
+  --selection: rgba(0, 255, 225, 0.32);
+
+  --role-user: #7fb0ff;
+  --role-assistant: #00ffe1;
+  --role-thinking: #c0c0c0;
+  --role-tool: #ffffff;
+  --role-error: #ff5f5f;
+  --role-status: #ffe066;
+  --role-skill: #e39bff;
+  --role-branch: #7fb0ff;
+  --role-compaction: #d0aaff;
+
+  --tool-running: #ffab00;
+  --tool-success: #00e676;
+  --tool-failure: #ff5f5f;
+  --shell-prompt: #ffab00;
+
+  --code-bg: #000000;
+  --code-border: #6b6b6b;
+  --code-text: #ffffff;
+  --diff-add: #00e676;
+  --diff-add-bg: rgba(0, 230, 118, 0.18);
+  --diff-del: #ff5f5f;
+  --diff-del-bg: rgba(255, 95, 95, 0.18);
+  --diff-meta: #d0d0d0;
+
+  --hl-keyword: #e39bff;
+  --hl-string: #00e676;
+  --hl-number: #ffab00;
+  --hl-comment: #a8a8a8;
+  --hl-function: #7fb0ff;
+  --hl-type: #ffe066;
+  --hl-literal: #00ffe1;
+  --hl-attr: #ffe066;
+}

@@ -1,0 +1,133 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import type { AppSettings, SessionRef } from '../../shared/domain.js';
+import { DEFAULT_SETTINGS } from '../../shared/domain.js';
+
+const MAX_RECENT_SESSIONS = 30;
+
+/**
+ * GUI-owned settings, persisted independently from Tau/Pi TUI configuration.
+ * Unknown or malformed fields fall back to defaults instead of throwing.
+ */
+export class SettingsStore {
+  private settings: AppSettings;
+
+  constructor(private readonly file: string) {
+    this.settings = this.read();
+  }
+
+  static defaultFile(userDataDir: string): string {
+    return join(userDataDir, 'settings.json');
+  }
+
+  get current(): AppSettings {
+    return this.settings;
+  }
+
+  update(patch: Partial<AppSettings>): AppSettings {
+    this.settings = {
+      ...this.settings,
+      ...patch,
+      runtime: { ...this.settings.runtime, ...(patch.runtime ?? {}) },
+    };
+    this.write();
+    return this.settings;
+  }
+
+  rememberSession(ref: SessionRef): AppSettings {
+    const others = this.settings.recentSessions.filter((item) => item.id !== ref.id);
+    this.settings = {
+      ...this.settings,
+      recentSessions: [ref, ...others].slice(0, MAX_RECENT_SESSIONS),
+    };
+    this.write();
+    return this.settings;
+  }
+
+  forgetSession(id: string): AppSettings {
+    this.settings = {
+      ...this.settings,
+      recentSessions: this.settings.recentSessions.filter((item) => item.id !== id),
+    };
+    this.write();
+    return this.settings;
+  }
+
+  private read(): AppSettings {
+    try {
+      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS };
+      const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'));
+      return mergeSettings(parsed);
+    } catch {
+      return { ...DEFAULT_SETTINGS };
+    }
+  }
+
+  private write(): void {
+    try {
+      mkdirSync(dirname(this.file), { recursive: true });
+      writeFileSync(this.file, `${JSON.stringify(this.settings, null, 2)}\n`, 'utf8');
+    } catch {
+      // Settings persistence is best-effort; never break the session for it.
+    }
+  }
+}
+
+export function mergeSettings(value: unknown): AppSettings {
+  if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS };
+  const wire = value as Record<string, unknown>;
+  const runtime =
+    typeof wire['runtime'] === 'object' && wire['runtime'] !== null
+      ? (wire['runtime'] as Record<string, unknown>)
+      : {};
+  const pick = <T>(key: string, guard: (input: unknown) => boolean, fallback: T): T =>
+    guard(wire[key]) ? (wire[key] as T) : fallback;
+  const isString = (input: unknown): boolean => typeof input === 'string';
+
+  return {
+    agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
+    theme: pick('theme', (input) => input === 'tau-light' || input === 'high-contrast', 'tau-dark'),
+    sidebarPosition: pick(
+      'sidebarPosition',
+      (input) => input === 'left' || input === 'off',
+      'right',
+    ),
+    turnNotification: wire['turnNotification'] === 'off' ? 'off' : 'desktop',
+    showThinking: wire['showThinking'] !== false,
+    cwd: isString(wire['cwd']) ? (wire['cwd'] as string) : null,
+    projectTrust: pick(
+      'projectTrust',
+      (input) => input === 'approve-once' || input === 'decline-once',
+      'default',
+    ),
+    runtime: {
+      tau: mergeRuntime(runtime['tau'], DEFAULT_SETTINGS.runtime.tau),
+      pi: mergeRuntime(runtime['pi'], DEFAULT_SETTINGS.runtime.pi),
+    },
+    recentSessions: Array.isArray(wire['recentSessions'])
+      ? wire['recentSessions'].filter(isSessionRef).slice(0, MAX_RECENT_SESSIONS)
+      : [],
+  };
+}
+
+function mergeRuntime(
+  value: unknown,
+  fallback: AppSettings['runtime']['tau'],
+): AppSettings['runtime']['tau'] {
+  if (typeof value !== 'object' || value === null) return { ...fallback };
+  const wire = value as Record<string, unknown>;
+  return {
+    binary: typeof wire['binary'] === 'string' && wire['binary'] ? wire['binary'] : fallback.binary,
+    provider: typeof wire['provider'] === 'string' ? wire['provider'] : null,
+    model: typeof wire['model'] === 'string' ? wire['model'] : null,
+    extraArgs: Array.isArray(wire['extraArgs'])
+      ? wire['extraArgs'].filter((item): item is string => typeof item === 'string')
+      : [],
+  };
+}
+
+function isSessionRef(value: unknown): value is SessionRef {
+  if (typeof value !== 'object' || value === null) return false;
+  const wire = value as Record<string, unknown>;
+  return typeof wire['id'] === 'string' && (wire['runtime'] === 'tau' || wire['runtime'] === 'pi');
+}

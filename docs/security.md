@@ -1,0 +1,68 @@
+# Security boundary
+
+## Electron settings
+
+`src/main/index.ts` creates every window with:
+
+- `contextIsolation: true`
+- `sandbox: true`
+- `nodeIntegration: false`, `nodeIntegrationInWorker: false`
+- `webviewTag: false`
+- a preload script exposing exactly two functions
+- a strict Content-Security-Policy response header plus an in-document meta CSP:
+  `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'`
+- `setPermissionRequestHandler` denying every optional permission
+- `setWindowOpenHandler` denying all popups and routing `https:` links to the OS
+- `will-navigate` blocked except for the dev server URL
+
+## IPC
+
+- One invoke channel and one event channel.
+- Every request is validated with a zod discriminated union
+  (`src/shared/ipc.ts`) before a handler runs; invalid payloads never reach
+  services.
+- Handlers return `{ ok, value | error }`; exceptions become error strings and
+  never leak stack traces to the renderer.
+- Inbound events are shape-checked in the preload before reaching React.
+
+## Subprocess safety
+
+- The runtime is spawned with an argument array, `shell: false`. Binary paths,
+  provider names, models, and extra args are never interpolated into a shell
+  string.
+- `--approve`/`--no-approve` is the only trust signal the GUI passes. Project
+  trust controls ambient resource loading in the runtime; it is **not** a
+  sandbox, and OS/container isolation remains a separate concern.
+- Runtime stdout is parsed with strict LF-only JSONL framing and a 16 MiB record
+  cap; malformed or oversized records are dropped with a diagnostic instead of
+  crashing the session.
+- stderr is captured into a bounded diagnostics ring (500 lines) surfaced in the
+  diagnostics modal.
+
+## Untrusted content
+
+- Model Markdown is tokenized and rendered as React elements. Raw HTML from the
+  model is displayed as text; nothing from the model becomes markup.
+- The only injected HTML is highlight.js output, which escapes its input.
+- Remote images are not fetched; alt text is shown.
+- Links open only through `ui.openExternal`, restricted to `https:`, `http:`,
+  and `mailto:` after URL parsing.
+- Tool output, patches, and extension content are rendered as plain text.
+
+## Secrets
+
+- Credentials live in the runtime's own configuration. The GUI never reads,
+  stores, or forwards provider keys.
+- `process.env` is passed to the child process but never sent to the renderer or
+  written to logs.
+- Settings persisted by the GUI contain only binary paths, provider/model names,
+  UI preferences, and session references.
+
+## Filesystem
+
+- `@` completion runs in the main process, rooted at the session cwd, skipping
+  `.git`, `.venv`, `node_modules`, `__pycache__`, `build`, `dist`, and similar
+  directories, with bounded breadth and result counts.
+- Dropped file paths are only relativized for display; the renderer receives no
+  filesystem handles.
+- Session JSONL files are never read by the GUI; all session data comes from RPC.

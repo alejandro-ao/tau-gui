@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "include": [
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.tsx",
+    "src/shared/**/*.ts",
+    "test/renderer/**/*.ts",
+    "test/renderer/**/*.tsx"
+  ],
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": [],
+    "outDir": "node_modules/.tmp/types-web"
+  }
+}
