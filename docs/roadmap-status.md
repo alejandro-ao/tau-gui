@@ -79,6 +79,9 @@ Tracks issue #1. Update this file whenever behavior changes.
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the
   composer), compaction, HTML export, settings and diagnostics modals.
+- Concurrent live sessions through a main-process runtime pool: selecting a
+  session no longer switches or stops a running session process, and background
+  stream events cannot leak into the active transcript.
 
 ## Phase 5 — Tau/Pi runtime switching ✅
 

@@ -29,6 +29,7 @@ export class RuntimeManager {
   private gitBranch: string | null = null;
   private state: AgentState | null = null;
   private runtimeVersion: string | null = null;
+  private runtimeKind: RuntimeKind | null = null;
   private readonly diagnostics: string[] = [];
 
   constructor(
@@ -37,7 +38,9 @@ export class RuntimeManager {
   ) {}
 
   get kind(): RuntimeKind {
-    return this.settings.current.agentRuntime;
+    // A manager keeps the runtime kind it was launched with. Settings may
+    // change while this process continues in the background.
+    return this.runtimeKind ?? this.settings.current.agentRuntime;
   }
 
   get active(): JsonlAgentRuntime {
@@ -72,9 +75,10 @@ export class RuntimeManager {
     if (this.runtime) await this.stop();
     const settings = this.settings.current;
     const cwd = options.cwd ?? settings.cwd ?? process.cwd();
-    const runtimeSettings = settings.runtime[settings.agentRuntime];
+    const kind = settings.agentRuntime;
+    const runtimeSettings = settings.runtime[kind];
     const config: RuntimeLaunchConfig = {
-      kind: settings.agentRuntime,
+      kind,
       binary: runtimeSettings.binary,
       cwd,
       provider: runtimeSettings.provider,
@@ -94,12 +98,13 @@ export class RuntimeManager {
       this.addDiagnostic(message);
       throw new Error(message);
     }
+    this.runtimeKind = kind;
     this.runtimeVersion = probe.version;
     if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
 
     this.cwd = cwd;
     this.gitBranch = await readGitBranch(cwd);
-    const runtime = new JsonlAgentRuntime(settings.agentRuntime, {
+    const runtime = new JsonlAgentRuntime(kind, {
       event: (event) => this.handleEvent(event),
       status: (status, detail) => this.setStatus(status, detail ?? null),
       diagnostic: (line) => this.addDiagnostic(line),

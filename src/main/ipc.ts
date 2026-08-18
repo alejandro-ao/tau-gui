@@ -3,12 +3,12 @@ import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcRequest, IpcResult } from '../shared/ipc.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
-import type { RuntimeManager } from './services/runtime-manager.js';
+import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 
 export interface HandlerContext {
   settings: SettingsStore;
-  manager: RuntimeManager;
+  manager: RuntimePool;
   window: () => BrowserWindow | null;
 }
 
@@ -100,8 +100,7 @@ export async function handleRequest(
       await manager.refreshState();
       return null;
     case 'session.switch':
-      await manager.active.switchSession(request.payload.ref);
-      await manager.refreshState();
+      await manager.activateSession(request.payload.ref);
       return null;
     case 'session.name':
       await manager.active.nameSession(request.payload.name);

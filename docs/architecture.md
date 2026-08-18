@@ -12,10 +12,10 @@ Preload
   minimal context-isolated API
        ↓ Electron IPC
 Main process
-  runtime manager, settings, filesystem, notifications, diagnostics
+  runtime pool/managers, settings, filesystem, notifications, diagnostics
        ↓ strict JSONL
-Runtime process
-  `tau --mode rpc` or `pi --mode rpc`
+Runtime processes
+  one `tau --mode rpc` or `pi --mode rpc` process per live session
 ```
 
 ## Core rule
@@ -25,6 +25,8 @@ The renderer never consumes raw runtime events. Runtime adapters normalize wire 
 ## Session boundary
 
 Runtime session files remain runtime-owned. The GUI uses RPC for messages, entries, trees, statistics, switching, compaction, naming, and export. GUI-owned recent-session metadata may reference runtime IDs or paths but must not reinterpret persisted transcripts.
+
+`RuntimePool` keeps a separate `RuntimeManager` and subprocess for each live session. Selecting another recent session activates its existing process or launches one without stopping the previously viewed process. Only the active manager's transcript/status events reach the renderer; global settings updates still propagate. This prevents background streams from being mixed into the visible transcript. All processes are stopped during app shutdown.
 
 ## Initial runtime limitations
 

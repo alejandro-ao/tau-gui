@@ -6,7 +6,7 @@ import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
 import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL, requestSchema } from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
-import { RuntimeManager } from './services/runtime-manager.js';
+import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -29,7 +29,7 @@ const CSP = buildCsp(isDev);
 
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
-let manager: RuntimeManager;
+let manager: RuntimePool;
 
 function broadcast(event: BridgeEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -103,7 +103,7 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
-  manager = new RuntimeManager(settings, broadcast);
+  manager = new RuntimePool(settings, broadcast);
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
     const parsed = requestSchema.safeParse(raw);
@@ -133,5 +133,5 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  void manager?.stop();
+  void manager?.stopAll();
 });
