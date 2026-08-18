@@ -12,7 +12,7 @@ Tau GUI will launch either runtime over its strict JSONL RPC mode and present on
 
 ## Status
 
-Planning. The product roadmap is tracked in this repository's GitHub issues.
+Planning. The product roadmap is tracked in [issue #1](https://github.com/alejandro-ao/tau-gui/issues/1).
 
 ## Architectural boundary
 
