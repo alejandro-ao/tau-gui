@@ -2,11 +2,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
-  /* Share the transcript's reading measure; the calc keeps the space-5
-     gutter on narrower windows where the cap is not reached. */
-  width: calc(100% - var(--space-5) * 2);
-  max-width: var(--measure);
-  margin: 0 auto var(--space-3);
+  margin: 0 var(--space-5) var(--space-3);
   padding: var(--space-3) var(--space-4);
   background: var(--panel);
   border: 1px solid var(--border);
@@ -87,9 +83,7 @@
 }
 
 .completion {
-  width: calc(100% - var(--space-5) * 2);
-  max-width: var(--measure);
-  margin: 0 auto var(--space-2);
+  margin: 0 var(--space-5) var(--space-2);
   max-height: 34vh;
   overflow-y: auto;
   background: var(--panel-alt);
