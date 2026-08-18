@@ -7,6 +7,7 @@ export const INITIAL_SNAPSHOT: RuntimeSnapshot = {
   runtime: 'tau',
   status: 'stopped',
   detail: null,
+  runtimeVersion: null,
   capabilities: DEFAULT_CAPABILITIES,
   cwd: null,
   gitBranch: null,

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
-import { isRunning, shortenPath } from '../state/reducer.js';
+import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
+import { Disclosure } from './Disclosure.js';
 import { formatCost, formatPercent, formatTokens } from './format.js';
 
 const PICKERS = [
@@ -12,96 +13,99 @@ const PICKERS = [
   { modal: 'hotkeys', label: 'keys' },
 ] as const;
 
+/**
+ * Session sidebar modeled on Tau's TUI: title, activity, usage, compaction,
+ * context, collapsible resource sections, and the version mark at the bottom.
+ * Sections whose data the runtime does not report are omitted entirely.
+ */
 export function Sidebar({ id }: { id?: string }): ReactNode {
   const { state, actions } = useStore();
-  const { snapshot, agent, stats, settings, commands } = state;
+  const { snapshot, agent, stats, commands } = state;
   const running = isRunning(state);
-  const model = agent?.model ?? null;
   const context = stats?.contextUsage ?? null;
   const contextPercent = context ? Math.min(100, Math.max(0, context.percent)) : 0;
   const cacheHitRate = cacheRate(stats?.tokens.cacheRead ?? 0, stats?.tokens.input ?? 0);
 
   return (
     <aside id={id} className="sidebar" data-testid="sidebar" aria-label="session">
+      <section className="sidebar-section sidebar-title">
+        <h1>{agent?.sessionName ?? 'untitled session'}</h1>
+      </section>
+
       <section className="sidebar-section">
-        <h2>session</h2>
-        <dl>
-          <Row label="name" value={agent?.sessionName ?? null} />
-          <Row label="runtime" value={snapshot.runtime} />
-          <Row label="model" value={model ? `${model.provider}:${model.id}` : null} />
-          <Row label="thinking" value={agent?.thinkingLevel ?? null} />
-          <Row label="cwd" value={shortenPath(snapshot.cwd ?? settings.cwd)} />
-          <Row label="branch" value={snapshot.gitBranch} />
-          <Row label="id" value={agent?.sessionId ?? null} />
-          <Row label="file" value={shortenPath(agent?.sessionFile ?? null)} />
-        </dl>
+        <h2>activity</h2>
+        {stats ? (
+          <p className="sidebar-line">
+            {stats.userMessages} turns, {stats.toolCalls} tool calls
+          </p>
+        ) : null}
+        <p className="sidebar-state" data-running={running}>
+          {running ? '● running' : '○ idle'}
+        </p>
       </section>
 
       {stats ? (
         <section className="sidebar-section">
           <h2>usage</h2>
-          <div className="usage-cumulative">
-            <dl>
-              <Row label="turns" value={`${stats.userMessages}/${stats.assistantMessages}`} />
-              <Row label="tools" value={String(stats.toolCalls)} />
-              <Row label="input" value={formatTokens(stats.tokens.input)} />
-              <Row label="output" value={formatTokens(stats.tokens.output)} />
-              <Row
-                label="cache"
-                value={`${formatTokens(stats.tokens.cacheRead)}r/${formatTokens(
-                  stats.tokens.cacheWrite,
-                )}w`}
-              />
-              {/* Derived from reported token counts, not reported by the RPC. */}
-              <Row
-                label="cache hit"
-                value={cacheHitRate === null ? null : `~${formatPercent(cacheHitRate)}`}
-              />
-              <Row label="cost" value={formatCost(stats.cost)} />
-            </dl>
-          </div>
-          {context ? (
-            <div className="usage-context">
-              <dl>
-                <Row
-                  label="context"
-                  value={`${formatTokens(context.tokens)}/${formatTokens(context.contextWindow)}`}
-                />
-              </dl>
-              <div
-                className="usage-bar"
-                data-warn={contextPercent >= 80}
-                role="progressbar"
-                aria-valuenow={Math.round(contextPercent)}
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-label="context used"
-              >
-                <span style={{ width: `${contextPercent}%` }} />
-              </div>
+          <p className="sidebar-line">
+            {formatTokens(stats.tokens.input)} in, {formatTokens(stats.tokens.output)} out ·{' '}
+            {formatCost(stats.cost)}
+          </p>
+          {/* Derived from reported token counts, not reported by the RPC. */}
+          {cacheHitRate === null ? null : (
+            <p className="sidebar-line dim">cache: ~{formatPercent(cacheHitRate)} session</p>
+          )}
+        </section>
+      ) : null}
+
+      {agent ? (
+        <section className="sidebar-section">
+          <h2>compaction</h2>
+          <p className="sidebar-line dim">
+            {/* The auto-compaction threshold is not exposed over RPC. */}
+            {agent.autoCompactionEnabled ? 'auto' : 'off'}
+          </p>
+        </section>
+      ) : null}
+
+      {context ? (
+        <section className="sidebar-section">
+          <h2>context</h2>
+          <div className="usage-context">
+            <p className="sidebar-line">
+              {formatTokens(context.tokens)}/{formatTokens(context.contextWindow)} ·{' '}
+              {formatPercent(contextPercent)}
+            </p>
+            <div
+              className="usage-bar"
+              data-warn={contextPercent >= 80}
+              role="progressbar"
+              aria-valuenow={Math.round(contextPercent)}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label="context used"
+            >
+              <span style={{ width: `${contextPercent}%` }} />
             </div>
-          ) : null}
-          <div className="sidebar-state" data-running={running}>
-            {running ? '● running' : '○ idle'}
           </div>
         </section>
       ) : null}
 
-      {/* Resources appear only when the runtime actually reports them. */}
+      {/*
+        Resource sections (tools, skills, prompts, extensions, context files)
+        render only when the runtime reports them. The current RPC surface
+        exposes commands only; skills get the dimmed treatment once the
+        protocol reports which of them the agent may call automatically.
+      */}
       {commands.length > 0 ? (
-        <section className="sidebar-section">
-          <h2>resources</h2>
-          <dl>
-            <Row label="commands" value={String(commands.length)} />
-          </dl>
-          <ul className="path-list">
-            {commands.slice(0, 8).map((command) => (
-              <li key={command.name} title={command.description}>
-                /{command.name}
-              </li>
-            ))}
-          </ul>
-        </section>
+        <Disclosure
+          title="commands"
+          count={commands.length}
+          items={commands.map((command) => ({
+            label: `/${command.name}`,
+            title: command.description,
+          }))}
+        />
       ) : null}
 
       {/* Mouse parity for every keyboard-first picker. */}
@@ -123,20 +127,17 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
 
       <div className="version-mark">
         <span>τ = 2π</span>
-        <span>{snapshot.runtime}</span>
+        <span>{versionLabel(snapshot.runtime, snapshot.runtimeVersion)}</span>
       </div>
     </aside>
   );
 }
 
-function Row({ label, value }: { label: string; value: string | null }): ReactNode {
-  if (!value) return null;
-  return (
-    <div className="sidebar-row">
-      <dt>{label}</dt>
-      <dd title={value}>{value}</dd>
-    </div>
-  );
+/** `tau --version` prints "tau 0.3.12"; avoid doubling the runtime name. */
+export function versionLabel(runtime: string, version: string | null): string {
+  if (!version) return runtime;
+  const bare = version.startsWith(`${runtime} `) ? version.slice(runtime.length + 1) : version;
+  return `${runtime} ${bare}`;
 }
 
 /** Estimated cache hit rate: derived locally, never reported by the runtime. */

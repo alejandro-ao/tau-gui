@@ -153,6 +153,8 @@ export interface RuntimeSnapshot {
   runtime: 'tau' | 'pi';
   status: RuntimeStatus;
   detail: string | null;
+  /** Version reported by the runtime binary at launch, when known. */
+  runtimeVersion: string | null;
   capabilities: RuntimeCapabilities;
   cwd: string | null;
   gitBranch: string | null;

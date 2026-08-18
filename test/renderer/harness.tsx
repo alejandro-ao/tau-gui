@@ -49,6 +49,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     cwd: '/work/project',
     gitBranch: 'main',
     state: options.agent ?? null,
+    runtimeVersion: '9.9.9-fake',
   };
   const settings: AppSettings = { ...DEFAULT_SETTINGS, ...options.settings };
 

@@ -21,11 +21,9 @@
 
 .sidebar-section h2 {
   margin: 0 0 var(--space-3);
-  font-size: var(--font-size-xs);
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  font-weight: 700;
+  color: var(--text);
 }
 
 .sidebar-row {
@@ -194,4 +192,81 @@
 
 .sessions-rail-forget:hover {
   color: var(--role-error);
+}
+
+/* --------------------------------------------------------- TUI sections */
+
+.sidebar-title h1 {
+  margin: 0;
+  font-size: var(--font-size-md, 1em);
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-line {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-line.dim {
+  color: var(--text-dim);
+}
+
+.sidebar h2 {
+  margin: 0 0 var(--space-1);
+}
+
+/* Collapsible resource sections (skills, prompts, commands, …). */
+.disclosure {
+  padding: var(--space-2) 0;
+}
+
+.disclosure-toggle {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-4);
+  background: none;
+  border: none;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.disclosure-toggle:hover {
+  background: var(--panel-alt);
+}
+
+.disclosure-caret {
+  color: var(--text-dim);
+  font-size: 0.85em;
+}
+
+.disclosure-title {
+  font-weight: 600;
+}
+
+.disclosure-summary {
+  color: var(--text-dim);
+}
+
+.disclosure-body {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0 var(--space-4) 0 calc(var(--space-4) + 1.2em);
+}
+
+.disclosure-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 0;
+}
+
+/* Restricted entries (e.g. skills the agent may not auto-call) get a vignette. */
+.disclosure-item.dimmed {
+  color: var(--text-dim);
+  font-style: italic;
 }

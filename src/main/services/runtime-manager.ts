@@ -28,6 +28,7 @@ export class RuntimeManager {
   private cwd: string | null = null;
   private gitBranch: string | null = null;
   private state: AgentState | null = null;
+  private runtimeVersion: string | null = null;
   private readonly diagnostics: string[] = [];
 
   constructor(
@@ -53,6 +54,7 @@ export class RuntimeManager {
       runtime: this.kind,
       status: this.status,
       detail: this.detail,
+      runtimeVersion: this.runtimeVersion,
       capabilities: CAPABILITIES[this.kind],
       cwd: this.cwd,
       gitBranch: this.gitBranch,
@@ -92,6 +94,7 @@ export class RuntimeManager {
       this.addDiagnostic(message);
       throw new Error(message);
     }
+    this.runtimeVersion = probe.version;
     if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
 
     this.cwd = cwd;
@@ -122,6 +125,7 @@ export class RuntimeManager {
     this.runtime = null;
     if (runtime) await runtime.stop();
     this.state = null;
+    this.runtimeVersion = null;
     this.setStatus('stopped', null);
     return this.snapshot();
   }

@@ -27,7 +27,6 @@ test('the status row opens the model picker and reflects the new model', async (
 
   await expect(picker).toHaveCount(0);
   await expect(status.getByRole('button', { name: /fake:fake-small/ })).toBeVisible();
-  await expect(page.getByTestId('sidebar')).toContainText('fake:fake-small');
 });
 
 test('the palette also reaches the model picker', async () => {

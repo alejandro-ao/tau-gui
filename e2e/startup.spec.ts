@@ -18,13 +18,13 @@ test('window opens, connects to the runtime, and reports session context', async
   await expect(page.locator('.app')).toBeVisible();
   await waitForSettled(page);
 
-  // Sidebar reports the connected session and the selected model.
+  // Sidebar follows the TUI structure: title, activity, version mark.
   const sidebar = page.getByTestId('sidebar');
   await expect(sidebar).toBeVisible();
-  await expect(sidebar).toContainText('runtime');
-  await expect(sidebar).toContainText('tau');
-  await expect(sidebar).toContainText('fake:fake-large');
-  await expect(sidebar).toContainText('fake-session-1');
+  await expect(sidebar.locator('.sidebar-title')).toContainText('untitled session');
+  await expect(sidebar).toContainText('activity');
+  await expect(sidebar.locator('.version-mark')).toContainText('τ = 2π');
+  await expect(sidebar.locator('.version-mark')).toContainText('tau');
 
   // Status row reports the working directory and the active model.
   const status = page.getByTestId('status-row');

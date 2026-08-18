@@ -3,6 +3,7 @@ import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { installFakeBridge, mount, query, texts, type Mounted } from './harness.js';
 import type { SessionStats, SidebarPosition } from '../../src/shared/domain.js';
+import { versionLabel } from '../../src/renderer/src/components/Sidebar.js';
 
 let mounted: Mounted | null = null;
 
@@ -28,12 +29,14 @@ async function renderApp(options: {
   detail?: string | null;
   sidebarPosition?: SidebarPosition;
   stats?: SessionStats | null;
+  results?: NonNullable<Parameters<typeof installFakeBridge>[0]>['results'];
 }): Promise<Mounted> {
   const bridge = installFakeBridge({
     status: options.status ?? 'idle',
     detail: options.detail ?? null,
     settings: { sidebarPosition: options.sidebarPosition ?? 'right' },
     stats: options.stats ?? null,
+    results: options.results,
   });
   const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
   const { App } = await import('../../src/renderer/src/App.js');
@@ -60,24 +63,59 @@ describe('app shell', () => {
     expect(view.container.querySelector('.sidebar')).toBeNull();
   });
 
-  it('omits sidebar rows the runtime does not report', async () => {
+  it('follows the TUI section structure and omits unreported data', async () => {
     const view = await renderApp({});
-    const labels = texts(view.container, '.sidebar-row dt');
-    expect(labels).toContain('runtime');
-    expect(labels).not.toContain('name');
-    expect(labels).not.toContain('id');
-    // Usage only appears once stats exist.
+    const sidebar = query(view.container, '[data-testid="sidebar"]');
+    // Title falls back when the session is unnamed.
+    expect(query(sidebar, '.sidebar-title').textContent).toContain('untitled session');
+    const headers = texts(sidebar, 'h2');
+    expect(headers).toContain('activity');
+    // Usage/compaction/context wait for runtime data; nothing is fabricated.
+    expect(headers).not.toContain('usage');
+    expect(headers).not.toContain('context');
     expect(view.container.querySelector('.usage-bar')).toBeNull();
+    // The version mark carries the runtime kind and probed version.
     expect(query(view.container, '.version-mark').textContent).toContain('τ = 2π');
+    expect(query(view.container, '.version-mark').textContent).toContain('tau 9.9.9-fake');
+    // `tau --version` prints "tau 0.3.12"; the footer must not double the name.
+    expect(versionLabel('tau', 'tau 0.3.12')).toBe('tau 0.3.12');
+    expect(versionLabel('pi', '0.84.2')).toBe('pi 0.84.2');
+    expect(versionLabel('pi', null)).toBe('pi');
   });
 
-  it('separates cumulative usage from the live context window', async () => {
+  it('reports activity, usage, and context like the TUI', async () => {
     const view = await renderApp({ stats: STATS });
-    expect(query(view.container, '.usage-cumulative').textContent).toContain('3/4');
-    expect(query(view.container, '.usage-context').textContent).toContain('12.0k/200.0k');
-    expect(query(view.container, '.usage-bar').getAttribute('aria-valuenow')).toBe('6');
+    const sidebar = query(view.container, '[data-testid="sidebar"]');
+    expect(sidebar.textContent).toContain('3 turns, 9 tool calls');
+    expect(sidebar.textContent).toContain('1.0k in, 500 out');
     // No cost reported by the runtime.
-    expect(view.container.textContent).toContain('$N/A');
+    expect(sidebar.textContent).toContain('$N/A');
+    // Cache rate is derived locally and marked as estimated.
+    expect(sidebar.textContent).toContain('cache: ~75% session');
+    expect(query(sidebar, '.usage-context').textContent).toContain('12.0k/200.0k');
+    expect(query(sidebar, '.usage-bar').getAttribute('aria-valuenow')).toBe('6');
+  });
+
+  it('collapses resource lists behind disclosures', async () => {
+    const view = await renderApp({
+      results: {
+        'commands.list': [
+          { name: 'compact', description: 'Compact the session', source: 'runtime' },
+          { name: 'review', description: 'Review the tree', source: 'runtime' },
+        ],
+      },
+    });
+    const toggle = query<HTMLButtonElement>(view.container, '.disclosure-toggle');
+    expect(toggle.textContent).toContain('commands');
+    expect(toggle.textContent).toContain('(2)');
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(view.container.querySelector('.disclosure-body')).toBeNull();
+    await act(async () => {
+      toggle.click();
+      await Promise.resolve();
+    });
+    expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('/compact');
+    expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('/review');
   });
 
   it('shows failure detail with restart and open-directory actions', async () => {
