@@ -24,7 +24,6 @@ export interface AssistantBlock {
   id: string;
   text: string;
   streaming: boolean;
-  errorMessage: string | null;
   aborted: boolean;
   timestamp: number;
 }
@@ -141,6 +140,8 @@ export interface AppState {
   windowFocused: boolean;
   busy: boolean;
   lastCompletionPreview: string | null;
+  /** Monotonic count of settled turns; keys completion notifications. */
+  settledCount: number;
 }
 
 export type Action =

@@ -82,6 +82,35 @@ describe('streaming assembly', () => {
     expect(state.blocks[0]).toMatchObject({ kind: 'user', text: 'do it' });
   });
 
+  it('splices the authoritative message in place, keeping mid-stream blocks in order', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'text', delta: 'Look', message: assistant('Look') },
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+      { type: 'retry_start', attempt: 1, maxAttempts: 2, delayMs: 0, message: 'rate limited' },
+      {
+        type: 'message_delta',
+        kind: 'text',
+        delta: ' here',
+        message: assistant('Look here'),
+      },
+      { type: 'message_end', message: assistant('Look here') },
+    ]);
+    expect(state.blocks.map((block) => block.kind)).toEqual(['assistant', 'tool', 'status']);
+    expect(state.blocks[0]).toMatchObject({ text: 'Look here', streaming: false });
+  });
+
+  it('keeps thinking before text when tool blocks interleave with the stream', () => {
+    const state = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'thinking', delta: 'plan', message: assistant('', 'plan') },
+      { type: 'message_delta', kind: 'text', delta: 'go', message: assistant('go', 'plan') },
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'bash', args: { command: 'ls' } },
+      { type: 'message_end', message: assistant('go', 'plan') },
+    ]);
+    expect(state.blocks.map((block) => block.kind)).toEqual(['thinking', 'assistant', 'tool']);
+  });
+
   it('adds an error block for provider failures and keeps the transcript usable', () => {
     const failed: AssistantMessage = {
       ...assistant('I could not finish.'),
@@ -227,13 +256,28 @@ describe('lifecycle bookkeeping', () => {
     ]);
   });
 
-  it('captures a completion preview on agent_settled', () => {
+  it('captures a completion preview and counts settles', () => {
     const state = replay([
       { type: 'agent_start' },
       { type: 'message_end', message: assistant('all done') },
       { type: 'agent_settled' },
     ]);
     expect(state.lastCompletionPreview).toBe('all done');
+    expect(state.settledCount).toBe(1);
+    // A repeated identical answer is a distinct settle.
+    const again = replay(
+      [{ type: 'message_end', message: assistant('all done') }, { type: 'agent_settled' }],
+      state,
+    );
+    expect(again.settledCount).toBe(2);
+  });
+
+  it('clears the queue when the turn settles', () => {
+    const state = replay([
+      { type: 'queue_update', steering: ['stop that'], followUp: ['then this'] },
+      { type: 'agent_settled' },
+    ]);
+    expect(state.queue).toEqual({ steering: [], followUp: [] });
   });
 
   it('treats running/compacting/retrying as active and idle as settled', () => {
@@ -290,6 +334,53 @@ describe('view state', () => {
       'shell',
       'compaction',
     ]);
+  });
+
+  it('keeps tool arguments and renders an assistant error once when hydrating', () => {
+    const failing = {
+      ...assistant('I tried.'),
+      errorMessage: 'provider unavailable (503)',
+      stopReason: 'error' as const,
+    };
+    const state = reducer(INITIAL_STATE, {
+      type: 'hydrate',
+      now: 1,
+      messages: [
+        { role: 'user', text: 'read the file', images: [], timestamp: 1 },
+        {
+          ...assistant('reading'),
+          toolCalls: [{ id: 'call-1', name: 'read', arguments: { path: 'src/a.ts' } }],
+        },
+        {
+          role: 'toolResult',
+          toolCallId: 'call-1',
+          toolName: 'read',
+          text: 'file body',
+          details: {},
+          isError: false,
+          timestamp: 2,
+        },
+        failing,
+      ],
+    });
+    expect(state.blocks.map((block) => block.kind)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+      'assistant',
+      'error',
+    ]);
+    // The hydrated tool block keeps the arguments from the requesting message.
+    expect(state.blocks[2]).toMatchObject({
+      kind: 'tool',
+      name: 'read',
+      args: { path: 'src/a.ts' },
+    });
+    // The failure text appears exactly once, as its own error block.
+    const errorTexts = state.blocks.filter(
+      (block) => 'text' in block && block.text === 'provider unavailable (503)',
+    );
+    expect(errorTexts).toHaveLength(1);
   });
 
   it('builds the window title from session name and run state', () => {

@@ -25,13 +25,25 @@ interface Range {
 /**
  * Windowing over measured item heights. Only items near the viewport are
  * mounted; state is never trimmed, and spacer padding preserves scroll height.
+ *
+ * Heights are cached by item id, not list index: transcript items are inserted,
+ * replaced, and filtered, so an index-keyed cache would attribute a measured
+ * height to an unrelated block.
  */
 export function useVirtualWindow(
-  count: number,
+  ids: string[],
   viewport: RefObject<HTMLElement | null>,
 ): VirtualWindow {
-  const heights = useRef<number[]>([]);
+  const count = ids.length;
+  const heights = useRef(new Map<string, number>());
+  const idsRef = useRef(ids);
+  idsRef.current = ids;
   const [range, setRange] = useState<Range>({ start: 0, end: count, topPad: 0, bottomPad: 0 });
+
+  const heightAt = useCallback((index: number): number => {
+    const id = idsRef.current[index];
+    return (id === undefined ? undefined : heights.current.get(id)) ?? ESTIMATED_HEIGHT;
+  }, []);
 
   const recompute = useCallback(() => {
     const element = viewport.current;
@@ -48,7 +60,7 @@ export function useVirtualWindow(
     let startFound = false;
 
     for (let index = 0; index < count; index += 1) {
-      const height = heights.current[index] ?? ESTIMATED_HEIGHT;
+      const height = heightAt(index);
       if (!startFound && offset + height >= windowTop) {
         start = index;
         topPad = offset;
@@ -61,14 +73,16 @@ export function useVirtualWindow(
       offset += height;
     }
     if (!startFound) {
+      // Everything sits above the window: mount the last item only, and keep its
+      // own height out of the spacer that stands in for the items above it.
       start = Math.max(0, count - 1);
-      topPad = offset;
+      topPad = count > 0 ? Math.max(0, offset - heightAt(count - 1)) : 0;
       end = count;
     }
 
     let bottomPad = 0;
     for (let index = end; index < count; index += 1) {
-      bottomPad += heights.current[index] ?? ESTIMATED_HEIGHT;
+      bottomPad += heightAt(index);
     }
 
     setRange((previous) =>
@@ -79,7 +93,7 @@ export function useVirtualWindow(
         ? previous
         : { start, end, topPad, bottomPad },
     );
-  }, [count, viewport]);
+  }, [count, heightAt, viewport]);
 
   useEffect(() => {
     recompute();
@@ -94,12 +108,13 @@ export function useVirtualWindow(
 
   const measure = useCallback(
     (index: number, element: HTMLElement | null) => {
-      if (!element) return;
+      const id = idsRef.current[index];
+      if (!element || id === undefined) return;
       const height = element.offsetHeight;
       // jsdom and pre-layout frames report 0; keep the estimate in that case.
       if (height <= 0) return;
-      if (Math.abs((heights.current[index] ?? ESTIMATED_HEIGHT) - height) < 1) return;
-      heights.current[index] = height;
+      if (Math.abs((heights.current.get(id) ?? ESTIMATED_HEIGHT) - height) < 1) return;
+      heights.current.set(id, height);
       recompute();
     },
     [recompute],

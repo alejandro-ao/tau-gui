@@ -2,7 +2,12 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { completePaths, quoteForComposer, toDisplayPath } from '../src/main/services/filesystem.js';
+import {
+  completePaths,
+  isAllowedSearchRoot,
+  quoteForComposer,
+  toDisplayPath,
+} from '../src/main/services/filesystem.js';
 
 let root: string;
 
@@ -46,14 +51,37 @@ describe('completePaths', () => {
   });
 
   it('honours explicit parent traversal supplied by the user', async () => {
-    const nested = join(root, 'src');
-    const results = await completePaths(nested, '../');
-    expect(results.length).toBeGreaterThan(0);
+    const nested = join(root, 'src', 'deep');
+    expect((await completePaths(nested, '../')).length).toBeGreaterThan(0);
+    // Two levels up is the documented ceiling and is still allowed.
+    expect((await completePaths(nested, '../../')).length).toBeGreaterThan(0);
+  });
+
+  it('refuses traversal beyond the documented ceiling', async () => {
+    const nested = join(root, 'src', 'deep');
+    expect(await completePaths(nested, '../../../')).toEqual([]);
+    expect(await completePaths(nested, '../../../../etc/')).toEqual([]);
+    expect(await completePaths(nested, '/etc/')).toEqual([]);
   });
 
   it('respects the result limit', async () => {
     const results = await completePaths(root, '', 2);
     expect(results).toHaveLength(2);
+  });
+});
+
+describe('isAllowedSearchRoot', () => {
+  it('allows the cwd subtree and bounded ancestors', () => {
+    const nested = join(root, 'src', 'deep');
+    expect(isAllowedSearchRoot(nested, join(nested, 'more'))).toBe(true);
+    expect(isAllowedSearchRoot(nested, join(root, 'src'))).toBe(true);
+    expect(isAllowedSearchRoot(nested, root)).toBe(true);
+  });
+
+  it('rejects roots further above the cwd', () => {
+    const nested = join(root, 'src', 'deep');
+    expect(isAllowedSearchRoot(nested, join(root, '..'))).toBe(false);
+    expect(isAllowedSearchRoot(nested, '/etc')).toBe(false);
   });
 });
 

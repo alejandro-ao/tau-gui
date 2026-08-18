@@ -229,8 +229,9 @@ export type AgentEvent =
     }
   | { type: 'retry_start'; attempt: number; maxAttempts: number; delayMs: number; message: string }
   | { type: 'retry_end'; success: boolean; attempt: number; finalError: string | null }
-  | { type: 'runtime_error'; message: string }
-  | { type: 'runtime_status'; status: RuntimeStatus; detail?: string | null };
+  // Process-level status is not an agent event: it travels as a `status`
+  // bridge event carrying the whole runtime snapshot.
+  | { type: 'runtime_error'; message: string };
 
 export type RuntimeStatus =
   | 'stopped'

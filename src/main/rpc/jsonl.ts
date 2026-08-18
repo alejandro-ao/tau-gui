@@ -103,15 +103,7 @@ export function encodeRecord(value: unknown): string {
   return `${JSON.stringify(value)}\n`;
 }
 
+/** UTF-8 byte length; `Buffer.byteLength` does this natively in one pass. */
 function byteLength(text: string): number {
-  let bytes = 0;
-  for (let index = 0; index < text.length; index += 1) {
-    const code = text.codePointAt(index) as number;
-    if (code > 0xffff) index += 1;
-    if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code < 0x10000) bytes += 3;
-    else bytes += 4;
-  }
-  return bytes;
+  return Buffer.byteLength(text, 'utf8');
 }

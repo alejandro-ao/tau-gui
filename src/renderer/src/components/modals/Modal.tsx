@@ -24,7 +24,8 @@ export interface ModalProps {
  * Accessible modal shell shared by every picker.
  *
  * Escape cancels, Tab is trapped inside the dialog, and the container is marked
- * `data-modal` so the composer does not steal focus back on window clicks.
+ * `data-modal` so the composer does not steal focus back on window clicks. The
+ * element that had focus when the dialog opened is refocused on close.
  */
 export function Modal({ name, title, subtitle, onClose, footer, children }: ModalProps): ReactNode {
   const dialog = useRef<HTMLDivElement | null>(null);
@@ -34,11 +35,16 @@ export function Modal({ name, title, subtitle, onClose, footer, children }: Moda
   useEffect(() => {
     const element = dialog.current;
     if (!element) return;
+    const previous = element.ownerDocument.activeElement;
     // Pickers mark their filter input so the keyboard lands where users type.
     const target =
       element.querySelector<HTMLElement>('[data-autofocus="true"]') ??
       element.querySelector<HTMLElement>(FOCUSABLE);
     (target ?? element).focus();
+    return () => {
+      // Restore focus so keyboard users are never dropped on the document.
+      if (previous instanceof HTMLElement && previous.isConnected) previous.focus();
+    };
   }, []);
 
   const onKeyDown = useCallback(

@@ -52,9 +52,10 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
                   stats.tokens.cacheWrite,
                 )}w`}
               />
+              {/* Derived from reported token counts, not reported by the RPC. */}
               <Row
                 label="cache hit"
-                value={cacheHitRate === null ? null : formatPercent(cacheHitRate)}
+                value={cacheHitRate === null ? null : `~${formatPercent(cacheHitRate)}`}
               />
               <Row label="cost" value={formatCost(stats.cost)} />
             </dl>
@@ -138,6 +139,7 @@ function Row({ label, value }: { label: string; value: string | null }): ReactNo
   );
 }
 
+/** Estimated cache hit rate: derived locally, never reported by the runtime. */
 function cacheRate(cacheRead: number, input: number): number | null {
   const total = cacheRead + input;
   return total > 0 ? (cacheRead / total) * 100 : null;

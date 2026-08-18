@@ -11,6 +11,11 @@
 import { createInterface } from 'node:readline';
 
 const args = process.argv.slice(2);
+if (args.includes('--version')) {
+  // Answers the launch-time discovery probe and exits, like a real runtime.
+  process.stdout.write('fake-runtime 1.0.0\n');
+  process.exit(0);
+}
 const cwdIndex = args.indexOf('--cwd');
 const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
 const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
@@ -59,6 +64,8 @@ const state = {
   aborted: false,
   toolCalls: 0,
   turns: 0,
+  /** Which wire field(s) the last switch_session request carried. */
+  lastSwitchField: null,
   lastExtensionResponse: null,
 };
 
@@ -505,12 +512,21 @@ async function dispatch(command) {
         respond(id, type, { cancelled: false });
         return;
       case 'switch_session': {
-        const ref = command.sessionId ?? command.sessionPath;
-        if (typeof ref !== 'string') throw new Error('switch_session requires sessionPath');
-        state.sessionId = ref;
+        // Accepts either wire field, but records which one arrived so contract
+        // tests can assert the runtime-specific shape.
+        const fields = ['sessionId', 'sessionPath'].filter(
+          (key) => typeof command[key] === 'string',
+        );
+        if (fields.length === 0) throw new Error('switch_session requires sessionPath');
+        state.lastSwitchField = fields.join(',');
+        state.sessionId = command.sessionId ?? command.sessionPath;
         respond(id, type, { cancelled: false });
         return;
       }
+      case 'switch_session_probe':
+        // Test hook: report the wire field used by the last switch_session.
+        respond(id, type, { field: state.lastSwitchField });
+        return;
       case 'get_session_stats':
         respond(id, type, stats());
         return;

@@ -14,10 +14,36 @@ export interface RuntimeProbe {
   error: string | null;
 }
 
+/** Version strings are child-process output: bound and sanitize before use. */
+export const MAX_VERSION_LENGTH = 80;
+
+/**
+ * Extract a short, printable version string from raw child output. Only the
+ * first line is kept, control characters are stripped, and the result is
+ * truncated so a hostile or broken binary cannot flood the UI or logs.
+ */
+export function extractVersion(stdout: string, stderr = ''): string | null {
+  const source = `${stdout}\n${stderr}`;
+  const firstLine =
+    source
+      .split('\n')
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? '';
+  // eslint-disable-next-line no-control-regex
+  const printable = firstLine.replace(/[\u0000-\u001F\u007F-\u009F]/g, '').trim();
+  if (!printable) return null;
+  return printable.length > MAX_VERSION_LENGTH
+    ? `${printable.slice(0, MAX_VERSION_LENGTH - 1)}…`
+    : printable;
+}
+
 /**
  * First-run check: resolve the configured runtime binary on PATH and ask it for
  * its version. Used by the settings UI and by startup failure messages.
  * Arguments are passed as an array; nothing is interpolated into a shell.
+ *
+ * The binary always comes from persisted settings; the renderer can never
+ * choose which executable is run.
  */
 export async function probeRuntime(kind: RuntimeKind, binary: string): Promise<RuntimeProbe> {
   const resolved = await resolveBinary(binary);
@@ -30,9 +56,11 @@ export async function probeRuntime(kind: RuntimeKind, binary: string): Promise<R
     };
   }
   try {
-    const { stdout, stderr } = await execFileAsync(resolved, ['--version'], { timeout: 8_000 });
-    const version = `${stdout} ${stderr}`.trim().split('\n')[0]?.trim() ?? null;
-    return { binary, resolved, version: version || null, error: null };
+    const { stdout, stderr } = await execFileAsync(resolved, ['--version'], {
+      timeout: 8_000,
+      maxBuffer: 256 * 1024,
+    });
+    return { binary, resolved, version: extractVersion(stdout, stderr), error: null };
   } catch (error) {
     return {
       binary,

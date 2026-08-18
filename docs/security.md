@@ -9,8 +9,19 @@
 - `nodeIntegration: false`, `nodeIntegrationInWorker: false`
 - `webviewTag: false`
 - a preload script exposing exactly two functions
-- a strict Content-Security-Policy response header plus an in-document meta CSP:
+- a strict Content-Security-Policy response header plus an identical in-document
+  meta CSP. Both are generated from one source (`src/shared/csp.ts`): the main
+  process sends it as a header, and the build injects the same string into
+  `src/renderer/index.html` in place of the `__CSP_POLICY__` placeholder, so the
+  two can never drift.
+
+  Production policy:
   `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; connect-src 'self'; form-action 'none'; base-uri 'none'; object-src 'none'`
+
+  Development builds differ in exactly one directive —
+  `connect-src 'self' ws://localhost:* http://localhost:*` — so the Vite dev
+  server and its HMR websocket work. Packaged builds never contain it.
+
 - `setPermissionRequestHandler` denying every optional permission
 - `setWindowOpenHandler` denying all popups and routing `https:` links to the OS
 - `will-navigate` blocked except for the dev server URL
@@ -30,6 +41,10 @@
   services.
 - Handlers return `{ ok, value | error }`; exceptions become error strings and
   never leak stack traces to the renderer.
+- The renderer can never name an executable. `runtime.probe` takes at most a
+  runtime `kind`; the binary always comes from persisted settings, and the
+  reported version is reduced to the first line, stripped of control
+  characters, and truncated to 80 characters before it leaves the main process.
 - Inbound events are shape-checked in the preload before reaching React.
 
 ## Subprocess safety
@@ -43,8 +58,13 @@
 - Runtime stdout is parsed with strict LF-only JSONL framing and a 16 MiB record
   cap; malformed or oversized records are dropped with a diagnostic instead of
   crashing the session.
+- stdin writes honour backpressure (queued in order until `drain`) and stdout is
+  paused while the undecoded backlog exceeds a high-water mark, so a chatty
+  runtime cannot grow unbounded memory. Record order is preserved.
 - stderr is captured into a bounded diagnostics ring (500 lines) surfaced in the
-  diagnostics modal.
+  diagnostics modal. Runtime stderr may contain provider error text (endpoints,
+  request ids, prose from failed calls). It is bounded, held in memory only,
+  never persisted to settings or a log file, and dropped when the app exits.
 
 ## Untrusted content
 
@@ -70,6 +90,12 @@
 - `@` completion runs in the main process, rooted at the session cwd, skipping
   `.git`, `.venv`, `node_modules`, `__pycache__`, `build`, `dist`, and similar
   directories, with bounded breadth and result counts.
+- Explicit `../` traversal typed by the user is allowed, but bounded: the search
+  root must stay within **two levels above the session cwd** and, when it leaves
+  the cwd subtree, inside the user's home directory (an ancestor of the cwd is
+  always allowed for projects outside home). Anything further — including
+  absolute paths such as `/etc/` — returns an empty result list rather than an
+  error.
 - Dropped file paths are only relativized for display; the renderer receives no
   filesystem handles.
 - Session JSONL files are never read by the GUI; all session data comes from RPC.

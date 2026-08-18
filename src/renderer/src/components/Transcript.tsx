@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
-import { groupBlocks, isExpanded } from '../state/reducer.js';
+import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import type { TranscriptBlock } from '../state/types.js';
 import { BlockView } from './BlockView.js';
@@ -20,7 +20,9 @@ export function Transcript(): ReactNode {
   );
   const groups = useMemo(() => groupBlocks(visible), [visible]);
 
-  const vwin = useVirtualWindow(groups.length, viewport);
+  // Stable per-group ids so measured heights survive insertions and filtering.
+  const ids = useMemo(() => groups.map(groupId), [groups]);
+  const vwin = useVirtualWindow(ids, viewport);
   const signal = useMemo(() => streamSignal(visible), [visible]);
   const { hasNewOutput, scrollToBottom } = useAutoScroll(viewport, signal);
 
@@ -45,7 +47,7 @@ export function Transcript(): ReactNode {
 
         {mounted.map((group, offset) => {
           const index = vwin.start + offset;
-          const key = group.kind === 'tools' ? group.blocks[0]?.id : group.block.id;
+          const key = ids[index];
           return (
             <div key={key ?? index} ref={(element) => vwin.measure(index, element)}>
               {group.kind === 'tools' ? (
@@ -83,6 +85,10 @@ export function Transcript(): ReactNode {
       ) : null}
     </div>
   );
+}
+
+function groupId(group: BlockGroup, index: number): string {
+  return (group.kind === 'tools' ? group.blocks[0]?.id : group.block.id) ?? `group-${index}`;
 }
 
 /** Cheap fingerprint of the transcript tail, used to drive scroll anchoring. */

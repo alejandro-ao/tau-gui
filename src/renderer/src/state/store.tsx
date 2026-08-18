@@ -145,23 +145,27 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     document.documentElement.dataset['theme'] = state.settings.theme;
   }, [state.settings.theme]);
 
+  // Derived so the title IPC fires on real changes, not on every dispatch.
+  const title = windowTitle(state, state.settings);
   useEffect(() => {
-    void invoke('ui.setTitle', { title: windowTitle(state, state.settings) }).catch(
-      () => undefined,
-    );
-  }, [state]);
+    void invoke('ui.setTitle', { title }).catch(() => undefined);
+  }, [title]);
 
-  const previousPreview = useRef<string | null>(null);
+  // Keyed on the settle counter, so a repeated identical answer notifies again.
+  const notifiedSettle = useRef(0);
   useEffect(() => {
+    const settled = state.settledCount;
+    if (settled === 0 || settled === notifiedSettle.current) return;
+    notifiedSettle.current = settled;
     const preview = state.lastCompletionPreview;
-    if (!preview || preview === previousPreview.current) return;
-    previousPreview.current = preview;
+    if (!preview) return;
     if (state.windowFocused || state.settings.turnNotification !== 'desktop') return;
     const name = state.agent?.sessionName ?? 'Tau session';
     void invoke('ui.notify', { title: `τ | ${name}`, body: preview.slice(0, 200) }).catch(
       () => undefined,
     );
   }, [
+    state.settledCount,
     state.lastCompletionPreview,
     state.windowFocused,
     state.settings.turnNotification,

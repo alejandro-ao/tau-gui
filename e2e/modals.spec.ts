@@ -41,8 +41,7 @@ test('the palette traps focus, closes on Escape, and preserves the draft', async
   await expect(palette).toHaveCount(0);
   await expect(composer(page)).toHaveValue('draft behind the modal');
 
-  // The composer is usable again immediately after the modal closes.
-  await composer(page).click();
+  // Focus returns to the composer on its own: no click required.
   await expect(composer(page)).toBeFocused();
 });
 

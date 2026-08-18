@@ -1,6 +1,23 @@
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite';
 import react from '@vitejs/plugin-react';
+import type { Plugin } from 'vite';
 import { resolve } from 'node:path';
+import { CSP_META_PLACEHOLDER, buildCsp } from './src/shared/csp.js';
+
+/**
+ * Injects the same Content-Security-Policy the main process sends as a header
+ * into the document meta tag, so the two policies cannot drift. Only the
+ * development build allows the Vite dev-server origins.
+ */
+function cspMetaPlugin(): Plugin {
+  return {
+    name: 'tau-gui-csp-meta',
+    transformIndexHtml(html, context) {
+      const isDev = Boolean(context.server);
+      return html.replaceAll(CSP_META_PLACEHOLDER, buildCsp(isDev));
+    },
+  };
+}
 
 export default defineConfig({
   main: {
@@ -24,7 +41,7 @@ export default defineConfig({
   },
   renderer: {
     root: resolve(__dirname, 'src/renderer'),
-    plugins: [react()],
+    plugins: [react(), cspMetaPlugin()],
     resolve: {
       alias: { '@shared': resolve(__dirname, 'src/shared') },
     },

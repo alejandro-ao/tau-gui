@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, session as electronSession } from '
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
 import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL, requestSchema } from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
@@ -23,17 +24,8 @@ if (isolatedUserData) {
   app.setPath('userData', isolatedUserData);
 }
 
-const CSP = [
-  "default-src 'none'",
-  "script-src 'self'",
-  `style-src 'self' 'unsafe-inline'`,
-  "img-src 'self' data:",
-  "font-src 'self' data:",
-  "connect-src 'self'" + (isDev ? ' ws://localhost:* http://localhost:*' : ''),
-  "form-action 'none'",
-  "base-uri 'none'",
-  "object-src 'none'",
-].join('; ');
+// Identical to the document meta CSP injected at build time (src/shared/csp.ts).
+const CSP = buildCsp(isDev);
 
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;

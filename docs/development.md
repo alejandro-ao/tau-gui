@@ -15,8 +15,14 @@
 | marked + highlight.js | 18.0.10 / 11.12.0 | incremental Markdown without raw HTML                         |
 | electron-builder      | 26.15.3           | macOS/Windows/Linux packaging                                 |
 
-Direct dependencies are pinned exactly (no `^`). Review `package-lock.json`
-diffs on every dependency change.
+Direct dependencies are pinned exactly (no `^`), including tooling such as
+`@eslint/js`. Review `package-lock.json` diffs on every dependency change.
+
+Shipped renderer code (`react`, `react-dom`, `marked`, `highlight.js`) lives in
+`dependencies`; build- and test-only packages stay in `devDependencies`. Vite
+bundles the renderer into `out/renderer`, so `electron-builder.yml` excludes
+`node_modules/**` from the package and the packaged output is unchanged by that
+classification.
 
 ## Commands
 
@@ -52,7 +58,12 @@ docs/             architecture, UI principles, RPC reference, roadmap status
 ## Testing model
 
 - **Unit** — framing, request correlation/timeouts, normalization, reducer,
-  settings, filesystem completion. No Electron, no runtime binaries.
+  settings, filesystem completion and traversal bounds, IPC handlers (with
+  Electron mocked), the CSP source of truth, and the `RuntimeManager` state
+  machine. No Electron app, no real runtime binaries.
+- **Streaming** — `test/runtime-stream.test.ts` drives
+  `test/fake/burst-runtime.mjs` to assert stdout flow control and stdin
+  backpressure never lose or reorder records.
 - **Contract** — `test/runtime-contract.test.ts` runs the same
   application-domain expectations against the `tau` and `pi` adapter
   configurations using `test/fake/fake-runtime.mjs`.

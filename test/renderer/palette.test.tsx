@@ -59,6 +59,17 @@ describe('command palette', () => {
     expect(view.container.textContent).toContain('tool catalog inspection needs runtime RPC');
   });
 
+  it('restores focus to the element that opened it', async () => {
+    const { view } = await renderApp({});
+    mounted = view;
+    const input = query<HTMLTextAreaElement>(view.container, 'textarea.composer-input');
+    input.focus();
+    await press(window, 'k', { ctrlKey: true });
+    expect(view.container.ownerDocument.activeElement).not.toBe(input);
+    await press(window, 'Escape');
+    expect(view.container.ownerDocument.activeElement).toBe(input);
+  });
+
   it('runs a frontend command and gates the tree entry on capabilities', async () => {
     const view = await openPalette({ sessionTree: false });
     const input = query<HTMLInputElement>(view.container, '.picker-input');

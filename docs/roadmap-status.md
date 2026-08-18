@@ -35,7 +35,9 @@ Tracks issue #1. Update this file whenever behavior changes.
 - Sidebar and compact status row.
 - Transcript virtualization with scroll anchoring and a new-output affordance.
 - `tau-light` and `high-contrast` themes; responsive sidebar drawer.
-- Clipboard actions and allowlisted external links.
+- Clipboard actions and external links: only `http`, `https`, and `mailto` hrefs
+  are rendered as links (anything else becomes inert text), and opening goes
+  through the main-process allowlist.
 
 ## Phase 3 — interaction parity ✅
 
@@ -45,9 +47,12 @@ Tracks issue #1. Update this file whenever behavior changes.
   (`src/renderer/src/components/modals/commands.ts`). Slash completion accepts
   with Enter (run) or Tab (complete text); unknown slash input is sent as a
   normal prompt.
-- Capability-gated commands (`/tools`, `/system`, `/reload`, `/login`,
+- Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
   `/logout`, `/scoped-models`, `/clone`) are listed as unavailable with the
-  reason instead of failing silently.
+  reason instead of failing silently. `/clone` stays unavailable even on Pi,
+  where the runtime supports it, because the desktop app has no clone flow yet.
+  The registry enforces this: an entry without a handler must declare a reason,
+  and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,
   Escape cancellation, keyboard/mouse parity, fuzzy filtering, and selection
   that stays stable across async refreshes.
@@ -57,14 +62,19 @@ Tracks issue #1. Update this file whenever behavior changes.
   and runtime switches.
 - `!`/`!!` direct shell mode with amber prompt styling.
 - Drag/drop path insertion with quoting.
-- Native completion notifications and `τ | session [| running]` window titles.
+- Native completion notifications (only while the window is unfocused and
+  `turnNotification` is `desktop`, keyed on a settle counter so repeated
+  identical answers still notify) and `τ | session [| running]` window titles.
+  Both are covered by renderer tests and an Electron end-to-end test.
 - Hotkey reference modal.
 
 ## Phase 4 — models, context, sessions ✅
 
 - Model picker with full RPC metadata and `Ctrl+P` cycling.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
-- Session details, usage/cache/context sidebar with cost or `$N/A`.
+- Session details, usage/cache/context sidebar with cost or `$N/A`. The cache
+  hit figure is derived from reported token counts, so it is shown as an
+  estimate (`~`).
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the
@@ -86,7 +96,8 @@ Tracks issue #1. Update this file whenever behavior changes.
 - Unit/contract suites (`npm run verify`) plus a Playwright Electron suite in
   `e2e/` covering startup, streaming, tools, cancellation, steering/follow-ups,
   errors, model selection, sessions, modal focus, runtime crash/restart, shell
-  mode, and preload isolation against the fake JSONL runtime.
+  mode, desktop notifications, and preload isolation against the fake JSONL
+  runtime.
 - Screenshot regression for themes, roles, tool states, diffs, pickers, and
   layouts behind `VISUAL=1` (`e2e/README.md`), plus an optional real-runtime
   startup smoke behind `TAU_GUI_REAL_RUNTIME=1`.
@@ -101,7 +112,7 @@ with conformance tests:
 | portable session listing         | `sessionList`            | missing in both runtimes; GUI keeps app-owned recent references |
 | cancellable direct bash          | `abortBash`              | Pi only                                                         |
 | queue modes / retry controls     | `retryControls`          | Pi only                                                         |
-| session clone                    | `sessionClone`           | Pi only                                                         |
+| session clone                    | `sessionClone`           | Pi only; no GUI flow yet, so `/clone` is unavailable everywhere |
 | image prompts                    | `imagePrompt`            | Pi only; GUI drop previews deferred                             |
 | extension dialogs/status/widgets | `extensionDialogs`       | Pi subprotocol only; Tau routes extension UI to stderr          |
 | provider login/logout            | `providerLogin`          | neither                                                         |

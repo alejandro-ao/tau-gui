@@ -11,6 +11,31 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'thinking.set', payload: { level: 'xhigh' } }).success,
     ).toBe(true);
     expect(requestSchema.safeParse({ action: 'agent.entries' }).success).toBe(true);
+    expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
+  });
+
+  it('never lets the renderer choose the probed binary', () => {
+    expect(requestSchema.safeParse({ action: 'runtime.probe' }).success).toBe(true);
+    expect(requestSchema.safeParse({ action: 'runtime.probe', payload: {} }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'pi' } }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'sh' } }).success,
+    ).toBe(false);
+
+    // A renderer-supplied binary is stripped by validation and never reaches
+    // the handler.
+    const parsed = requestSchema.safeParse({
+      action: 'runtime.probe',
+      payload: { kind: 'tau', binary: '/bin/sh' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.action === 'runtime.probe' && parsed.data.payload).toEqual(
+      {
+        kind: 'tau',
+      },
+    );
   });
 
   it('rejects unknown actions', () => {

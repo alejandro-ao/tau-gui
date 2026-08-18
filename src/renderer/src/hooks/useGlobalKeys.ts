@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { platform } from '../bridge.js';
 
 export interface GlobalKeyHandlers {
   openPalette: () => void;
@@ -18,7 +19,8 @@ export interface GlobalKeyHandlers {
  *
  * Ctrl+C is deliberately not bound so native copy keeps working whenever the
  * user has a transcript selection. Escape only closes the top modal here; the
- * composer keeps ownership of Escape-aborts while no modal is open.
+ * composer keeps ownership of Escape-aborts while no modal is open. On macOS the
+ * Cmd modifier is accepted alongside Ctrl.
  */
 export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
   const latest = useRef(handlers);
@@ -36,13 +38,16 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
       }
 
       if (event.key === 'Tab' && event.shiftKey && !event.ctrlKey && !event.metaKey) {
-        if (current.modalOpen) return;
+        // Reverse tab navigation stays intact unless the composer (or nothing in
+        // particular) owns focus, so buttons and pickers keep normal behavior.
+        if (current.modalOpen || !ownsGlobalTab(event.target)) return;
         event.preventDefault();
         current.cycleThinking();
         return;
       }
 
-      if (!event.ctrlKey || event.metaKey || event.altKey) return;
+      const accelerator = event.ctrlKey || (isMac() && event.metaKey);
+      if (!accelerator || event.altKey) return;
       const key = event.key.toLowerCase();
 
       if (key === 'k') {
@@ -85,4 +90,15 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
+}
+
+function isMac(): boolean {
+  return platform() === 'darwin';
+}
+
+/** True when Shift+Tab is not being used for focus movement. */
+function ownsGlobalTab(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return true;
+  if (target === target.ownerDocument.body) return true;
+  return target.classList.contains('composer-input');
 }

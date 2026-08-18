@@ -24,6 +24,14 @@ export interface AppCommand {
   run: () => void;
 }
 
+/**
+ * Input shape for `add`. A command either carries a real handler or states why
+ * it cannot run: an entry without `run` must declare `unavailable`, so nothing
+ * can be advertised as available and then silently do nothing.
+ */
+type CommandSpec = Omit<AppCommand, 'run' | 'unavailable'> &
+  ({ run: () => void; unavailable?: string | null } | { run?: undefined; unavailable: string });
+
 const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast'];
 const SIDEBARS: SidebarPosition[] = ['right', 'left', 'off'];
 
@@ -37,11 +45,28 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   const capabilities = state.snapshot.capabilities;
   const commands: AppCommand[] = [];
 
-  const add = (command: AppCommand): void => {
-    commands.push(command);
+  const add = (command: CommandSpec): void => {
+    const unavailable = command.unavailable ?? null;
+    commands.push({
+      ...command,
+      unavailable,
+      // Unimplemented entries explain the gap instead of no-oping, even if a
+      // caller bypasses the picker's unavailable guard.
+      run:
+        command.run ??
+        ((): void =>
+          actions.notice(`${command.title} is unavailable: ${unavailable ?? 'unknown'}`)),
+    });
   };
 
   const gate = (supported: boolean, reason: string): string | null => (supported ? null : reason);
+
+  /**
+   * Reason for a command the GUI has no implementation for: the capability gap
+   * when the runtime lacks the surface, otherwise the missing-GUI work.
+   */
+  const missing = (supported: boolean, capabilityReason: string): string =>
+    supported ? 'this is not implemented in the desktop app yet' : capabilityReason;
 
   /* ------------------------------------------------------------- sessions */
 
@@ -125,8 +150,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'session',
     origin: 'backend',
     slash: '/clone',
-    unavailable: gate(capabilities.sessionClone, 'this runtime cannot clone sessions'),
-    run: () => undefined,
+    // No GUI implementation exists yet, whatever the runtime supports.
+    unavailable: capabilities.sessionClone
+      ? 'clone is not implemented in the desktop app yet'
+      : 'this runtime cannot clone sessions',
   });
   add({
     id: 'app.quit',
@@ -168,11 +195,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'model',
     origin: 'backend',
     slash: '/scoped-models',
-    unavailable: gate(
+    unavailable: missing(
       capabilities.scopedModels,
       'scoped model management needs runtime RPC support',
     ),
-    run: () => undefined,
   });
   add({
     id: 'thinking.pick',
@@ -319,11 +345,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/tools',
-    unavailable: gate(
+    unavailable: missing(
       capabilities.toolCatalog,
       'tool catalog inspection needs runtime RPC support',
     ),
-    run: () => undefined,
   });
   add({
     id: 'runtime.system',
@@ -332,11 +357,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/system',
-    unavailable: gate(
+    unavailable: missing(
       capabilities.systemPromptInspection,
       'system prompt inspection needs runtime RPC support',
     ),
-    run: () => undefined,
   });
   add({
     id: 'runtime.reload',
@@ -345,8 +369,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/reload',
-    unavailable: gate(capabilities.resourceReload, 'resource reload needs runtime RPC support'),
-    run: () => undefined,
+    unavailable: missing(capabilities.resourceReload, 'resource reload needs runtime RPC support'),
   });
   for (const action of ['login', 'logout'] as const) {
     add({
@@ -356,11 +379,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       group: 'runtime',
       origin: 'backend',
       slash: `/${action}`,
-      unavailable: gate(
+      unavailable: missing(
         capabilities.providerLogin,
         'provider credential management needs runtime RPC support',
       ),
-      run: () => undefined,
     });
   }
   for (const kind of ['tau', 'pi'] as const) {

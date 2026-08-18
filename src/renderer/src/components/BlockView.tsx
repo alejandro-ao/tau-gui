@@ -44,8 +44,8 @@ export function BlockView({
             ) : null
           }
         >
+          {/* An `errorMessage` renders once, as its own error block. */}
           <Markdown text={block.text} />
-          {block.errorMessage ? <p className="block-text dim">{block.errorMessage}</p> : null}
           <div className="block-actions">
             <CopyButton text={block.text} label="message" />
           </div>

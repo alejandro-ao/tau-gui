@@ -1,4 +1,5 @@
 import { readdir } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { quotePath } from '../../shared/paths.js';
 import type { FileCompletion } from '../../shared/ipc.js';
@@ -18,10 +19,46 @@ const SKIP_DIRECTORIES = new Set([
 
 const MAX_RESULTS = 60;
 const MAX_VISITED_DIRECTORIES = 400;
+/** How many levels above the session cwd `../` traversal may reach. */
+export const MAX_PARENT_LEVELS = 2;
+
+/**
+ * True when `target` is inside `root` (or equal to it).
+ */
+function isInside(root: string, target: string): boolean {
+  const relativePath = relative(root, target);
+  return (
+    relativePath === '' ||
+    (!relativePath.startsWith(`..${sep}`) && relativePath !== '..' && !isAbsolute(relativePath))
+  );
+}
+
+/**
+ * Bound on user-supplied `../` traversal: a completion root is allowed when it
+ * stays within `MAX_PARENT_LEVELS` above the session cwd and still inside the
+ * user's home directory. Anything further (or outside home) is refused.
+ */
+export function isAllowedSearchRoot(cwd: string, searchRoot: string): boolean {
+  const absoluteCwd = resolve(cwd);
+  if (isInside(absoluteCwd, searchRoot)) return true;
+
+  let ceiling = absoluteCwd;
+  for (let level = 0; level < MAX_PARENT_LEVELS; level += 1) {
+    const parent = resolve(ceiling, '..');
+    if (parent === ceiling) break;
+    ceiling = parent;
+  }
+  if (!isInside(ceiling, searchRoot)) return false;
+
+  const home = resolve(homedir());
+  // Outside home, only the cwd subtree and its allowed ancestors are reachable.
+  return isInside(home, searchRoot) || isInside(searchRoot, absoluteCwd);
+}
 
 /**
  * Constrained `@` completion. Searches cwd-relative paths only, including
- * dotfiles, honouring explicit `../` traversal supplied by the user.
+ * dotfiles, honouring explicit `../` traversal supplied by the user up to
+ * `MAX_PARENT_LEVELS` above the cwd; deeper escapes return no results.
  */
 export async function completePaths(
   cwd: string,
@@ -36,6 +73,7 @@ export async function completePaths(
   ).toLowerCase();
 
   const searchRoot = resolve(cwd, dirPart);
+  if (!isAllowedSearchRoot(cwd, searchRoot)) return [];
   const results: FileCompletion[] = [];
   const queue: { dir: string; depth: number }[] = [{ dir: searchRoot, depth: 0 }];
   let visited = 0;

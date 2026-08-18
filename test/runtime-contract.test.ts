@@ -9,6 +9,7 @@ interface Harness {
   runtime: JsonlAgentRuntime;
   events: AgentEvent[];
   statuses: RuntimeStatus[];
+  details: (string | null)[];
   diagnostics: string[];
   settled: () => Promise<void>;
 }
@@ -16,6 +17,7 @@ interface Harness {
 async function launch(kind: RuntimeKind): Promise<Harness> {
   const events: AgentEvent[] = [];
   const statuses: RuntimeStatus[] = [];
+  const details: (string | null)[] = [];
   const diagnostics: string[] = [];
   let notifySettled: (() => void) | null = null;
 
@@ -24,7 +26,10 @@ async function launch(kind: RuntimeKind): Promise<Harness> {
       events.push(event);
       if (event.type === 'agent_settled') notifySettled?.();
     },
-    status: (status) => statuses.push(status),
+    status: (status, detail) => {
+      statuses.push(status);
+      details.push(detail ?? null);
+    },
     diagnostic: (line) => diagnostics.push(line),
   });
 
@@ -43,6 +48,7 @@ async function launch(kind: RuntimeKind): Promise<Harness> {
     runtime,
     events,
     statuses,
+    details,
     diagnostics,
     settled: () =>
       new Promise<void>((resolve) => {
@@ -211,6 +217,17 @@ describe.each<RuntimeKind>(['tau', 'pi'])('%s adapter contract', (kind) => {
     expect(tree.tree).toHaveLength(1);
   });
 
+  it('sends exactly one session reference field on switch_session', async () => {
+    active = await launch(kind);
+    await active.runtime.switchSession('session-ref-1');
+    const client = active.runtime as unknown as {
+      rpc: { request: (command: string) => Promise<unknown> };
+    };
+    const probe = (await client.rpc.request('switch_session_probe')) as { field: string };
+    // Tau resumes by indexed id, Pi by session path (docs/rpc-protocol.md).
+    expect(probe.field).toBe(kind === 'tau' ? 'sessionId' : 'sessionPath');
+  });
+
   it('rejects unknown commands with the runtime error text', async () => {
     active = await launch(kind);
     await expect(active.runtime.setModel({ provider: 'fake', modelId: 'nope' })).rejects.toThrow(
@@ -250,13 +267,20 @@ describe('capability gating', () => {
     expect(active.runtime.capabilities.abortBash).toBe(true);
   });
 
-  it('reports disconnection when the runtime exits unexpectedly', async () => {
+  it('reports disconnection and rejects pending work when the runtime is killed', async () => {
     active = await launch('tau');
-    const statuses = active.statuses;
-    await active.runtime.prompt({ text: 'hello' });
-    await active.settled();
-    // Simulate a crash by killing the child through an unsupported command path.
-    await active.runtime.stop();
-    expect(statuses).toContain('starting');
+    const harness = active;
+    const child = (harness.runtime as unknown as { child: { pid: number } | null }).child;
+    expect(child?.pid).toBeGreaterThan(0);
+
+    // A request that will never be answered, then a hard crash.
+    const pending = harness.runtime.getStats();
+    process.kill(child?.pid as number, 'SIGKILL');
+
+    await expect(pending).rejects.toThrow(/Runtime exited/);
+    expect(harness.statuses.at(-1)).toBe('disconnected');
+    expect(harness.details.at(-1)).toContain('Runtime exited unexpectedly');
+    // Later requests fail fast instead of hanging on a dead process.
+    await expect(harness.runtime.getState()).rejects.toThrow('Runtime connection is closed');
   });
 });

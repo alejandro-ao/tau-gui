@@ -33,6 +33,7 @@ export const INITIAL_STATE: AppState = {
   windowFocused: true,
   busy: false,
   lastCompletionPreview: null,
+  settledCount: 0,
 };
 
 const MAX_DIAGNOSTICS = 300;
@@ -75,7 +76,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'hydrate':
       return {
         ...state,
-        blocks: action.messages.flatMap((message) => blocksFromMessage(message, action.now)),
+        blocks: hydrateBlocks(action.messages, action.now),
         streamingAssistantId: null,
         streamingThinkingId: null,
       };
@@ -168,16 +169,22 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
         return { ...state, blocks: [...state.blocks, ...rendered] };
       }
       // `message_end.message` is authoritative and replaces provisional state.
-      let blocks = state.blocks;
+      // The replacement is spliced in at the position of the first provisional
+      // block so anything appended mid-stream (tool blocks, retry/compaction
+      // status, errors, steering echoes) keeps its relative order.
       const provisional = new Set(
         [state.streamingThinkingId, state.streamingAssistantId].filter(
           (id): id is string => id !== null,
         ),
       );
-      blocks = blocks.filter((block) => !provisional.has(block.id));
+      const rendered = blocksFromMessage(message, now);
+      const firstIndex = state.blocks.findIndex((block) => provisional.has(block.id));
+      const kept = state.blocks.filter((block) => !provisional.has(block.id));
+      const at =
+        firstIndex === -1 ? kept.length : countKeptBefore(state.blocks, provisional, firstIndex);
       return {
         ...state,
-        blocks: [...blocks, ...blocksFromMessage(message, now)],
+        blocks: [...kept.slice(0, at), ...rendered, ...kept.slice(at)],
         streamingAssistantId: null,
         streamingThinkingId: null,
       };
@@ -265,12 +272,29 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
         streamingAssistantId: null,
         streamingThinkingId: null,
         lastCompletionPreview: preview,
+        // Defensive: the runtime clears its queues when a turn settles.
+        queue: { steering: [], followUp: [] },
+        settledCount: state.settledCount + 1,
       };
     }
 
     default:
       return state;
   }
+}
+
+/** Number of surviving blocks before `index`, used to splice in place. */
+function countKeptBefore(
+  blocks: TranscriptBlock[],
+  provisional: Set<string>,
+  index: number,
+): number {
+  let kept = 0;
+  for (let cursor = 0; cursor < index; cursor += 1) {
+    const block = blocks[cursor];
+    if (block && !provisional.has(block.id)) kept += 1;
+  }
+  return kept;
 }
 
 /** Two blocks describe the same runtime message (provisional vs authoritative). */
@@ -319,7 +343,6 @@ function upsertStreamBlock(
           id,
           text,
           streaming: true,
-          errorMessage: null,
           aborted: false,
           timestamp: now,
         }
@@ -361,8 +384,31 @@ function lastAssistantText(state: AppState): string | null {
   return null;
 }
 
+/**
+ * Rebuilds a transcript from durable messages.
+ *
+ * Tool results carry no arguments, so they are correlated with the `toolCalls`
+ * of the assistant messages that requested them. That keeps the intent line and
+ * tool grouping intact after a session switch, compaction, or fork.
+ */
+export function hydrateBlocks(messages: AgentMessage[], now: number): TranscriptBlock[] {
+  const toolArgs = new Map<string, Record<string, unknown>>();
+  const blocks: TranscriptBlock[] = [];
+  for (const message of messages) {
+    if (message.role === 'assistant') {
+      for (const call of message.toolCalls) toolArgs.set(call.id, call.arguments);
+    }
+    blocks.push(...blocksFromMessage(message, now, toolArgs));
+  }
+  return blocks;
+}
+
 /** Converts a durable runtime message into renderable blocks. */
-export function blocksFromMessage(message: AgentMessage, now: number): TranscriptBlock[] {
+export function blocksFromMessage(
+  message: AgentMessage,
+  now: number,
+  toolArgs?: Map<string, Record<string, unknown>>,
+): TranscriptBlock[] {
   switch (message.role) {
     case 'user':
       return [
@@ -384,13 +430,12 @@ export function blocksFromMessage(message: AgentMessage, now: number): Transcrip
           timestamp: message.timestamp || now,
         });
       }
-      if (message.text.trim() || message.errorMessage) {
+      if (message.text.trim()) {
         blocks.push({
           kind: 'assistant',
           id: nextBlockId('assistant'),
           text: message.text,
           streaming: false,
-          errorMessage: message.errorMessage,
           aborted: message.stopReason === 'aborted',
           timestamp: message.timestamp || now,
         });
@@ -412,7 +457,7 @@ export function blocksFromMessage(message: AgentMessage, now: number): Transcrip
           id: nextBlockId('tool'),
           toolCallId: message.toolCallId,
           name: message.toolName,
-          args: {},
+          args: toolArgs?.get(message.toolCallId) ?? {},
           output: message.text,
           state: message.isError ? 'error' : 'success',
           startedAt: message.timestamp || now,

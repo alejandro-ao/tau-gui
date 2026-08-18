@@ -7,6 +7,11 @@ directories:
 files:
   - out/**
   - package.json
+  # Renderer dependencies (react, marked, highlight.js) are bundled into
+  # out/renderer by Vite, so no runtime node_modules tree is shipped. Keeping
+  # this exclusion makes the packaged output identical to before those packages
+  # moved from devDependencies to dependencies.
+  - '!node_modules/**'
 asar: true
 electronLanguages:
   - en-US

@@ -110,14 +110,25 @@ function renderInline(tokens: Token[]): ReactNode[] {
         return <br key={index} />;
       case 'link': {
         const link = token as Tokens.Link;
+        const href = safeHref(link.href);
+        // Unsupported schemes (`file:`, `javascript:`, relative paths) never
+        // reach the DOM as a navigable href: middle-click and drag cannot
+        // bypass the click handler if there is nothing to navigate to.
+        if (!href) {
+          return (
+            <span key={index} className="inert-link" title={link.title ?? undefined}>
+              {renderInline(link.tokens)}
+            </span>
+          );
+        }
         return (
           <a
             key={index}
-            href={link.href}
+            href={href}
             title={link.title ?? undefined}
             onClick={(event) => {
               event.preventDefault();
-              void invoke('ui.openExternal', { url: link.href }).catch(() => undefined);
+              void invoke('ui.openExternal', { url: href }).catch(() => undefined);
             }}
           >
             {renderInline(link.tokens)}
@@ -139,6 +150,19 @@ function renderInline(tokens: Token[]): ReactNode[] {
         return <Fragment key={index}>{'raw' in token ? String(token.raw) : null}</Fragment>;
     }
   });
+}
+
+const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'mailto:']);
+
+/** Model-supplied hrefs are only kept when their scheme is web-safe. */
+export function safeHref(href: string): string | null {
+  let url: URL;
+  try {
+    url = new URL(href);
+  } catch {
+    return null;
+  }
+  return ALLOWED_SCHEMES.has(url.protocol) ? url.href : null;
 }
 
 function alignStyle(align: 'center' | 'left' | 'right' | null | undefined): {

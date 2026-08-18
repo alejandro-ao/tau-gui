@@ -70,9 +70,11 @@ export const requestSchema = z.discriminatedUnion('action', [
     }),
   }),
   z.object({ action: z.literal('runtime.stop') }),
+  // The probe never accepts a renderer-supplied binary: only the runtime kind
+  // may be selected, and the executable always comes from persisted settings.
   z.object({
     action: z.literal('runtime.probe'),
-    payload: z.object({ kind: runtimeKind, binary: z.string().min(1) }).optional(),
+    payload: z.object({ kind: runtimeKind.optional() }).optional(),
   }),
   z.object({ action: z.literal('runtime.snapshot') }),
 

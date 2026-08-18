@@ -39,7 +39,14 @@ export function App(): ReactNode {
   const sidebarVisible = position !== 'off' && (!narrow || drawerOpen);
 
   return (
-    <div className="app" data-sidebar={position} data-narrow={narrow}>
+    // `data-focused` mirrors the main-process focus signal that gates desktop
+    // notifications, so it is observable without inspecting store internals.
+    <div
+      className="app"
+      data-sidebar={position}
+      data-narrow={narrow}
+      data-focused={state.windowFocused}
+    >
       <main className="main">
         <ConnectionNotice />
         <Transcript />

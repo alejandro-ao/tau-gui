@@ -37,9 +37,10 @@ export async function handleRequest(
     case 'runtime.stop':
       return manager.stop();
     case 'runtime.probe': {
+      // The binary is always read from settings: the renderer cannot ask the
+      // main process to execute an arbitrary path.
       const kind = request.payload?.kind ?? settings.current.agentRuntime;
-      const binary = request.payload?.binary ?? settings.current.runtime[kind].binary;
-      return probeRuntime(kind, binary);
+      return probeRuntime(kind, settings.current.runtime[kind].binary);
     }
     case 'runtime.snapshot':
       return manager.snapshot();
@@ -115,11 +116,14 @@ export async function handleRequest(
       return null;
     case 'session.exportHtml': {
       const window = context.window();
-      const result = await dialog.showSaveDialog(window ?? undefined!, {
+      const options = {
         title: 'Export session as HTML',
         defaultPath: 'session.html',
         filters: [{ name: 'HTML', extensions: ['html'] }],
-      });
+      };
+      const result = window
+        ? await dialog.showSaveDialog(window, options)
+        : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
       return manager.active.exportHtml(result.filePath);
     }
@@ -139,10 +143,13 @@ export async function handleRequest(
     }
     case 'fs.pickDirectory': {
       const window = context.window();
-      const result = await dialog.showOpenDialog(window ?? undefined!, {
+      const options = {
         title: 'Open project directory',
-        properties: ['openDirectory', 'createDirectory'],
-      });
+        properties: ['openDirectory' as const, 'createDirectory' as const],
+      };
+      const result = window
+        ? await dialog.showOpenDialog(window, options)
+        : await dialog.showOpenDialog(options);
       return result.canceled ? null : (result.filePaths[0] ?? null);
     }
     case 'fs.relativize': {

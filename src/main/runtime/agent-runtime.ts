@@ -76,6 +76,17 @@ function stripAnsi(text: string): string {
   return text.replace(/\u001B\[[0-9;]*m/g, '');
 }
 
+/** stdout flow-control thresholds (bytes of undecoded backlog). */
+export const STDOUT_BACKLOG_LIMIT = 4 * 1024 * 1024;
+export const STDOUT_RESUME_LIMIT = 1 * 1024 * 1024;
+
+export interface JsonlRuntimeOptions {
+  /** Pause stdout once this many undecoded bytes are queued. */
+  stdoutHighWaterMark?: number;
+  /** Resume stdout once the backlog falls to this many bytes. */
+  stdoutLowWaterMark?: number;
+}
+
 const asRecord = (value: unknown): Record<string, unknown> =>
   typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 
@@ -88,12 +99,31 @@ export class JsonlAgentRuntime implements AgentRuntime {
   private child: ChildProcessWithoutNullStreams | null = null;
   private client: RpcClient | null = null;
   private stopping = false;
+  /** Records waiting for stdin to drain, in submission order. */
+  private writeQueue: string[] = [];
+  private draining = false;
+  /** stdout chunks received but not yet decoded, in arrival order. */
+  private stdoutQueue: Buffer[] = [];
+  private stdoutBacklog = 0;
+  private stdoutPaused = false;
+  private pumping = false;
+  private readonly highWaterMark: number;
+  private readonly lowWaterMark: number;
+  /** Observable for tests: how often stdout had to be paused. */
+  private pauses = 0;
 
   constructor(
     readonly kind: RuntimeKind,
     private readonly sink: RuntimeSink,
+    options: JsonlRuntimeOptions = {},
   ) {
     this.capabilities = CAPABILITIES[kind];
+    this.highWaterMark = options.stdoutHighWaterMark ?? STDOUT_BACKLOG_LIMIT;
+    this.lowWaterMark = options.stdoutLowWaterMark ?? STDOUT_RESUME_LIMIT;
+  }
+
+  get flowControlPauses(): number {
+    return this.pauses;
   }
 
   get running(): boolean {
@@ -121,9 +151,15 @@ export class JsonlAgentRuntime implements AgentRuntime {
     }
 
     this.child = child;
+    this.writeQueue = [];
+    this.draining = false;
+    this.stdoutQueue = [];
+    this.stdoutBacklog = 0;
+    this.stdoutPaused = false;
+    this.pumping = false;
     const client = new RpcClient({
       write: (data) => {
-        child.stdin.write(data);
+        this.writeToStdin(child, data);
       },
       onEvent: (wire) => {
         if (wire['type'] === 'extension_ui_request') {
@@ -138,7 +174,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     });
     this.client = client;
 
-    child.stdout.on('data', (chunk: Buffer) => client.handleChunk(chunk));
+    child.stdout.on('data', (chunk: Buffer) => this.enqueueStdout(child, client, chunk));
     child.stderr.setEncoding('utf8');
     child.stderr.on('data', (chunk: string) => {
       for (const line of chunk.split('\n')) if (line.trim()) this.sink.diagnostic(line);
@@ -150,6 +186,8 @@ export class JsonlAgentRuntime implements AgentRuntime {
     });
     child.on('exit', (code, signal) => {
       this.child = null;
+      // Decode everything already received before rejecting pending requests.
+      this.drainStdout(client);
       client.handleClose(`Runtime exited (code ${String(code)}, signal ${String(signal)})`);
       if (this.stopping) {
         this.sink.status('stopped');
@@ -185,6 +223,83 @@ export class JsonlAgentRuntime implements AgentRuntime {
     });
     this.child = null;
     this.client = null;
+    this.writeQueue = [];
+    this.draining = false;
+    this.stdoutQueue = [];
+    this.stdoutBacklog = 0;
+  }
+
+  /**
+   * Flow control for stdout: chunks are queued and decoded one per tick, and
+   * the pipe is paused while the undecoded backlog exceeds the high-water mark.
+   * The queue preserves arrival order, so records are never lost or reordered.
+   */
+  private enqueueStdout(
+    child: ChildProcessWithoutNullStreams,
+    client: RpcClient,
+    chunk: Buffer,
+  ): void {
+    this.stdoutQueue.push(chunk);
+    this.stdoutBacklog += chunk.length;
+    if (!this.stdoutPaused && this.stdoutBacklog > this.highWaterMark) {
+      this.stdoutPaused = true;
+      this.pauses += 1;
+      child.stdout.pause();
+    }
+    if (this.pumping) return;
+    this.pumping = true;
+    const step = (): void => {
+      const next = this.stdoutQueue.shift();
+      if (!next) {
+        this.pumping = false;
+        return;
+      }
+      this.stdoutBacklog -= next.length;
+      try {
+        client.handleChunk(next);
+      } finally {
+        if (this.stdoutPaused && this.stdoutBacklog <= this.lowWaterMark) {
+          this.stdoutPaused = false;
+          child.stdout.resume();
+        }
+        setImmediate(step);
+      }
+    };
+    setImmediate(step);
+  }
+
+  /** Decode every queued chunk immediately (used on exit). */
+  private drainStdout(client: RpcClient): void {
+    const queued = this.stdoutQueue;
+    this.stdoutQueue = [];
+    this.stdoutBacklog = 0;
+    for (const chunk of queued) client.handleChunk(chunk);
+  }
+
+  /**
+   * Honour stdin backpressure: once `write()` reports a full kernel buffer,
+   * later records queue in order and are flushed on `drain`.
+   */
+  private writeToStdin(child: ChildProcessWithoutNullStreams, data: string): void {
+    if (this.draining) {
+      this.writeQueue.push(data);
+      return;
+    }
+    if (!child.stdin.write(data)) {
+      this.draining = true;
+      child.stdin.once('drain', () => this.flushStdin(child));
+    }
+  }
+
+  private flushStdin(child: ChildProcessWithoutNullStreams): void {
+    while (this.writeQueue.length > 0) {
+      const next = this.writeQueue.shift() as string;
+      if (!child.stdin.write(next)) {
+        child.stdin.once('drain', () => this.flushStdin(child));
+        return;
+      }
+    }
+    this.draining = false;
   }
 
   /**
@@ -351,8 +466,10 @@ export class JsonlAgentRuntime implements AgentRuntime {
   }
 
   async switchSession(ref: string): Promise<void> {
-    // Tau accepts either an id or a path; Pi accepts a path.
-    await this.rpc.request('switch_session', { sessionId: ref, sessionPath: ref });
+    // Tau resumes by indexed session id; Pi resumes by session path. Exactly
+    // one field is sent so the runtime never has to disambiguate.
+    const params = this.kind === 'tau' ? { sessionId: ref } : { sessionPath: ref };
+    await this.rpc.request('switch_session', params);
   }
 
   async nameSession(name: string): Promise<void> {
