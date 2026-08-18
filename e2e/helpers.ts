@@ -160,9 +160,10 @@ export async function submitPrompt(
 }
 
 /** Waits until the run finished (the runtime reported agent_settled). */
-export async function waitForSettled(page: Page): Promise<void> {
-  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
-  await expect(page.getByTestId('prompt-slot')).toContainText('idle');
+export async function waitForSettled(page: Page, timeout?: number): Promise<void> {
+  const options = timeout === undefined ? undefined : { timeout };
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle', options);
+  await expect(page.getByTestId('prompt-slot')).toContainText('idle', options);
 }
 
 export async function transcriptText(page: Page): Promise<string> {

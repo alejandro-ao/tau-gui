@@ -120,3 +120,12 @@ with conformance tests:
   signing/notarization secrets, Windows code signing, update strategy, and
   clean-machine release smoke tests.
 - ⏳ Accessibility and performance audit passes.
+
+## Verified manually
+
+- A real `tau --mode rpc` session completes a coding turn in the packaged
+  renderer, including a built-in `read` tool call
+  (`TAU_GUI_REAL_RUNTIME=1 TAU_GUI_REAL_PROMPT=1 npx playwright test e2e/smoke.real.spec.ts`).
+- A real `pi --mode rpc` session starts, reports state, and its extension UI
+  requests are dismissed instead of stalling the stream.
+- `npm run package` produces an unsigned macOS arm64 app bundle.

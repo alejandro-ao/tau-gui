@@ -1,18 +1,30 @@
 /**
  * Optional smoke test against a real installed runtime.
  *
- * Skipped unless `TAU_GUI_REAL_RUNTIME=1`. It only starts the runtime and reads
- * state, so it never sends a prompt and never spends provider credit. Point it
- * at another binary or runtime with:
+ * Skipped unless `TAU_GUI_REAL_RUNTIME=1`. By default it only starts the runtime
+ * and reads state, so it never sends a prompt and never spends provider credit.
+ * Set `TAU_GUI_REAL_PROMPT=1` as well to additionally complete one real coding
+ * turn (this does spend provider credit). Point it at another binary or runtime
+ * with:
  *
  *   TAU_GUI_REAL_RUNTIME=1 TAU_GUI_REAL_BINARY=/path/to/tau npx playwright test e2e/smoke.real.spec.ts
  */
 import { expect, test } from '@playwright/test';
-import { launchApp, waitForConnected, type AppHandle } from './helpers.js';
+import {
+  launchApp,
+  submitPrompt,
+  transcriptText,
+  waitForConnected,
+  waitForSettled,
+  type AppHandle,
+} from './helpers.js';
 
 const enabled = process.env['TAU_GUI_REAL_RUNTIME'] === '1';
 const binary = process.env['TAU_GUI_REAL_BINARY'] ?? 'tau';
 const kind = process.env['TAU_GUI_REAL_KIND'] === 'pi' ? 'pi' : 'tau';
+const promptEnabled = enabled && process.env['TAU_GUI_REAL_PROMPT'] === '1';
+const promptText = process.env['TAU_GUI_REAL_PROMPT_TEXT'] ?? 'Reply with exactly: pong';
+const promptExpectation = process.env['TAU_GUI_REAL_PROMPT_EXPECT'] ?? 'pong';
 
 test.describe('real runtime smoke', () => {
   test.skip(!enabled, 'set TAU_GUI_REAL_RUNTIME=1 to run against an installed runtime');
@@ -46,5 +58,17 @@ test.describe('real runtime smoke', () => {
     expect(state.isStreaming).toBe(false);
 
     await expect(page.getByTestId('status-row')).toContainText(handle.projectDir);
+  });
+
+  test('completes one real turn', async () => {
+    test.skip(!promptEnabled, 'set TAU_GUI_REAL_PROMPT=1 to spend provider credit');
+    test.setTimeout(180_000);
+    const { page } = handle;
+
+    await submitPrompt(page, promptText);
+    await waitForSettled(page, 150_000);
+    expect(await transcriptText(page)).toContain(promptExpectation);
+    // The composer stays usable after a real turn settles.
+    await expect(page.getByTestId('composer').getByRole('textbox')).toBeEnabled();
   });
 });

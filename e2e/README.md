@@ -82,3 +82,22 @@ it costs nothing and cannot depend on provider availability.
 | `shell.spec.ts`      | `!echo hi` shell mode output                                      |
 | `visual.spec.ts`     | themes, roles, tool states, diff, pickers, layouts, sidebar modes |
 | `smoke.real.spec.ts` | optional real-runtime startup smoke                               |
+
+## Real-runtime smoke tests
+
+`smoke.real.spec.ts` is skipped unless `TAU_GUI_REAL_RUNTIME=1`:
+
+```bash
+# startup + state only (no provider call)
+TAU_GUI_REAL_RUNTIME=1 npx playwright test e2e/smoke.real.spec.ts
+
+# also complete one real coding turn (spends provider credit)
+TAU_GUI_REAL_RUNTIME=1 TAU_GUI_REAL_PROMPT=1 npx playwright test e2e/smoke.real.spec.ts
+
+# point at another runtime/binary or customize the prompt
+TAU_GUI_REAL_KIND=pi TAU_GUI_REAL_BINARY=$(which pi) \
+TAU_GUI_REAL_PROMPT_TEXT="…" TAU_GUI_REAL_PROMPT_EXPECT="…" \
+TAU_GUI_REAL_RUNTIME=1 npx playwright test e2e/smoke.real.spec.ts
+```
+
+These never run in CI.
