@@ -32,15 +32,25 @@ export function StatusRow(): ReactNode {
           </>
         ) : null}
         {model ? (
-          <span>
+          <button
+            type="button"
+            className="status-link"
+            title="Pick a model"
+            onClick={() => actions.openModal('model')}
+          >
             {model.provider}:{model.id}
             {thinking && thinking !== 'off' ? ` (${thinking})` : ''}
-          </span>
+          </button>
         ) : null}
         {context ? (
-          <span>
+          <button
+            type="button"
+            className="status-link"
+            title="Session details"
+            onClick={() => actions.openModal('details')}
+          >
             · {formatTokens(context.tokens)}/{formatTokens(context.contextWindow)}
-          </span>
+          </button>
         ) : null}
       </div>
     </footer>

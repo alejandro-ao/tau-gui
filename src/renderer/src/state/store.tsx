@@ -8,7 +8,8 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import type { ModelRef, ThinkingLevel } from '../../../shared/domain.js';
+import type { ModelRef, RuntimeKind, ThinkingLevel, TreeSnapshot } from '../../../shared/domain.js';
+import type { FileCompletion } from '../../../shared/ipc.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
@@ -39,6 +40,17 @@ export interface Actions {
   exportHtml: () => Promise<void>;
   openDirectory: () => Promise<void>;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
+  /** Persists the runtime choice, then restarts it without losing the draft. */
+  switchRuntime: (kind: RuntimeKind) => Promise<void>;
+  restart: () => Promise<void>;
+  quit: () => Promise<void>;
+  forgetSession: (id: string) => Promise<void>;
+  setAutoCompaction: (enabled: boolean) => Promise<void>;
+  loadTree: () => Promise<TreeSnapshot | null>;
+  loadDiagnostics: () => Promise<void>;
+  completePaths: (query: string) => Promise<FileCompletion[]>;
+  relativize: (paths: string[]) => Promise<string[]>;
+  setDraft: (text: string) => void;
   openModal: (modal: ModalKind | null) => void;
   toggleExpandAll: () => void;
   notice: (message: string) => void;
@@ -278,6 +290,8 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             'session.compact',
             instructions ? { instructions } : undefined,
           );
+          // Rebuild first: the outcome block must outlive the hydration.
+          await refresh();
           dispatch({
             type: 'localMessage',
             block: {
@@ -288,7 +302,6 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
               timestamp: Date.now(),
             },
           });
-          await refresh();
         });
       },
       exportHtml: async () => {
@@ -322,6 +335,50 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         const settings = await attempt('settings.update', patch, notice);
         if (settings) dispatch({ type: 'settings', settings });
       },
+      switchRuntime: async (kind) => {
+        if (kind === stateRef.current.settings.agentRuntime) return;
+        const settings = await attempt('settings.update', { agentRuntime: kind }, notice);
+        if (!settings) return;
+        dispatch({ type: 'settings', settings });
+        // The draft and every GUI setting outlive the restart on purpose.
+        await run(async () => {
+          const snapshot = await invoke('runtime.start', { cwd: settings.cwd ?? null });
+          dispatch({ type: 'snapshot', snapshot });
+          dispatch({ type: 'clearTranscript' });
+          await refresh();
+        });
+      },
+      restart: async () => {
+        await run(async () => {
+          const snapshot = await invoke('runtime.start', {
+            cwd: stateRef.current.settings.cwd ?? null,
+          });
+          dispatch({ type: 'snapshot', snapshot });
+          dispatch({ type: 'clearTranscript' });
+          await refresh();
+        });
+      },
+      quit: async () => {
+        await attempt('runtime.stop', undefined, notice);
+        window.close();
+      },
+      forgetSession: async (id) => {
+        const settings = await attempt('settings.forgetSession', { id }, notice);
+        if (settings) dispatch({ type: 'settings', settings });
+      },
+      setAutoCompaction: async (enabled) => {
+        await attempt('session.autoCompaction', { enabled }, notice);
+        const snapshot = await attempt('runtime.snapshot', undefined, notice);
+        if (snapshot) dispatch({ type: 'snapshot', snapshot });
+      },
+      loadTree: async () => attempt('agent.tree', undefined, notice),
+      loadDiagnostics: async () => {
+        const messages = await attempt('diagnostics.list', undefined, notice);
+        if (messages) dispatch({ type: 'diagnostics', messages });
+      },
+      completePaths: async (query) => (await attempt('fs.complete', { query }, notice)) ?? [],
+      relativize: async (paths) => (await attempt('fs.relativize', { paths }, notice)) ?? paths,
+      setDraft: (text) => dispatch({ type: 'draft', text }),
       openModal: (modal) => dispatch({ type: 'modal', modal }),
       toggleExpandAll: () => dispatch({ type: 'toggleExpandAll' }),
       notice,

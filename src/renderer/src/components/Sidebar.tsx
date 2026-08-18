@@ -3,8 +3,17 @@ import { isRunning, shortenPath } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import { formatCost, formatPercent, formatTokens } from './format.js';
 
+const PICKERS = [
+  { modal: 'palette', label: 'palette' },
+  { modal: 'session', label: 'sessions' },
+  { modal: 'tree', label: 'tree' },
+  { modal: 'details', label: 'details' },
+  { modal: 'settings', label: 'settings' },
+  { modal: 'hotkeys', label: 'keys' },
+] as const;
+
 export function Sidebar({ id }: { id?: string }): ReactNode {
-  const { state } = useStore();
+  const { state, actions } = useStore();
   const { snapshot, agent, stats, settings, commands } = state;
   const running = isRunning(state);
   const model = agent?.model ?? null;
@@ -93,6 +102,23 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
           </ul>
         </section>
       ) : null}
+
+      {/* Mouse parity for every keyboard-first picker. */}
+      <section className="sidebar-section">
+        <h2>open</h2>
+        <div className="sidebar-actions">
+          {PICKERS.map((picker) => (
+            <button
+              key={picker.modal}
+              type="button"
+              className="ghost-button"
+              onClick={() => actions.openModal(picker.modal)}
+            >
+              {picker.label}
+            </button>
+          ))}
+        </div>
+      </section>
 
       <div className="version-mark">
         <span>τ = 2π</span>

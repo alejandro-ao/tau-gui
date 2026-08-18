@@ -28,6 +28,7 @@ export const INITIAL_STATE: AppState = {
   diagnostics: [],
   expandAll: false,
   expanded: {},
+  draft: '',
   modal: null,
   windowFocused: true,
   busy: false,
@@ -61,6 +62,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         diagnostics: [...state.diagnostics, action.message].slice(-MAX_DIAGNOSTICS),
       };
+    case 'diagnostics':
+      return { ...state, diagnostics: action.messages.slice(-MAX_DIAGNOSTICS) };
     case 'stats':
       return { ...state, stats: action.stats };
     case 'models':
@@ -101,6 +104,8 @@ export function reducer(state: AppState, action: Action): AppState {
         ...state,
         expanded: { ...state.expanded, [action.id]: !isExpanded(state, action.id) },
       };
+    case 'draft':
+      return { ...state, draft: action.text };
     case 'modal':
       return { ...state, modal: action.modal };
     case 'focus':

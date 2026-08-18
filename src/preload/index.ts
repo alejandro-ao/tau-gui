@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type { BridgeEvent, IpcAction, IpcResponse, IpcResult } from '../shared/ipc.js';
 import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
 
@@ -9,6 +9,8 @@ import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
 export interface TauBridge {
   invoke<A extends IpcAction>(action: A, payload?: Record<string, unknown>): Promise<IpcResult<A>>;
   subscribe(listener: (event: BridgeEvent) => void): () => void;
+  /** Filesystem path of a dropped file; empty when Electron withholds it. */
+  pathForFile(file: File): string;
   platform: string;
 }
 
@@ -30,6 +32,13 @@ const bridge: TauBridge = {
     return () => {
       ipcRenderer.removeListener(IPC_EVENT_CHANNEL, handler);
     };
+  },
+  pathForFile(file) {
+    try {
+      return webUtils.getPathForFile(file);
+    } catch {
+      return '';
+    }
   },
   platform: process.platform,
 };

@@ -41,8 +41,20 @@ Tracks issue #1. Update this file whenever behavior changes.
 
 - Steering and follow-up queueing with pending state.
 - Command palette (`Ctrl+K`) and slash completion merging RPC commands,
-  frontend commands, skills, and prompt templates.
-- `@` file completion through the constrained main-process service.
+  frontend commands, skills, and prompt templates through one command registry
+  (`src/renderer/src/components/modals/commands.ts`). Slash completion accepts
+  with Enter (run) or Tab (complete text); unknown slash input is sent as a
+  normal prompt.
+- Capability-gated commands (`/tools`, `/system`, `/reload`, `/login`,
+  `/logout`, `/scoped-models`, `/clone`) are listed as unavailable with the
+  reason instead of failing silently.
+- One accessible picker framework (`Modal` + `Picker`) with focus trapping,
+  Escape cancellation, keyboard/mouse parity, fuzzy filtering, and selection
+  that stays stable across async refreshes.
+- `@` file completion through the constrained main-process service, debounced in
+  the renderer, inserting quoted display paths at the cursor.
+- Composer drafts live in the store, so they survive modals, session switches,
+  and runtime switches.
 - `!`/`!!` direct shell mode with amber prompt styling.
 - Drag/drop path insertion with quoting.
 - Native completion notifications and `τ | session [| running]` window titles.
@@ -53,8 +65,10 @@ Tracks issue #1. Update this file whenever behavior changes.
 - Model picker with full RPC metadata and `Ctrl+P` cycling.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
 - Session details, usage/cache/context sidebar with cost or `$N/A`.
-- App-owned recent-session picker (no runtime index parsing).
-- New/switch/name, tree browser with fork, compaction, HTML export.
+- App-owned recent-session picker with per-entry forget (no runtime index
+  parsing); the UI states that cross-session listing needs `list_sessions`.
+- New/switch/name, tree browser with fork (forked text is prefilled into the
+  composer), compaction, HTML export, settings and diagnostics modals.
 
 ## Phase 5 — Tau/Pi runtime switching ✅
 

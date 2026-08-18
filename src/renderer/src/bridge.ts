@@ -3,6 +3,7 @@ import type { BridgeEvent, IpcAction, IpcResult } from '../../shared/ipc.js';
 interface TauBridge {
   invoke<A extends IpcAction>(action: A, payload?: Record<string, unknown>): Promise<IpcResult<A>>;
   subscribe(listener: (event: BridgeEvent) => void): () => void;
+  pathForFile?: (file: File) => string;
   platform: string;
 }
 
@@ -27,6 +28,14 @@ export function invoke<A extends IpcAction>(
 
 export function subscribe(listener: (event: BridgeEvent) => void): () => void {
   return bridge().subscribe(listener);
+}
+
+/**
+ * Filesystem path for a dropped file. Electron exposes this through the
+ * preload bridge only; the renderer never touches Node APIs.
+ */
+export function pathForFile(file: File): string {
+  return window.tau?.pathForFile?.(file) ?? '';
 }
 
 export function platform(): string {

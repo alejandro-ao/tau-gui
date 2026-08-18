@@ -1,5 +1,6 @@
 import { readdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { quotePath } from '../../shared/paths.js';
 import type { FileCompletion } from '../../shared/ipc.js';
 
 const SKIP_DIRECTORIES = new Set([
@@ -86,5 +87,5 @@ export function toDisplayPath(cwd: string, absolutePath: string): string {
 
 /** Quote a dropped or completed path for insertion into the composer. */
 export function quoteForComposer(path: string): string {
-  return /[\s"']/.test(path) ? `"${path.replaceAll('"', '\\"')}"` : path;
+  return quotePath(path);
 }

@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Composer } from './components/Composer.js';
 import { ConnectionNotice } from './components/ConnectionNotice.js';
+import { ModalHost } from './components/modals/ModalHost.js';
 import { PromptSlot } from './components/PromptSlot.js';
 import { Sidebar } from './components/Sidebar.js';
 import { StatusRow } from './components/StatusRow.js';
@@ -15,11 +16,23 @@ export function App(): ReactNode {
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const position = state.settings.sidebarPosition;
+  const showThinking = state.settings.showThinking;
   const toggleSidebar = useCallback(() => setDrawerOpen((open) => !open), []);
   useGlobalKeys(
     useMemo(
-      () => ({ toggleExpandAll: actions.toggleExpandAll, toggleSidebar }),
-      [actions.toggleExpandAll, toggleSidebar],
+      () => ({
+        openPalette: () => actions.openModal('palette'),
+        closeModal: () => actions.openModal(null),
+        modalOpen: state.modal !== null,
+        toggleExpandAll: actions.toggleExpandAll,
+        toggleSidebar,
+        cycleModel: () => void actions.cycleModel(),
+        cycleThinking: () => void actions.cycleThinking(),
+        toggleThinking: () => void actions.updateSettings({ showThinking: !showThinking }),
+        newSession: () => void actions.newSession(),
+        restart: () => void actions.restart(),
+      }),
+      [actions, showThinking, state.modal, toggleSidebar],
     ),
   );
 
@@ -48,6 +61,8 @@ export function App(): ReactNode {
       ) : null}
 
       {sidebarVisible ? <Sidebar id="session-sidebar" /> : null}
+
+      <ModalHost />
     </div>
   );
 }

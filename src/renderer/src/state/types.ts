@@ -132,6 +132,11 @@ export interface AppState {
   diagnostics: string[];
   expandAll: boolean;
   expanded: Record<string, boolean>;
+  /**
+   * Composer draft. It lives in the store so it survives modals, session
+   * switches, and runtime switches.
+   */
+  draft: string;
   modal: ModalKind | null;
   windowFocused: boolean;
   busy: boolean;
@@ -143,6 +148,7 @@ export type Action =
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'diagnostic'; message: string }
+  | { type: 'diagnostics'; messages: string[] }
   | { type: 'stats'; stats: SessionStats }
   | { type: 'models'; models: Model[] }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
@@ -153,6 +159,7 @@ export type Action =
   | { type: 'clearTranscript' }
   | { type: 'toggleExpandAll' }
   | { type: 'toggleExpanded'; id: string }
+  | { type: 'draft'; text: string }
   | { type: 'modal'; modal: ModalKind | null }
   | { type: 'focus'; focused: boolean }
   | { type: 'busy'; busy: boolean };

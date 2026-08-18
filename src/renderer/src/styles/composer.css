@@ -66,3 +66,56 @@
   font-size: var(--font-size-xs);
   white-space: nowrap;
 }
+
+/* ------------------------------------------------------- inline completion */
+
+.composer-shell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.completion {
+  margin: 0 var(--space-5) var(--space-2);
+  max-height: 34vh;
+  overflow-y: auto;
+  background: var(--panel-alt);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+
+.completion-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2) 0;
+}
+
+.completion-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  cursor: pointer;
+  padding: 1px var(--space-3);
+}
+
+.completion-option[data-selected='true'] {
+  background: var(--selection);
+}
+
+.completion-option[data-unavailable='true'] .completion-label {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.completion-detail,
+.completion-reason {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.completion-reason {
+  color: var(--role-status);
+}

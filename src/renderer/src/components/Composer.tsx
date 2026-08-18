@@ -6,8 +6,12 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { useCompletion } from '../hooks/useCompletion.js';
+import { useFileDrop } from '../hooks/useFileDrop.js';
 import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
+import { CompletionPopup } from './completion/CompletionPopup.js';
+import { insertPaths } from './completion/tokens.js';
 import { hasTextSelection } from './format.js';
 
 interface ShellIntent {
@@ -25,14 +29,57 @@ export function parseShellIntent(text: string): ShellIntent | null {
 
 export function Composer(): ReactNode {
   const { state, actions } = useStore();
-  const [draft, setDraft] = useState('');
+  const draft = state.draft;
   const lastSubmitted = useRef<string | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
+  const pendingCursor = useRef<number | null>(null);
+  const [cursor, setCursor] = useState(0);
 
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
   const shellMode = draft.startsWith('!');
   const shellDisabled = shellMode && !capabilities.directBash;
+
+  const setDraft = useCallback(
+    (text: string) => {
+      actions.setDraft(text);
+    },
+    [actions],
+  );
+
+  /** Replaces the draft and restores the caret once React has re-rendered. */
+  const applyText = useCallback(
+    (text: string, nextCursor: number) => {
+      pendingCursor.current = nextCursor;
+      setCursor(nextCursor);
+      setDraft(text);
+    },
+    [setDraft],
+  );
+
+  useEffect(() => {
+    const position = pendingCursor.current;
+    if (position === null) return;
+    pendingCursor.current = null;
+    const element = input.current;
+    if (!element) return;
+    element.focus();
+    element.setSelectionRange(position, position);
+  }, [draft]);
+
+  const completion = useCompletion(draft, cursor, applyText);
+
+  useFileDrop(
+    useCallback(
+      (paths: string[]) => {
+        void actions.relativize(paths).then((display) => {
+          const applied = insertPaths(draft, cursor, display);
+          applyText(applied.text, applied.cursor);
+        });
+      },
+      [actions, applyText, cursor, draft],
+    ),
+  );
 
   // Keep focus in the composer for ordinary window clicks so typing never gets lost.
   useEffect(() => {
@@ -86,10 +133,46 @@ export function Composer(): ReactNode {
       lastSubmitted.current = trimmed;
       void actions.submit(trimmed);
     },
-    [actions, capabilities.directBash, capabilities.followUps, capabilities.steering, running],
+    [
+      actions,
+      capabilities.directBash,
+      capabilities.followUps,
+      capabilities.steering,
+      running,
+      setDraft,
+    ],
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    // Completion owns navigation keys while its popup is open.
+    if (completion.kind) {
+      if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        completion.move(1);
+        return;
+      }
+      if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        completion.move(-1);
+        return;
+      }
+      if (event.key === 'Tab') {
+        event.preventDefault();
+        completion.accept('insert');
+        return;
+      }
+      if (event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+        event.preventDefault();
+        completion.accept(completion.kind === 'slash' ? 'run' : 'insert');
+        return;
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        completion.dismiss();
+        return;
+      }
+    }
+
     if (event.key === 'Escape') {
       if (running) {
         event.preventDefault();
@@ -111,57 +194,76 @@ export function Composer(): ReactNode {
       const recalled = state.queue.followUp.at(-1) ?? lastSubmitted.current;
       if (recalled) {
         event.preventDefault();
-        setDraft(recalled);
+        applyText(recalled, recalled.length);
       }
       return;
     }
     if (event.key.toLowerCase() === 'c' && event.ctrlKey && !hasTextSelection()) {
       event.preventDefault();
-      setDraft('');
+      applyText('', 0);
     }
   };
 
   const status = state.snapshot.status === 'failed' ? 'error' : running ? 'running' : 'idle';
 
   return (
-    <div
-      className="composer"
-      data-status={status}
-      data-shell={shellMode}
-      data-testid="composer"
-      title={shellDisabled ? 'This runtime lacks direct shell execution.' : undefined}
-    >
-      <span className="composer-prefix" aria-hidden="true">
-        {shellMode ? '$' : 'τ'}
-      </span>
-      <textarea
-        ref={input}
-        className="composer-input"
-        aria-label="composer"
-        rows={Math.min(12, Math.max(1, draft.split('\n').length))}
-        value={draft}
-        placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
-        spellCheck={false}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={onKeyDown}
-      />
-      <div className="composer-side">
-        {running ? (
-          <button type="button" className="ghost-button" onClick={() => void actions.abort()}>
-            esc abort
-          </button>
-        ) : null}
-        {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
-        {running && !capabilities.steering ? (
-          <span className="composer-hint" title="This runtime cannot steer an active run.">
-            steering unavailable
-          </span>
-        ) : null}
-        {!capabilities.followUps ? (
-          <span className="composer-hint" title="This runtime cannot queue follow-ups.">
-            follow-ups unavailable
-          </span>
-        ) : null}
+    <div className="composer-shell">
+      {completion.kind ? (
+        <CompletionPopup
+          kind={completion.kind}
+          items={completion.items}
+          index={completion.index}
+          onHover={completion.select}
+          onAccept={(item) =>
+            completion.accept(completion.kind === 'slash' ? 'run' : 'insert', item)
+          }
+        />
+      ) : null}
+      <div
+        className="composer"
+        data-status={status}
+        data-shell={shellMode}
+        data-testid="composer"
+        title={shellDisabled ? 'This runtime lacks direct shell execution.' : undefined}
+      >
+        <span className="composer-prefix" aria-hidden="true">
+          {shellMode ? '$' : 'τ'}
+        </span>
+        <textarea
+          ref={input}
+          className="composer-input"
+          aria-label="composer"
+          rows={Math.min(12, Math.max(1, draft.split('\n').length))}
+          value={draft}
+          placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
+          spellCheck={false}
+          onChange={(event) => {
+            setCursor(event.target.selectionStart);
+            setDraft(event.target.value);
+          }}
+          onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+          onClick={(event) => setCursor(event.currentTarget.selectionStart)}
+          onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
+          onKeyDown={onKeyDown}
+        />
+        <div className="composer-side">
+          {running ? (
+            <button type="button" className="ghost-button" onClick={() => void actions.abort()}>
+              esc abort
+            </button>
+          ) : null}
+          {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
+          {running && !capabilities.steering ? (
+            <span className="composer-hint" title="This runtime cannot steer an active run.">
+              steering unavailable
+            </span>
+          ) : null}
+          {!capabilities.followUps ? (
+            <span className="composer-hint" title="This runtime cannot queue follow-ups.">
+              follow-ups unavailable
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   );
