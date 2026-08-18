@@ -130,20 +130,28 @@ export class RuntimeManager {
     return this.snapshot();
   }
 
-  async refreshState(): Promise<AgentState | null> {
+  /**
+   * `touch` marks real session activity (a settled run): the session climbs
+   * the recent list. Plain refreshes — resume, rename, model changes — leave
+   * the list order alone.
+   */
+  async refreshState(touch = false): Promise<AgentState | null> {
     if (!this.runtime) return null;
     try {
       const state = await this.runtime.getState();
       this.state = state;
       if (state.sessionId) {
-        this.settings.rememberSession({
-          id: state.sessionId,
-          name: state.sessionName,
-          path: state.sessionFile,
-          cwd: this.cwd,
-          runtime: this.kind,
-          lastSeen: Date.now(),
-        });
+        this.settings.rememberSession(
+          {
+            id: state.sessionId,
+            name: state.sessionName,
+            path: state.sessionFile,
+            cwd: this.cwd,
+            runtime: this.kind,
+            lastSeen: Date.now(),
+          },
+          touch,
+        );
         this.broadcast({ type: 'settings', settings: this.settings.current });
       }
       this.broadcast({ type: 'status', snapshot: this.snapshot() });
@@ -174,7 +182,7 @@ export class RuntimeManager {
       case 'agent_settled':
         // Idle depends on agent_settled, never merely agent_end.
         this.setStatus('idle', null);
-        void this.refreshState();
+        void this.refreshState(true);
         break;
       case 'runtime_error':
         this.setStatus('idle', event.message);

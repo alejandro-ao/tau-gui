@@ -34,11 +34,23 @@ export class SettingsStore {
     return this.settings;
   }
 
-  rememberSession(ref: SessionRef): AppSettings {
-    const others = this.settings.recentSessions.filter((item) => item.id !== ref.id);
+  /**
+   * Records a session ref. With `bump` (the default for real activity, e.g. a
+   * settled run) the entry moves to the top with a fresh `lastSeen`. Without
+   * it — selecting, renaming, or otherwise refreshing state — the entry keeps
+   * its position and timestamp; only its metadata is updated.
+   */
+  rememberSession(ref: SessionRef, bump = true): AppSettings {
+    const existing = this.settings.recentSessions.find((item) => item.id === ref.id);
+    const recentSessions =
+      bump || !existing
+        ? [ref, ...this.settings.recentSessions.filter((item) => item.id !== ref.id)]
+        : this.settings.recentSessions.map((item) =>
+            item.id === ref.id ? { ...ref, lastSeen: item.lastSeen } : item,
+          );
     this.settings = {
       ...this.settings,
-      recentSessions: [ref, ...others].slice(0, MAX_RECENT_SESSIONS),
+      recentSessions: recentSessions.slice(0, MAX_RECENT_SESSIONS),
     };
     this.write();
     return this.settings;

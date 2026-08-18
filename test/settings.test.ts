@@ -79,6 +79,45 @@ describe('SettingsStore', () => {
     expect(store.forgetSession('a').recentSessions.map((item) => item.id)).toEqual(['b']);
   });
 
+  it('keeps list order and lastSeen when remembering without a bump', () => {
+    const store = new SettingsStore(tempFile());
+    store.rememberSession({
+      id: 'a',
+      name: null,
+      path: null,
+      cwd: null,
+      runtime: 'tau',
+      lastSeen: 1,
+    });
+    store.rememberSession({
+      id: 'b',
+      name: null,
+      path: null,
+      cwd: null,
+      runtime: 'tau',
+      lastSeen: 2,
+    });
+
+    // Selecting 'a' again must not reorder it or refresh its timestamp.
+    store.rememberSession(
+      { id: 'a', name: 'renamed', path: '/tmp/a.jsonl', cwd: null, runtime: 'tau', lastSeen: 3 },
+      false,
+    );
+    expect(store.current.recentSessions.map((item) => item.id)).toEqual(['b', 'a']);
+    expect(store.current.recentSessions[1]).toMatchObject({
+      name: 'renamed',
+      path: '/tmp/a.jsonl',
+      lastSeen: 1,
+    });
+
+    // Unknown sessions still land on top even without a bump.
+    store.rememberSession(
+      { id: 'c', name: null, path: null, cwd: null, runtime: 'tau', lastSeen: 4 },
+      false,
+    );
+    expect(store.current.recentSessions.map((item) => item.id)).toEqual(['c', 'b', 'a']);
+  });
+
   it('does not merge unrelated runtime blocks away on partial update', () => {
     const store = new SettingsStore(tempFile());
     store.update({
