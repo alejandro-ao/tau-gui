@@ -68,6 +68,8 @@
   --space-6: 24px;
   --bar-width: 2px;
   --radius: 3px;
+  /* Reading measure for the transcript column (~70 characters). */
+  --measure: 70ch;
 }
 
 :root[data-theme='tau-light'] {
