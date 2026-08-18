@@ -37,7 +37,8 @@
   flex: 1 1 auto;
   min-width: 0;
   min-height: 22px;
-  max-height: 40vh;
+  /* Auto-grows via scrollHeight; capped at 10 lines, then scrolls. */
+  max-height: calc(var(--font-size) * var(--line-height) * 10);
   resize: none;
   background: transparent;
   border: 0;
@@ -47,6 +48,12 @@
   font-size: var(--font-size);
   line-height: var(--line-height);
   overflow-y: auto;
+}
+
+/* The composer holds focus almost permanently; the global textarea focus ring
+   would read as a permanent colored border here. */
+.composer-input:focus-visible {
+  outline: none;
 }
 
 .composer-input::placeholder {

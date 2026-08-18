@@ -67,6 +67,15 @@ export function Composer(): ReactNode {
     element.setSelectionRange(position, position);
   }, [draft]);
 
+  // Grow the box with its content, including soft-wrapped long lines; the CSS
+  // max-height caps it and overflow-y takes over past the limit.
+  useEffect(() => {
+    const element = input.current;
+    if (!element) return;
+    element.style.height = 'auto';
+    element.style.height = `${element.scrollHeight}px`;
+  }, [draft]);
+
   const completion = useCompletion(draft, cursor, applyText);
 
   useFileDrop(
@@ -233,7 +242,7 @@ export function Composer(): ReactNode {
           ref={input}
           className="composer-input"
           aria-label="composer"
-          rows={Math.min(12, Math.max(1, draft.split('\n').length))}
+          rows={1}
           value={draft}
           placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
           spellCheck={false}
