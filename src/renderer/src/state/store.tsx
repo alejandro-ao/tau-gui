@@ -8,7 +8,13 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import type { ModelRef, RuntimeKind, ThinkingLevel, TreeSnapshot } from '../../../shared/domain.js';
+import type {
+  ModelRef,
+  RuntimeKind,
+  SessionRef,
+  ThinkingLevel,
+  TreeSnapshot,
+} from '../../../shared/domain.js';
 import type { FileCompletion, RuntimeProbe } from '../../../shared/ipc.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
@@ -34,6 +40,8 @@ export interface Actions {
   cycleThinking: () => Promise<void>;
   newSession: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
+  /** Resumes a recent session, switching runtime or restarting if needed. */
+  resumeSession: (ref: SessionRef) => Promise<void>;
   nameSession: (name: string) => Promise<void>;
   fork: (entryId: string) => Promise<string | null>;
   compact: (instructions?: string) => Promise<void>;
@@ -274,6 +282,38 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       switchSession: async (ref) => {
         await run(async () => {
           await invoke('session.switch', { ref });
+          dispatch({ type: 'clearTranscript' });
+          await refresh();
+        });
+      },
+      resumeSession: async (ref) => {
+        // Tau resumes by indexed session id; Pi resumes by session path.
+        const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
+        if (ref.runtime !== stateRef.current.settings.agentRuntime) {
+          const settings = await attempt('settings.update', { agentRuntime: ref.runtime }, notice);
+          if (!settings) return;
+          dispatch({ type: 'settings', settings });
+        }
+        const status = stateRef.current.snapshot.status;
+        const started =
+          status === 'idle' ||
+          status === 'running' ||
+          status === 'compacting' ||
+          status === 'retrying';
+        if (started) {
+          await run(async () => {
+            await invoke('session.switch', { ref: target });
+            dispatch({ type: 'clearTranscript' });
+            await refresh();
+          });
+          return;
+        }
+        await run(async () => {
+          const snapshot = await invoke('runtime.start', {
+            cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
+            sessionRef: target,
+          });
+          dispatch({ type: 'snapshot', snapshot });
           dispatch({ type: 'clearTranscript' });
           await refresh();
         });

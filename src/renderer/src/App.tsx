@@ -3,6 +3,7 @@ import { Composer } from './components/Composer.js';
 import { ConnectionNotice } from './components/ConnectionNotice.js';
 import { ModalHost } from './components/modals/ModalHost.js';
 import { PromptSlot } from './components/PromptSlot.js';
+import { SessionsRail } from './components/SessionsRail.js';
 import { Sidebar } from './components/Sidebar.js';
 import { StatusRow } from './components/StatusRow.js';
 import { Transcript } from './components/Transcript.js';
@@ -51,6 +52,7 @@ export function App(): ReactNode {
       {/* With the macOS title bar hidden, this transparent strip is the window
           drag region; it stays invisible so the layout keeps no header. */}
       {platform() === 'darwin' ? <div className="titlebar-drag" aria-hidden="true" /> : null}
+      {narrow ? null : <SessionsRail />}
       <main className="main">
         <ConnectionNotice />
         <Transcript />

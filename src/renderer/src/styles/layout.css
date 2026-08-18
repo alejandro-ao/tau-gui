@@ -6,8 +6,21 @@
   background: var(--screen);
 }
 
-.app[data-sidebar='left'] {
-  flex-direction: row-reverse;
+.main {
+  order: 1;
+}
+
+.sidebar {
+  order: 2;
+}
+
+.sessions-rail {
+  order: 0;
+}
+
+/* Sidebar on the left keeps the sessions rail leftmost. */
+.app[data-sidebar='left'] .sidebar {
+  order: 0;
 }
 
 .main {
