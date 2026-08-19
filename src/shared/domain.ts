@@ -361,7 +361,7 @@ export interface SessionRef {
 /* ---------------------------------------------------------------- settings */
 
 export type SidebarPosition = 'right' | 'left' | 'off';
-export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast';
+export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast' | 'pure-black';
 export type TurnNotification = 'desktop' | 'off';
 
 export interface RuntimeSettings {

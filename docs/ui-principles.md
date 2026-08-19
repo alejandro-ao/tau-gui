@@ -3,7 +3,7 @@
 - Preserve Tau's transcript-first design: no conventional permanent header or shortcut footer.
 - Keep the multiline composer at the bottom and the session sidebar on the right by default.
 - Use vertical role bars rather than boxed chat bubbles.
-- Use Tau's dark, light, and high-contrast palettes as the initial themes.
+- Use Tau's dark, light, and high-contrast palettes, plus a true-black surface theme.
 - Render tool activity semantically: orange running, green success, red failure.
 - Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.
 - Interleave reasoning and clustered tool calls on one compact rail below the active user turn.

@@ -121,6 +121,19 @@
   --hl-attr: #9a6a00;
 }
 
+:root[data-theme='pure-black'] {
+  color-scheme: dark;
+
+  /* Every UI surface uses true black; structure comes from borders and type. */
+  --screen: #000000;
+  --panel: #000000;
+  --panel-alt: #000000;
+  --border: #242a31;
+  --border-strong: #3a444f;
+  --code-bg: #000000;
+  --code-border: #242a31;
+}
+
 :root[data-theme='high-contrast'] {
   color-scheme: dark;
 

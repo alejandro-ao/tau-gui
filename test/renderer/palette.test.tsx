@@ -34,6 +34,7 @@ describe('command palette', () => {
     // Frontend-only commands and quick settings.
     expect(labels.some((label) => label.startsWith('/hotkeys'))).toBe(true);
     expect(labels.some((label) => label.startsWith('theme: tau-light'))).toBe(true);
+    expect(labels.some((label) => label.startsWith('theme: pure-black'))).toBe(true);
     expect(labels.some((label) => label.startsWith('sidebar: off'))).toBe(true);
   });
 

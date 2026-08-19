@@ -32,7 +32,7 @@ export interface AppCommand {
 type CommandSpec = Omit<AppCommand, 'run' | 'unavailable'> &
   ({ run: () => void; unavailable?: string | null } | { run?: undefined; unavailable: string });
 
-const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast'];
+const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast', 'pure-black'];
 const SIDEBARS: SidebarPosition[] = ['right', 'left', 'off'];
 
 /**
