@@ -171,6 +171,7 @@ describe('app shell', () => {
       'steering: use vitest',
       'follow-up: then lint',
     ]);
-    expect(query(view.container, '.activity').textContent).toContain('working…');
+    expect(query(view.container, '.activity').getAttribute('aria-label')).toBe('Model working');
+    expect(query(view.container, '.activity-spinner')).not.toBeNull();
   });
 });

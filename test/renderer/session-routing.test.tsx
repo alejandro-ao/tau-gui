@@ -103,7 +103,7 @@ describe('session hydration routing', () => {
       await Promise.resolve();
     });
     expect(view.container.textContent).toContain('old-visible.ts');
-    expect(view.container.textContent).toContain('working…');
+    expect(view.container.querySelector('[aria-label="Model working"]')).not.toBeNull();
 
     let resolveSwitch: (() => void) | null = null;
     bridge.setResult(
@@ -151,7 +151,7 @@ describe('session hydration routing', () => {
 
     expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
-    expect(view.container.textContent).not.toContain('working…');
+    expect(view.container.querySelector('[aria-label="Model working"]')).toBeNull();
     expect(view.container.textContent).not.toContain('opening session…');
     expect(view.container.querySelector('[aria-label="Loading thread"]')).not.toBeNull();
     expect(view.container.querySelector('.connection-notice')).toBeNull();

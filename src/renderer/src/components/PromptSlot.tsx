@@ -18,11 +18,9 @@ export function PromptSlot(): ReactNode {
   return (
     <div className="prompt-slot" data-testid="prompt-slot">
       {state.sessionTransitioning ? null : running ? (
-        <span className="activity">
-          <span className="activity-dot" aria-hidden="true">
-            ●
-          </span>
-          <span>{activityLabel(status)}</span>
+        <span className="activity" role="status" aria-label={activityAriaLabel(status)}>
+          <CliSpinner />
+          {activityLabel(status) ? <span>{activityLabel(status)}</span> : null}
         </span>
       ) : (
         <span className="faint">{status === 'idle' ? 'idle' : status}</span>
@@ -36,13 +34,38 @@ export function PromptSlot(): ReactNode {
   );
 }
 
-function activityLabel(status: string): string {
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+function CliSpinner(): ReactNode {
+  return (
+    <span className="activity-spinner" aria-hidden="true">
+      {spinnerFrames.map((frame) => (
+        <span key={frame} className="activity-spinner-frame">
+          {frame}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function activityAriaLabel(status: string): string {
+  switch (status) {
+    case 'compacting':
+      return 'Compacting context';
+    case 'retrying':
+      return 'Retrying';
+    default:
+      return 'Model working';
+  }
+}
+
+function activityLabel(status: string): string | null {
   switch (status) {
     case 'compacting':
       return 'compacting context…';
     case 'retrying':
       return 'retrying…';
     default:
-      return 'working…';
+      return null;
   }
 }

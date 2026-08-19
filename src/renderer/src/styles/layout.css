@@ -59,8 +59,65 @@
   color: var(--tool-running);
 }
 
-.activity-dot {
-  animation: tau-pulse 1.1s ease-in-out infinite;
+.activity-spinner {
+  display: inline-grid;
+  width: 1ch;
+  color: var(--tool-running);
+  place-items: center;
+}
+
+.activity-spinner-frame {
+  grid-area: 1 / 1;
+  opacity: 0;
+  animation: tau-cli-spinner 800ms steps(1, end) infinite;
+}
+
+.activity-spinner-frame:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.activity-spinner-frame:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.activity-spinner-frame:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.activity-spinner-frame:nth-child(5) {
+  animation-delay: 320ms;
+}
+
+.activity-spinner-frame:nth-child(6) {
+  animation-delay: 400ms;
+}
+
+.activity-spinner-frame:nth-child(7) {
+  animation-delay: 480ms;
+}
+
+.activity-spinner-frame:nth-child(8) {
+  animation-delay: 560ms;
+}
+
+.activity-spinner-frame:nth-child(9) {
+  animation-delay: 640ms;
+}
+
+.activity-spinner-frame:nth-child(10) {
+  animation-delay: 720ms;
+}
+
+@keyframes tau-cli-spinner {
+  0%,
+  9.99% {
+    opacity: 1;
+  }
+
+  10%,
+  100% {
+    opacity: 0;
+  }
 }
 
 .chip {

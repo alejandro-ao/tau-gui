@@ -95,18 +95,12 @@ textarea:focus-visible {
 }
 
 /* One run-wide activity animation; per-tool markers stay static. */
-@keyframes tau-pulse {
-  0%,
-  100% {
-    opacity: 0.35;
-  }
-  50% {
-    opacity: 1;
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .activity-dot {
-    animation: none !important;
+  .activity-spinner-frame {
+    animation: none;
+  }
+
+  .activity-spinner-frame:first-child {
+    opacity: 1;
   }
 }
