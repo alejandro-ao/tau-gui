@@ -517,21 +517,35 @@ export function blocksFromMessage(
 /* --------------------------------------------------------------- selectors */
 
 type ToolTranscriptBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
+type ThinkingTranscriptBlock = Extract<TranscriptBlock, { kind: 'thinking' }>;
+type ActivityTranscriptBlock = ToolTranscriptBlock | ThinkingTranscriptBlock;
 type UserTranscriptBlock = Extract<TranscriptBlock, { kind: 'user' }>;
 
 export type BlockGroup =
   | { kind: 'single'; block: TranscriptBlock }
-  | { kind: 'tools'; blocks: ToolTranscriptBlock[]; settled: boolean }
-  | { kind: 'user-tools'; user: UserTranscriptBlock; blocks: ToolTranscriptBlock[] };
+  | {
+      kind: 'tools';
+      blocks: ToolTranscriptBlock[];
+      activity: ActivityTranscriptBlock[];
+      settled: boolean;
+      startedAt?: number;
+      endedAt?: number;
+    }
+  | {
+      kind: 'user-tools';
+      user: UserTranscriptBlock;
+      blocks: ToolTranscriptBlock[];
+      activity: ActivityTranscriptBlock[];
+      startedAt: number;
+    };
 
 /**
- * While the latest turn runs, moves its compact tool activity directly below
- * the user prompt. Once settled, restores transcript order and puts one tool
- * summary after the assistant's final answer.
+ * Treats tools and reasoning as one turn activity feed. While work is active it
+ * sits directly below the prompt. Once the final answer arrives, the same feed
+ * becomes a collapsed summary immediately before that answer.
  */
-export function groupBlocks(blocks: TranscriptBlock[], active = false): BlockGroup[] {
+export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
-  const lastUserIndex = blocks.findLastIndex((block) => block.kind === 'user');
   let index = 0;
 
   while (index < blocks.length) {
@@ -543,18 +557,60 @@ export function groupBlocks(blocks: TranscriptBlock[], active = false): BlockGro
       while (end < blocks.length && blocks[end]?.kind !== 'user') end += 1;
       const rest = blocks.slice(index + 1, end);
       const tools = rest.filter((entry): entry is ToolTranscriptBlock => entry.kind === 'tool');
-      const isActiveTurn = active && index === lastUserIndex;
+      const activity = rest.filter(
+        (entry): entry is ActivityTranscriptBlock =>
+          entry.kind === 'tool' || entry.kind === 'thinking',
+      );
+      if (tools.length === 0) {
+        groups.push({ kind: 'single', block });
+        for (const entry of rest) groups.push({ kind: 'single', block: entry });
+        index = end;
+        continue;
+      }
 
-      if (isActiveTurn && tools.length > 0) {
-        groups.push({ kind: 'user-tools', user: block, blocks: tools });
+      const lastToolIndex = rest.findLastIndex((entry) => entry.kind === 'tool');
+      const finalAnswerIndex = rest.findIndex(
+        (entry, restIndex) =>
+          restIndex > lastToolIndex && entry.kind === 'assistant' && !entry.streaming,
+      );
+
+      if (finalAnswerIndex === -1) {
+        groups.push({
+          kind: 'user-tools',
+          user: block,
+          blocks: tools,
+          activity,
+          startedAt: block.timestamp,
+        });
+        for (const entry of rest) {
+          if (entry.kind !== 'tool' && entry.kind !== 'thinking') {
+            groups.push({ kind: 'single', block: entry });
+          }
+        }
       } else {
         groups.push({ kind: 'single', block });
-      }
-      for (const entry of rest) {
-        if (entry.kind !== 'tool') groups.push({ kind: 'single', block: entry });
-      }
-      if (!isActiveTurn && tools.length > 0) {
-        groups.push({ kind: 'tools', blocks: tools, settled: true });
+        let summaryAdded = false;
+        for (let restIndex = 0; restIndex < rest.length; restIndex += 1) {
+          const entry = rest[restIndex];
+          if (!entry) continue;
+          if (restIndex === finalAnswerIndex) {
+            groups.push({
+              kind: 'tools',
+              blocks: tools,
+              activity,
+              settled: true,
+              startedAt: block.timestamp,
+              endedAt: entry.timestamp,
+            });
+            summaryAdded = true;
+          }
+          if (entry.kind !== 'tool' && entry.kind !== 'thinking') {
+            groups.push({ kind: 'single', block: entry });
+          }
+        }
+        if (tools.length > 0 && !summaryAdded) {
+          groups.push({ kind: 'tools', blocks: tools, activity, settled: false });
+        }
       }
       index = end;
       continue;
@@ -567,7 +623,7 @@ export function groupBlocks(blocks: TranscriptBlock[], active = false): BlockGro
         tools.push(blocks[index] as ToolTranscriptBlock);
         index += 1;
       }
-      groups.push({ kind: 'tools', blocks: tools, settled: !active });
+      groups.push({ kind: 'tools', blocks: tools, activity: tools, settled: false });
       continue;
     }
 

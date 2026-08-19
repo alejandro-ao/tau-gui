@@ -156,6 +156,7 @@ const TOOL_SCRIPT: AgentEvent[] = [
     details: {},
     isError: false,
   },
+  assistant('Tool checks complete.'),
 ];
 
 const LONG_SCRIPT: AgentEvent[] = [
@@ -174,6 +175,7 @@ const LONG_SCRIPT: AgentEvent[] = [
     details: { exit_code: 0 },
     isError: false,
   },
+  assistant('Command complete.'),
 ];
 
 async function play(handle: AppHandle, script: AgentEvent[]): Promise<void> {

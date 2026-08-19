@@ -158,7 +158,7 @@
   color: var(--role-status);
 }
 
-/* Tool runs: inline activity while running, one disclosure after settlement. */
+/* Tool activity shares one quiet rail beneath its user turn. */
 .tool-run {
   margin: 0 0 var(--space-3) calc(var(--bar-width) + var(--space-4));
   color: var(--text-dim);
@@ -169,72 +169,139 @@
   margin-top: calc(-1 * var(--space-2));
 }
 
+.tool-run-settled {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  line-height: 1.2;
+}
+
 .tool-run-header,
-.tool-run-item {
+.tool-run-item,
+.tool-cluster-path {
   border: 0;
   background: transparent;
   color: inherit;
   font: inherit;
+  text-align: left;
   cursor: pointer;
 }
 
 .tool-run-header {
   display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-1) 0;
+  gap: var(--space-1);
+  padding: 0;
+}
+
+.tool-run-header:hover,
+.tool-run-header:focus-visible,
+.tool-run-item:hover .tool-name,
+.tool-run-item:focus-visible .tool-name,
+.tool-cluster-path:hover,
+.tool-cluster-path:focus-visible {
+  color: var(--text);
 }
 
 .tool-run-chevron {
   color: var(--text-faint);
 }
 
+.tool-run-detail {
+  margin-top: var(--space-2);
+}
+
 .tool-run-items {
+  position: relative;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
+  flex-direction: column;
+  gap: 3px;
+  padding: 1px 0 1px var(--space-4);
+}
+
+.tool-run-items::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.tool-run-row {
+  min-width: 0;
+}
+
+.tool-run-row-main {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.tool-run-row-main > .tool-marker {
+  position: relative;
+  z-index: 1;
+  width: 0.8rem;
+  margin-left: calc(-1 * var(--space-4) - 4px);
+  color: var(--text-faint);
+  background: var(--screen);
+  text-align: center;
+}
+
+.tool-run-row[data-state='running'] > .tool-run-row-main > .tool-marker {
+  color: var(--tool-running);
+}
+
+.tool-run-row[data-state='success'] > .tool-run-row-main > .tool-marker {
+  color: var(--tool-success);
+}
+
+.tool-run-row[data-state='error'] > .tool-run-row-main > .tool-marker {
+  color: var(--tool-failure);
 }
 
 .tool-run-item {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--space-1);
+  gap: var(--space-2);
   min-width: 0;
-  max-width: min(100%, 34rem);
-  padding: 2px var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--panel);
+  max-width: 100%;
+  padding: 0;
 }
 
 .tool-run-item .tool-intent {
-  max-width: 22rem;
+  max-width: min(36rem, 65vw);
 }
 
-.tool-run-item[data-state='running'] .tool-marker,
-.tool-run[data-state='running'] > .tool-run-header .tool-marker {
-  color: var(--tool-running);
+.tool-cluster-label {
+  color: var(--text);
 }
 
-.tool-run-item[data-state='success'] .tool-marker,
-.tool-run[data-state='success'] > .tool-run-header .tool-marker {
-  color: var(--tool-success);
+.tool-cluster-paths {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 2px 0 var(--space-1) var(--space-4);
 }
 
-.tool-run-item[data-state='error'] .tool-marker,
-.tool-run[data-state='error'] > .tool-run-header .tool-marker {
-  color: var(--tool-failure);
+.tool-cluster-path {
+  display: block;
+  max-width: min(48rem, 75vw);
+  padding: 0;
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.tool-run-detail,
-.tool-run-expanded {
-  margin-top: var(--space-2);
-}
-
-.tool-run-detail .block,
-.tool-run-expanded .block {
-  margin-bottom: 0;
+.tool-run-thinking {
+  margin: var(--space-1) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+  font-style: normal;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 /* Tool blocks */
@@ -305,6 +372,15 @@
   margin-top: var(--space-3);
   border-left: 1px solid var(--border);
   padding-left: var(--space-4);
+}
+
+.tool-detail-compact {
+  margin: var(--space-2) 0 var(--space-3) var(--space-2);
+}
+
+.block-tool-compact {
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
 }
 
 .tool-detail h4 {

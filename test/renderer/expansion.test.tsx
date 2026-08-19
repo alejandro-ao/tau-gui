@@ -49,7 +49,22 @@ async function renderAppWithTools(ids: string[]): Promise<Mounted> {
   const dispatch = captured.dispatch;
   if (!dispatch) throw new Error('store dispatch was not captured');
   await act(async () => {
+    dispatch({
+      type: 'localMessage',
+      block: { kind: 'user', id: 'user', text: 'run tools', timestamp: 0 },
+    });
     for (const id of ids) dispatch({ type: 'localMessage', block: tool(id) });
+    dispatch({
+      type: 'localMessage',
+      block: {
+        kind: 'assistant',
+        id: 'answer',
+        text: 'done',
+        streaming: false,
+        aborted: false,
+        timestamp: 1,
+      },
+    });
     await Promise.resolve();
   });
   return view;
@@ -74,7 +89,7 @@ describe('tool expansion', () => {
       await Promise.resolve();
     });
     await act(async () => {
-      query(view.container, '.block-header').dispatchEvent(
+      query(view.container, '.tool-run-item').dispatchEvent(
         new MouseEvent('click', { bubbles: true }),
       );
       await Promise.resolve();

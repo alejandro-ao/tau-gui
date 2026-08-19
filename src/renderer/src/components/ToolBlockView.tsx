@@ -15,13 +15,26 @@ export function ToolBlockView({
   block,
   expanded,
   onToggle,
+  compact = false,
 }: {
   block: ToolBlock;
   expanded: boolean;
   onToggle: () => void;
+  compact?: boolean;
 }): ReactNode {
   const paths = toolPaths(block.args);
-  const command = typeof block.args['command'] === 'string' ? block.args['command'] : '';
+
+  if (compact) {
+    return expanded ? (
+      <article
+        className="block-tool block-tool-compact"
+        data-state={block.state}
+        data-tool={block.name}
+      >
+        <ToolDetail block={block} compact />
+      </article>
+    ) : null;
+  }
 
   return (
     <article className="block block-tool" data-state={block.state} data-tool={block.name}>
@@ -50,27 +63,38 @@ export function ToolBlockView({
           </ul>
         ) : null}
 
-        {expanded ? (
-          <div className="tool-detail">
-            <h4>invocation</h4>
-            <pre className="tool-args">{formatArgs(block.args)}</pre>
-            <h4>output</h4>
-            {block.output.trim().length === 0 ? (
-              <p className="faint">{block.state === 'running' ? '(running…)' : '(no output)'}</p>
-            ) : looksLikeDiff(block.output) ? (
-              <Diff text={block.output} />
-            ) : (
-              <pre className="tool-output">{block.output}</pre>
-            )}
-            <div className="block-actions">
-              {command ? <CopyButton text={command} label="command" /> : null}
-              <CopyButton text={boundedArgs(block.args, 100_000)} label="args" />
-              <CopyButton text={block.output} label="output" />
-            </div>
-          </div>
-        ) : null}
+        {expanded ? <ToolDetail block={block} /> : null}
       </div>
     </article>
+  );
+}
+
+function ToolDetail({
+  block,
+  compact = false,
+}: {
+  block: ToolBlock;
+  compact?: boolean;
+}): ReactNode {
+  const command = typeof block.args['command'] === 'string' ? block.args['command'] : '';
+  return (
+    <div className={`tool-detail${compact ? ' tool-detail-compact' : ''}`}>
+      <h4>invocation</h4>
+      <pre className="tool-args">{formatArgs(block.args)}</pre>
+      <h4>output</h4>
+      {block.output.trim().length === 0 ? (
+        <p className="faint">{block.state === 'running' ? '(running…)' : '(no output)'}</p>
+      ) : looksLikeDiff(block.output) ? (
+        <Diff text={block.output} />
+      ) : (
+        <pre className="tool-output">{block.output}</pre>
+      )}
+      <div className="block-actions">
+        {command ? <CopyButton text={command} label="command" /> : null}
+        <CopyButton text={boundedArgs(block.args, 100_000)} label="args" />
+        <CopyButton text={block.output} label="output" />
+      </div>
+    </div>
   );
 }
 

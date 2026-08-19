@@ -22,29 +22,32 @@ test('tool blocks render with success state and reveal details on expansion', as
   await expect(page.locator('.block-tool')).toHaveCount(0);
   await summary.click();
 
-  const read = page.locator('.block-tool[data-tool="read"]').first();
-  const edit = page.locator('.block-tool[data-tool="edit"]').first();
-  const bash = page.locator('.block-tool[data-tool="bash"]').first();
+  const readRow = page.locator('.tool-run-row').filter({ hasText: 'read' }).first();
+  const editRow = page.locator('.tool-run-row').filter({ hasText: 'edit' }).first();
+  const bashRow = page.locator('.tool-run-row').filter({ hasText: 'bash' }).first();
 
-  for (const block of [read, edit, bash]) {
-    await expect(block).toBeVisible();
-    await expect(block).toHaveAttribute('data-state', 'success');
+  for (const row of [readRow, editRow, bashRow]) {
+    await expect(row).toBeVisible();
+    await expect(row).toHaveAttribute('data-state', 'success');
   }
-  await expect(read).toContainText('src/index.ts');
-  await expect(edit).toContainText('src/index.ts');
-  await expect(bash).toContainText('Running tests');
+  await expect(readRow).toContainText('src/index.ts');
+  await expect(editRow).toContainText('src/index.ts');
+  await expect(bashRow).toContainText('Running tests');
 
   // The call list is visible, but invocation and output details stay collapsed.
   await expect(page.locator('.tool-args')).toHaveCount(0);
 
-  // Per-block expansion reveals the exact command and output.
-  await bash.locator('.block-header').first().click();
-  await expect(bash.locator('.block-header').first()).toHaveAttribute('aria-expanded', 'true');
+  // Per-call expansion reveals the exact command and output.
+  await bashRow.locator('.tool-run-item').click();
+  const bash = bashRow.locator('.block-tool[data-tool="bash"]');
+  await expect(bashRow.locator('.tool-run-item')).toHaveAttribute('aria-expanded', 'true');
   await expect(bash.locator('.tool-args')).toContainText('npm test');
   await expect(bash.locator('.tool-output')).toContainText('2 passed, 0 failed');
 
-  // Global Ctrl+O expands every block, including grouped calls.
+  // Global Ctrl+O expands every call, including clustered calls.
   await page.keyboard.press('Control+o');
+  const read = readRow.locator('.block-tool[data-tool="read"]');
+  const edit = editRow.locator('.block-tool[data-tool="edit"]');
   await expect(read.locator('.tool-args').first()).toContainText('src/index.ts');
   await expect(read.locator('.tool-output').first()).toContainText('export const value = 1;');
 

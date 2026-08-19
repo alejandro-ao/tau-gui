@@ -222,17 +222,17 @@ describe('tools', () => {
     ]);
     const groups = groupBlocks(state.blocks);
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ kind: 'tools', settled: true });
+    expect(groups[0]).toMatchObject({ kind: 'tools', settled: false });
     expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(4);
   });
 
-  it('shows active tools below the prompt, then moves their summary after the answer', () => {
+  it('shows tools below the prompt until the final answer has finished', () => {
     const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
     const answer: TranscriptBlock = {
       kind: 'assistant',
       id: 'a',
       text: 'done',
-      streaming: false,
+      streaming: true,
       aborted: false,
       timestamp: 2,
     };
@@ -241,14 +241,59 @@ describe('tools', () => {
     ]).blocks[0];
     if (!tool) throw new Error('expected tool');
 
-    expect(groupBlocks([user, answer, tool], true).map((group) => group.kind)).toEqual([
+    expect(groupBlocks([user, tool, answer]).map((group) => group.kind)).toEqual([
       'user-tools',
       'single',
     ]);
-    expect(groupBlocks([user, answer, tool], false).map((group) => group.kind)).toEqual([
+    expect(
+      groupBlocks([user, tool, { ...answer, streaming: false }]).map((group) => group.kind),
+    ).toEqual(['single', 'tools', 'single']);
+  });
+
+  it('interleaves thinking with tools in the turn activity feed', () => {
+    const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
+    const thinking: TranscriptBlock = {
+      kind: 'thinking',
+      id: 'thought',
+      text: 'Checking the relevant files.',
+      streaming: false,
+      timestamp: 1,
+    };
+    const first = replay([
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+    ]).blocks[0];
+    const second = replay([
+      { type: 'tool_start', toolCallId: 'c2', toolName: 'bash', args: { command: 'npm test' } },
+    ]).blocks[0];
+    if (!first || !second) throw new Error('expected tools');
+
+    const group = groupBlocks([user, first, thinking, second])[0];
+    expect(group?.kind).toBe('user-tools');
+    expect(group?.kind === 'user-tools' && group.activity.map((entry) => entry.kind)).toEqual([
+      'tool',
+      'thinking',
+      'tool',
+    ]);
+  });
+
+  it('does not treat assistant progress before a tool as the final answer', () => {
+    const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
+    const progress: TranscriptBlock = {
+      kind: 'assistant',
+      id: 'a',
+      text: 'inspecting',
+      streaming: false,
+      aborted: false,
+      timestamp: 1,
+    };
+    const tool = replay([
+      { type: 'tool_start', toolCallId: 'c1', toolName: 'read', args: { path: 'a.ts' } },
+    ]).blocks[0];
+    if (!tool) throw new Error('expected tool');
+
+    expect(groupBlocks([user, progress, tool]).map((group) => group.kind)).toEqual([
+      'user-tools',
       'single',
-      'single',
-      'tools',
     ]);
   });
 });

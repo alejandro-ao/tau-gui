@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
-import { groupBlocks, isExpanded, isRunning, type BlockGroup } from '../state/reducer.js';
+import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import type { TranscriptBlock } from '../state/types.js';
 import { BlockView } from './BlockView.js';
@@ -18,8 +18,7 @@ export function Transcript(): ReactNode {
         : state.blocks.filter((block) => block.kind !== 'thinking'),
     [state.blocks, state.settings.showThinking],
   );
-  const active = isRunning(state);
-  const groups = useMemo(() => groupBlocks(visible, active), [visible, active]);
+  const groups = useMemo(() => groupBlocks(visible), [visible]);
 
   // Stable per-group ids so measured heights survive insertions and filtering.
   const ids = useMemo(() => groups.map(groupId), [groups]);
@@ -76,6 +75,8 @@ export function Transcript(): ReactNode {
                   />
                   <ToolGroupView
                     blocks={group.blocks}
+                    activity={group.activity}
+                    turnStartedAt={group.startedAt}
                     expanded={expandedFor(`run-${group.user.id}`)}
                     onToggle={() => toggle(`run-${group.user.id}`)}
                     isBlockExpanded={expandedFor}
@@ -87,6 +88,9 @@ export function Transcript(): ReactNode {
               ) : group.kind === 'tools' ? (
                 <ToolGroupView
                   blocks={group.blocks}
+                  activity={group.activity}
+                  turnStartedAt={group.startedAt}
+                  turnEndedAt={group.endedAt}
                   expanded={expandedFor(`run-${group.blocks[0]?.id ?? ''}`)}
                   onToggle={() => toggle(`run-${group.blocks[0]?.id ?? ''}`)}
                   isBlockExpanded={expandedFor}

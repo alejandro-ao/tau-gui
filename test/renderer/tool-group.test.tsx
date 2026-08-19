@@ -30,7 +30,7 @@ describe('tool run rendering', () => {
   it('groups adjacent calls through the reducer selector', () => {
     const groups = groupBlocks(blocks);
     expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({ kind: 'tools', settled: true });
+    expect(groups[0]).toMatchObject({ kind: 'tools', settled: false });
   });
 
   it('shows compact calls during work instead of the final summary', async () => {
@@ -46,12 +46,44 @@ describe('tool run rendering', () => {
       />,
     );
 
-    expect(view.container.querySelectorAll('.tool-run-item')).toHaveLength(3);
+    expect(view.container.querySelectorAll('.tool-run-row')).toHaveLength(1);
+    expect(view.container.textContent).toContain('read 3 files');
+    expect(view.container.querySelectorAll('.tool-cluster-path')).toHaveLength(3);
     expect(view.container.textContent).toContain('src/a.ts');
     expect(view.container.textContent).not.toContain('Worked for');
     expect(view.container.textContent).not.toContain('contents of a');
-    view.container.querySelector<HTMLElement>('.tool-run-item')?.click();
+    view.container.querySelector<HTMLElement>('.tool-cluster-path')?.click();
     expect(toggle).toHaveBeenCalledWith('t1');
+    view.unmount();
+  });
+
+  it('renders reasoning between tool rows on the same rail', async () => {
+    const view = await mount(
+      <ToolGroupView
+        blocks={[blocks[0], blocks[1]] as ToolBlock[]}
+        activity={[
+          blocks[0] as ToolBlock,
+          {
+            kind: 'thinking',
+            id: 'thought',
+            text: 'Now checking the second file.',
+            streaming: false,
+            timestamp: 0,
+          },
+          blocks[1] as ToolBlock,
+        ]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled={false}
+      />,
+    );
+
+    const items = view.container.querySelector('.tool-run-items');
+    expect(items?.children).toHaveLength(3);
+    expect(items?.children[1]?.classList.contains('tool-run-thinking')).toBe(true);
+    expect(items?.textContent).toContain('Now checking the second file.');
     view.unmount();
   });
 
@@ -67,8 +99,8 @@ describe('tool run rendering', () => {
       />,
     );
 
-    expect(view.container.textContent).toContain('Worked for <1 minute · 3 tools called');
-    expect(view.container.querySelectorAll('.tool-run-item')).toHaveLength(0);
+    expect(view.container.textContent).toContain('Worked for <1 minute · 3 tool calls');
+    expect(view.container.querySelectorAll('.tool-run-row')).toHaveLength(1);
     expect(view.container.textContent).toContain('contents of b');
     expect(view.container.textContent).not.toContain('contents of a');
     view.unmount();
