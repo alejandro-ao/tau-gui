@@ -113,6 +113,7 @@ describe('transcript scroll anchoring', () => {
     const { view, viewport, dispatch } = await renderTranscript(20);
     expect(view.container.querySelector('.new-output')).toBeNull();
 
+    viewport.dispatchEvent(new WheelEvent('wheel'));
     setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
     await scroll(viewport);
 
@@ -130,12 +131,13 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
   });
 
   it('jumps to the bottom when the user sends a message while scrolled up', async () => {
     const { view, viewport, dispatch } = await renderTranscript(20);
 
+    viewport.dispatchEvent(new WheelEvent('wheel'));
     setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
     await scroll(viewport);
 
@@ -147,13 +149,14 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
 
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
     expect(view.container.querySelector('.new-output')).toBeNull();
   });
 
   it('stays pinned when heights settle after the send jump', async () => {
     const { view, viewport, dispatch } = await renderTranscript(50);
 
+    viewport.dispatchEvent(new WheelEvent('wheel'));
     setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
     await scroll(viewport);
 
@@ -164,11 +167,11 @@ describe('transcript scroll anchoring', () => {
       });
       await Promise.resolve();
     });
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
 
-    // The jump aimed at the estimated bottom; the freshly mounted tail blocks
-    // measure taller, and only now does the jump's own scroll event arrive.
-    setGeometry(viewport, { scrollTop: 5_000, clientHeight: 400, scrollHeight: 8_000 });
+    // Browsers clamp scrollTop to scrollHeight - clientHeight. The freshly
+    // mounted tail then measures taller before the jump's scroll event arrives.
+    setGeometry(viewport, { scrollTop: 4_600, clientHeight: 400, scrollHeight: 8_000 });
     await scroll(viewport);
 
     // Still pinned: further output follows the tail, no affordance appears.
@@ -177,7 +180,34 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
-    expect(viewport.scrollTop).toBe(8_000);
+    expect(viewport.scrollTop).toBe(7_600);
+  });
+
+  it('does not let settling override a user scroll away from the tail', async () => {
+    const { view, viewport, dispatch } = await renderTranscript(50);
+
+    viewport.dispatchEvent(new WheelEvent('wheel'));
+    setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
+    await scroll(viewport);
+    await act(async () => {
+      dispatch({
+        type: 'localMessage',
+        block: { kind: 'user', id: 'user-1', text: 'hello', timestamp: 1 },
+      });
+      await Promise.resolve();
+    });
+    expect(viewport.scrollTop).toBe(4_600);
+
+    viewport.dispatchEvent(new WheelEvent('wheel'));
+    setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 8_000 });
+    await scroll(viewport);
+    await act(async () => {
+      dispatch({ type: 'localMessage', block: assistant(999) });
+      await Promise.resolve();
+    });
+
+    expect(viewport.scrollTop).toBe(0);
+    expect(view.container.querySelector('.new-output')).not.toBeNull();
   });
 
   it('keeps following the tail while already at the bottom', async () => {
