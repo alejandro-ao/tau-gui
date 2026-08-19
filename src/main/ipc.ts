@@ -1,7 +1,8 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { resourceCatalogSchema } from '../shared/ipc.js';
+import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
+import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
@@ -156,6 +157,14 @@ export async function handleRequest(
         includeProject: settings.current.projectTrust === 'approve-once',
       });
       return resourceCatalogSchema.parse(catalog);
+    }
+    case 'context.list': {
+      const snapshot = manager.snapshot();
+      if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
+      const files = await discoverContextFiles(snapshot.cwd, {
+        includeProject: settings.current.projectTrust === 'approve-once',
+      });
+      return contextFilesSchema.parse(files);
     }
 
     case 'fs.complete': {

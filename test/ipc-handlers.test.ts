@@ -18,8 +18,14 @@ vi.mock('electron', () => ({
 const resourceMocks = vi.hoisted(() => ({
   discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
 }));
+const contextFileMocks = vi.hoisted(() => ({
+  discover: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../src/main/services/resources.js', () => ({
   discoverTauResources: resourceMocks.discover,
+}));
+vi.mock('../src/main/services/context-files.js', () => ({
+  discoverContextFiles: contextFileMocks.discover,
 }));
 
 const { handleRequest } = await import('../src/main/ipc.js');
@@ -145,6 +151,30 @@ describe('resources.list handler', () => {
     const { context } = makeContext({ projectTrust: 'approve-once' });
 
     await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
+  });
+});
+
+describe('context.list handler', () => {
+  it.each([
+    ['default', false],
+    ['decline-once', false],
+    ['approve-once', true],
+  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
+    contextFileMocks.discover.mockResolvedValueOnce([]);
+    const { context } = makeContext({ projectTrust });
+
+    await handleRequest(context, { action: 'context.list' });
+
+    expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+  });
+
+  it('rejects extra or malformed metadata before it crosses IPC', async () => {
+    contextFileMocks.discover.mockResolvedValueOnce([
+      { label: './.tau/AGENTS.md', path: '/project/.tau/AGENTS.md', content: 'secret' },
+    ] as never);
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+
+    await expect(handleRequest(context, { action: 'context.list' })).rejects.toThrow();
   });
 });
 

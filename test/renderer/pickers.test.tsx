@@ -17,6 +17,19 @@ afterEach(() => {
   mounted = null;
 });
 
+async function runPaletteCommand(view: Mounted, search: string): Promise<void> {
+  await press(window, 'k', { ctrlKey: true });
+  const input = query<HTMLInputElement>(view.container, '.picker-input');
+  await type(input, search);
+  await press(input, 'Enter');
+}
+
+async function runComposerCommand(view: Mounted, command: string): Promise<void> {
+  const input = composer(view);
+  await type(input, command);
+  await press(input, 'Enter');
+}
+
 const MODELS: Model[] = [
   {
     id: 'gpt-5',
@@ -146,7 +159,7 @@ describe('session picker', () => {
       settings: { recentSessions: RECENTS },
     });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(2)'));
+    await runPaletteCommand(view, '/resume');
     const dialog = query(view.container, '[data-modal-name="session"]');
     expect(dialog.textContent).toContain('needs runtime list_sessions support');
     expect(options(dialog)).toHaveLength(2);
@@ -172,7 +185,7 @@ describe('tree modal', () => {
       results: { 'agent.tree': TREE, 'session.fork': 'add jsonl framing tests' },
     });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(3)'));
+    await runComposerCommand(view, '/tree');
     await view.flush();
 
     const dialog = query(view.container, '[data-modal-name="tree"]');
@@ -191,12 +204,11 @@ describe('tree modal', () => {
     expect(composer(view).value).toBe('add jsonl framing tests');
   });
 
-  it('explains that the runtime cannot expose the tree', async () => {
+  it('reports when the runtime cannot expose the tree', async () => {
     const { view } = await renderApp({ capabilities: { sessionTree: false } });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(3)'));
-    const dialog = query(view.container, '[data-modal-name="tree"]');
-    expect(dialog.textContent).toContain('does not expose session tree inspection');
+    await runComposerCommand(view, '/tree');
+    expect(view.container.textContent).toContain('does not expose session tree inspection');
   });
 });
 
@@ -204,7 +216,7 @@ describe('session details', () => {
   it('renames the session and lists usage context', async () => {
     const { view, bridge } = await renderApp({ agent: AGENT });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(4)'));
+    await runComposerCommand(view, '/session');
     const dialog = query(view.container, '[data-modal-name="details"]');
     expect(dialog.textContent).toContain('session-1');
     expect(dialog.textContent).toContain('auto-compaction');
