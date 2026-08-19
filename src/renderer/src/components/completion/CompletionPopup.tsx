@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, type ReactNode } from 'react';
+import type { DirectiveKind } from './directives.js';
 
 export interface CompletionItem {
   id: string;
@@ -6,6 +7,8 @@ export interface CompletionItem {
   detail?: string | null;
   badge?: string | null;
   reason?: string | null;
+  /** Resource directives are colour-coded to match the composer pill. */
+  kind?: DirectiveKind | null;
   /** Text inserted into the draft, before any trailing separator. */
   insert: string;
   /** Header grouping consecutive items, like Tau's completion categories. */
@@ -70,6 +73,7 @@ export function CompletionPopup({
                 aria-selected={position === index}
                 data-selected={position === index}
                 data-unavailable={Boolean(item.reason)}
+                data-kind={item.kind ?? undefined}
                 onMouseMove={() => onHover(position)}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onAccept(item)}

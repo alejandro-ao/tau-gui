@@ -37,6 +37,14 @@
   --tool-failure: #ff6b6b;
   --shell-prompt: #ffb454;
 
+  /*
+   * Composer directive highlighting. These alias the role palette instead of
+   * hard-coding hex values, so every theme inherits matching pills by
+   * overriding `--role-branch` / `--role-skill` alone.
+   */
+  --directive-prompt: var(--role-branch);
+  --directive-skill: var(--role-skill);
+
   --code-bg: #0b0f14;
   --code-border: #232b34;
   --code-text: #d6deeb;

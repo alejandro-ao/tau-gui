@@ -6,6 +6,7 @@
 - Use Tau's dark, light, and high-contrast palettes, plus a true-black theme with subtly differentiated user turns.
 - Render tool activity semantically: orange running, green success, red failure.
 - Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.
+- Mark resource-backed slash directives (skills, custom prompts) as coloured pills while typing, so drafts that expand inside the runtime read differently from GUI commands.
 - Interleave reasoning and clustered tool calls on one compact rail below the active user turn.
 - Render only the assistant message that closes a turn as the answer; reasoning and the narration a model writes before a tool call stay on the rail.
 - Collapse settled activity into a quiet duration/tool-count summary immediately before the answer.

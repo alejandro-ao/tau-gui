@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -12,6 +13,7 @@ import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import { ActivitySpinner } from './ActivitySpinner.js';
 import { CompletionPopup } from './completion/CompletionPopup.js';
+import { draftSegments } from './completion/directives.js';
 import { insertPaths } from './completion/tokens.js';
 import { hasTextSelection } from './format.js';
 
@@ -33,6 +35,7 @@ export function Composer(): ReactNode {
   const draft = state.draft;
   const lastSubmitted = useRef<string | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
+  const backdrop = useRef<HTMLDivElement | null>(null);
   const pendingCursor = useRef<number | null>(null);
   const [cursor, setCursor] = useState(0);
 
@@ -74,6 +77,15 @@ export function Composer(): ReactNode {
     element.setSelectionRange(position, position);
   }, [draft]);
 
+  // Keeps the highlight backdrop aligned with the textarea once it starts to
+  // scroll past its max-height.
+  const syncScroll = useCallback((element: HTMLTextAreaElement) => {
+    const layer = backdrop.current;
+    if (!layer) return;
+    layer.scrollTop = element.scrollTop;
+    layer.scrollLeft = element.scrollLeft;
+  }, []);
+
   // Grow the box with its content, including soft-wrapped long lines; the CSS
   // max-height caps it and overflow-y takes over past the limit.
   useEffect(() => {
@@ -81,9 +93,15 @@ export function Composer(): ReactNode {
     if (!element) return;
     element.style.height = 'auto';
     element.style.height = `${element.scrollHeight}px`;
-  }, [draft]);
+    syncScroll(element);
+  }, [draft, syncScroll]);
 
   const completion = useCompletion(draft, cursor, applyText);
+
+  // Skills and custom prompts expand inside the runtime, so the draft itself is
+  // marked to distinguish them from GUI commands that never reach the model.
+  const segments = useMemo(() => draftSegments(draft, state.resources), [draft, state.resources]);
+  const directive = segments[0]?.kind ?? null;
 
   useFileDrop(
     useCallback(
@@ -248,6 +266,7 @@ export function Composer(): ReactNode {
         className="composer"
         data-status={status}
         data-shell={shellMode}
+        data-directive={directive ?? undefined}
         data-testid="composer"
         title={shellDisabled ? 'This runtime lacks direct shell execution.' : undefined}
       >
@@ -260,23 +279,45 @@ export function Composer(): ReactNode {
             <span aria-hidden="true">τ</span>
           )}
         </span>
-        <textarea
-          ref={input}
-          className="composer-input"
-          aria-label="composer"
-          rows={1}
-          value={draft}
-          placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
-          spellCheck={false}
-          onChange={(event) => {
-            setCursor(event.target.selectionStart);
-            setDraft(event.target.value);
-          }}
-          onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-          onClick={(event) => setCursor(event.currentTarget.selectionStart)}
-          onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
-          onKeyDown={onKeyDown}
-        />
+        <div className="composer-editor">
+          {/* Mirror of the draft painted behind the textarea. Its glyphs stay
+              transparent so the textarea keeps rendering text, selection and
+              caret; only directive pills are visible. */}
+          <div
+            ref={backdrop}
+            className="composer-highlight"
+            data-testid="composer-highlight"
+            aria-hidden="true"
+          >
+            {segments.map((segment, index) => (
+              <span
+                key={index}
+                className={segment.kind ? 'composer-directive' : undefined}
+                data-kind={segment.kind ?? undefined}
+              >
+                {segment.text}
+              </span>
+            ))}
+          </div>
+          <textarea
+            ref={input}
+            className="composer-input"
+            aria-label="composer"
+            rows={1}
+            value={draft}
+            placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
+            spellCheck={false}
+            onChange={(event) => {
+              setCursor(event.target.selectionStart);
+              setDraft(event.target.value);
+            }}
+            onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
+            onClick={(event) => setCursor(event.currentTarget.selectionStart)}
+            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
+            onKeyDown={onKeyDown}
+            onScroll={(event) => syncScroll(event.currentTarget)}
+          />
+        </div>
         <div className="composer-side">
           {running ? (
             <button

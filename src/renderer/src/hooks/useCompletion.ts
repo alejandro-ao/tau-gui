@@ -59,6 +59,7 @@ export function useCompletion(
           label: `/skill:${skill.name}`,
           detail: skill.description,
           badge: skill.disableModelInvocation ? 'user only' : 'skill',
+          kind: 'skill' as const,
           insert: `/skill:${skill.name}`,
         })),
         slash.slice('/skill:'.length),
@@ -100,6 +101,7 @@ export function useCompletion(
       label: `/${prompt.name}`,
       detail: prompt.description,
       badge: 'prompt',
+      kind: 'prompt' as const,
       insert: `/${prompt.name}`,
       section: 'Custom prompts',
     }));

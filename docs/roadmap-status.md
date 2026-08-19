@@ -60,7 +60,12 @@ Tracks issue #1. Update this file whenever behavior changes.
   custom prompt templates under `Custom prompts`; individual skills are offered
   only once `/skill:` has been typed. Only metadata crosses IPC;
   resource contents remain in Tau/main-process filesystem access. Project resources
-  are omitted when launch-time project trust is declined.
+  are omitted unless launch-time project trust is explicitly approved.
+- A leading `/skill:<name>` or custom-prompt token in the draft is highlighted as a
+  coloured pill, drawn by a mirrored backdrop behind the composer textarea
+  (`src/renderer/src/components/completion/directives.ts`). Only names present in
+  the catalog match, so the pill distinguishes runtime expansions from GUI commands
+  before Enter is pressed. Slash completion entries use the same colours.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
   `/logout`, `/clone`, and extension commands that RPC can list but not execute)
   are listed as unavailable with the reason instead of being sent incorrectly to

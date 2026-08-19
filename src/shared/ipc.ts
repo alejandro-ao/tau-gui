@@ -5,6 +5,7 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import { resourceCatalogSchema } from './resources.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -153,7 +154,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
-  z.object({ action: z.literal('resources.list') }),
+  z.object({ action: z.literal('resources.list') }).strict(),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -174,6 +175,8 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
+
+export { resourceCatalogSchema };
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
