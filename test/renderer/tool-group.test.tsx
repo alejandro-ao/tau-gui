@@ -87,6 +87,83 @@ describe('tool run rendering', () => {
     view.unmount();
   });
 
+  it('renders narration as a rail note, not as an answer', async () => {
+    const view = await mount(
+      <ToolGroupView
+        blocks={[blocks[0]] as ToolBlock[]}
+        activity={[
+          {
+            kind: 'assistant',
+            id: 'note',
+            text: 'Exploring the repository.',
+            streaming: false,
+            aborted: false,
+            timestamp: 0,
+          },
+          blocks[0] as ToolBlock,
+        ]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled={false}
+      />,
+    );
+
+    const items = view.container.querySelector('.tool-run-items');
+    expect(items?.children[0]?.classList.contains('tool-run-note')).toBe(true);
+    expect(items?.textContent).toContain('Exploring the repository.');
+    // Narration on the rail is never dressed up as a message block.
+    expect(view.container.querySelector('.block-assistant')).toBeNull();
+    view.unmount();
+  });
+
+  it('summarizes a tool-less reasoning turn by its duration alone', async () => {
+    const view = await mount(
+      <ToolGroupView
+        blocks={[]}
+        activity={[
+          {
+            kind: 'thinking',
+            id: 'thought',
+            text: 'Weighing the options.',
+            streaming: false,
+            timestamp: 0,
+          },
+        ]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled
+        turnStartedAt={0}
+        turnEndedAt={4_000}
+      />,
+    );
+
+    expect(view.container.textContent).toContain('Thought for <1 minute');
+    expect(view.container.textContent).not.toContain('tool call');
+    expect(view.container.textContent).not.toContain('Weighing the options.');
+    view.unmount();
+  });
+
+  it('renders nothing when the rail is empty', async () => {
+    const view = await mount(
+      <ToolGroupView
+        blocks={[]}
+        activity={[]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled
+      />,
+    );
+
+    expect(view.container.querySelector('.tool-run')).toBeNull();
+    view.unmount();
+  });
+
   it('shows one expandable summary only after settlement', async () => {
     const view = await mount(
       <ToolGroupView

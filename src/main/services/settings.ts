@@ -1,7 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AppSettings, SessionRef } from '../../shared/domain.js';
+import type { AppSettings, ModelRef, RuntimeKind, SessionRef } from '../../shared/domain.js';
 import { DEFAULT_SETTINGS } from '../../shared/domain.js';
+import {
+  MAX_SCOPED_MODELS,
+  repairScopedModelKey,
+  toggleScopedKey,
+} from '../../shared/scoped-models.js';
 
 const MAX_RECENT_SESSIONS = 30;
 
@@ -29,6 +34,20 @@ export class SettingsStore {
       ...this.settings,
       ...patch,
       runtime: { ...this.settings.runtime, ...(patch.runtime ?? {}) },
+      scopedModels: { ...this.settings.scopedModels, ...(patch.scopedModels ?? {}) },
+    };
+    this.write();
+    return this.settings;
+  }
+
+  /** Atomically toggles against current main-process settings. */
+  toggleScopedModel(kind: RuntimeKind, ref: ModelRef): AppSettings {
+    this.settings = {
+      ...this.settings,
+      scopedModels: {
+        ...this.settings.scopedModels,
+        [kind]: toggleScopedKey(this.settings.scopedModels[kind], ref),
+      },
     };
     this.write();
     return this.settings;
@@ -98,7 +117,11 @@ export function mergeSettings(value: unknown): AppSettings {
 
   return {
     agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
-    theme: pick('theme', (input) => input === 'tau-light' || input === 'high-contrast', 'tau-dark'),
+    theme: pick(
+      'theme',
+      (input) => input === 'tau-light' || input === 'high-contrast' || input === 'pure-black',
+      'tau-dark',
+    ),
     sidebarPosition: pick(
       'sidebarPosition',
       (input) => input === 'left' || input === 'off',
@@ -116,10 +139,27 @@ export function mergeSettings(value: unknown): AppSettings {
       tau: mergeRuntime(runtime['tau'], DEFAULT_SETTINGS.runtime.tau),
       pi: mergeRuntime(runtime['pi'], DEFAULT_SETTINGS.runtime.pi),
     },
+    scopedModels: mergeScopedModels(wire['scopedModels']),
     recentSessions: Array.isArray(wire['recentSessions'])
       ? wire['recentSessions'].filter(isSessionRef).slice(0, MAX_RECENT_SESSIONS)
       : [],
   };
+}
+
+function mergeScopedModels(value: unknown): Record<RuntimeKind, string[]> {
+  const wire =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const read = (kind: RuntimeKind): string[] =>
+    Array.isArray(wire[kind])
+      ? [
+          ...new Set(
+            (wire[kind] as unknown[])
+              .map(repairScopedModelKey)
+              .filter((item): item is string => item !== null),
+          ),
+        ].slice(0, MAX_SCOPED_MODELS)
+      : [];
+  return { tau: read('tau'), pi: read('pi') };
 }
 
 function mergeRuntime(
@@ -141,5 +181,15 @@ function mergeRuntime(
 function isSessionRef(value: unknown): value is SessionRef {
   if (typeof value !== 'object' || value === null) return false;
   const wire = value as Record<string, unknown>;
-  return typeof wire['id'] === 'string' && (wire['runtime'] === 'tau' || wire['runtime'] === 'pi');
+  return (
+    typeof wire['id'] === 'string' &&
+    (wire['runtime'] === 'tau' || wire['runtime'] === 'pi') &&
+    (wire['firstMessage'] === undefined ||
+      wire['firstMessage'] === null ||
+      typeof wire['firstMessage'] === 'string') &&
+    (wire['messageCount'] === undefined ||
+      (typeof wire['messageCount'] === 'number' &&
+        Number.isInteger(wire['messageCount']) &&
+        wire['messageCount'] >= 0))
+  );
 }

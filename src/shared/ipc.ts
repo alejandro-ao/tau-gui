@@ -5,6 +5,7 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import { resourceCatalogSchema } from './resources.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -16,12 +17,14 @@ import type {
   EntrySnapshot,
   Model,
   ModelCycleResult,
+  ResourceCatalog,
   RuntimeCapabilities,
   RuntimeStatus,
   SessionStats,
   ThinkingLevel,
   TreeSnapshot,
 } from './domain.js';
+import { MAX_SCOPED_MODELS, isScopedModelKey, modelKey } from './scoped-models.js';
 
 export interface RuntimeProbe {
   binary: string;
@@ -35,6 +38,17 @@ export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const runtimeKind = z.enum(['tau', 'pi']);
+
+/**
+ * Transcript a renderer request is bound to. Session-scoped commands carry it
+ * so the main process routes them to the process that owns that transcript,
+ * never to whichever runtime happens to be selected when the call arrives.
+ */
+export const sessionTargetSchema = z.object({
+  runtime: runtimeKind,
+  sessionId: z.string().min(1),
+});
+export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
 
 const runtimeSettings = z.object({
@@ -44,22 +58,33 @@ const runtimeSettings = z.object({
   extraArgs: z.array(z.string()),
 });
 
+// Full-map settings patches remain valid for import/repair, but interactive
+// mutations use settings.toggleScopedModel so the main process updates atomically.
+const scopedModelKeys = z.array(z.string().refine(isScopedModelKey)).max(MAX_SCOPED_MODELS);
+const scopedModelRef = z
+  .object({ runtime: runtimeKind, provider: z.string().min(1), modelId: z.string().min(1) })
+  .refine(({ provider, modelId }) => isScopedModelKey(modelKey({ provider, modelId })), {
+    message: 'encoded scoped model identity is too long',
+  });
+
 export const settingsPatchSchema = z
   .object({
     agentRuntime: runtimeKind,
-    theme: z.enum(['tau-dark', 'tau-light', 'high-contrast']),
+    theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
     sidebarPosition: z.enum(['right', 'left', 'off']),
     turnNotification: z.enum(['desktop', 'off']),
     showThinking: z.boolean(),
     cwd: z.string().nullable(),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
+    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
   })
   .partial();
 
 export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings.get') }),
   z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
+  z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
   z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
 
   z.object({
@@ -113,7 +138,10 @@ export const requestSchema = z.discriminatedUnion('action', [
     action: z.literal('session.compact'),
     payload: z.object({ instructions: z.string().optional() }).optional(),
   }),
-  z.object({ action: z.literal('session.exportHtml') }),
+  z.object({
+    action: z.literal('session.exportHtml'),
+    payload: z.object({ destination: z.string().min(1) }).optional(),
+  }),
   z.object({
     action: z.literal('session.autoCompaction'),
     payload: z.object({ enabled: z.boolean() }),
@@ -126,6 +154,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
+  z.object({ action: z.literal('resources.list') }).strict(),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -138,6 +167,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
 
   z.object({ action: z.literal('ui.openExternal'), payload: z.object({ url: z.string() }) }),
+  z.object({ action: z.literal('ui.copyText'), payload: z.object({ text: z.string() }) }),
   z.object({ action: z.literal('ui.setTitle'), payload: z.object({ title: z.string() }) }),
   z.object({
     action: z.literal('ui.notify'),
@@ -146,8 +176,20 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
 
+export { resourceCatalogSchema };
+
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
+
+/**
+ * Wire envelope: the action union plus the optional transcript identity the
+ * renderer believes it is acting on.
+ */
+export const envelopeSchema = z.intersection(
+  requestSchema,
+  z.object({ session: sessionTargetSchema.optional() }),
+);
+export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {
   runtime: 'tau' | 'pi';
@@ -166,10 +208,20 @@ export interface FileCompletion {
   isDirectory: boolean;
 }
 
+/** Per-session run state used by the sessions rail, including background runtimes. */
+export interface SessionActivity {
+  sessionId: string;
+  runtime: RuntimeSnapshot['runtime'];
+  status: RuntimeStatus;
+  /** `true` marks an unseen answer, `false` clears it, and `null` leaves it unchanged. */
+  responseReady: boolean | null;
+}
+
 /** Maps every action to its resolved value. */
 export interface IpcResultMap {
   'settings.get': AppSettings;
   'settings.update': AppSettings;
+  'settings.toggleScopedModel': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
@@ -200,10 +252,12 @@ export interface IpcResultMap {
   'shell.run': BashResult;
   'shell.abort': null;
   'commands.list': CommandInfo[];
+  'resources.list': ResourceCatalog;
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];
   'ui.openExternal': null;
+  'ui.copyText': null;
   'ui.setTitle': null;
   'ui.notify': null;
   'diagnostics.list': string[];
@@ -215,10 +269,17 @@ export type IpcResponse<A extends IpcAction = IpcAction> =
   { ok: true; value: IpcResult<A> } | { ok: false; error: string };
 
 export type BridgeEvent =
-  | { type: 'agent'; event: AgentEvent }
+  | {
+      type: 'agent';
+      /** Immutable routing identity for the transcript that produced this event. */
+      sessionId: string;
+      runtime: RuntimeSnapshot['runtime'];
+      event: AgentEvent;
+    }
   | { type: 'status'; snapshot: RuntimeSnapshot }
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
+  | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

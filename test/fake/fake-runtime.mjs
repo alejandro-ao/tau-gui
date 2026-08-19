@@ -20,6 +20,11 @@ const cwdIndex = args.indexOf('--cwd');
 const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
 const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
 const baseDelay = Number(process.env.FAKE_RUNTIME_DELAY_MS ?? '0');
+const switchDelay = Number(process.env.FAKE_RUNTIME_SWITCH_DELAY_MS ?? '0');
+const switchError = process.env.FAKE_RUNTIME_SWITCH_ERROR === '1';
+// Real runtimes mint a unique session id per launch. Tests that need two live
+// processes at once opt in so their default sessions cannot collide.
+const uniqueSession = process.env.FAKE_RUNTIME_UNIQUE_SESSION === '1';
 let stepDelay = baseDelay;
 
 const MODELS = [
@@ -53,9 +58,11 @@ const state = {
   modelIndex: 0,
   thinkingLevel: 'medium',
   autoCompaction: true,
-  sessionId: 'fake-session-1',
+  sessionId: uniqueSession ? `fake-session-p${process.pid}` : 'fake-session-1',
   sessionName: null,
-  sessionFile: `${cwd}/.fake/session-1.jsonl`,
+  sessionFile: uniqueSession
+    ? `${cwd}/.fake/session-p${process.pid}.jsonl`
+    : `${cwd}/.fake/session-1.jsonl`,
   streaming: false,
   messages: [],
   entries: [],
@@ -304,6 +311,22 @@ async function runPrompt(message) {
         thinking: 'Considering the request carefully.',
         text: 'Here is the answer.',
       });
+    } else if (lower.includes('reason')) {
+      // A reasoning model narrates every step: thinking and text arrive next to
+      // the tool call, and only the closing message is the answer.
+      const grep = { id: 'call-r1', name: 'grep', args: { pattern: 'value' } };
+      await streamAssistant({
+        thinking: 'Planning the search.',
+        text: 'Searching the project first.',
+        toolCalls: [grep],
+      });
+      await runTool(grep, 'src/index.ts:1: export const value = 1;\n');
+      write({ type: 'turn_end' });
+      write({ type: 'turn_start' });
+      await streamAssistant({
+        thinking: 'Reviewing what came back.',
+        text: 'Found one match.',
+      });
     } else if (lower.includes('compact')) {
       write({ type: 'compaction_start', reason: 'overflow' });
       write({
@@ -518,6 +541,8 @@ async function dispatch(command) {
           (key) => typeof command[key] === 'string',
         );
         if (fields.length === 0) throw new Error('switch_session requires sessionPath');
+        if (switchDelay > 0) await sleep(switchDelay);
+        if (switchError) throw new Error('forced switch failure');
         state.lastSwitchField = fields.join(',');
         state.sessionId = command.sessionId ?? command.sessionPath;
         respond(id, type, { cancelled: false });

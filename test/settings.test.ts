@@ -4,6 +4,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { mergeSettings, SettingsStore } from '../src/main/services/settings.js';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { requestSchema } from '../src/shared/ipc.js';
+import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
+
+const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
 
 const tempFile = (): string => join(mkdtempSync(join(tmpdir(), 'tau-gui-')), 'settings.json');
 
@@ -32,6 +36,27 @@ describe('mergeSettings', () => {
     expect(merged.runtime.pi.extraArgs).toEqual(['--verbose']);
     expect(merged.runtime.tau.binary).toBe('tau');
     expect(merged.recentSessions).toHaveLength(1);
+    expect(mergeSettings({ theme: 'pure-black' }).theme).toBe('pure-black');
+  });
+
+  it('repairs scoped model lists and keeps runtimes isolated', () => {
+    const merged = mergeSettings({
+      scopedModels: { tau: ['fake:a', 'fake:a', 7, ''], pi: ['pi:b'], zeta: ['x'] },
+    });
+    expect(merged.scopedModels).toEqual({ tau: [key('fake', 'a')], pi: [key('pi', 'b')] });
+    expect(mergeSettings({ scopedModels: 'nope' }).scopedModels).toEqual({ tau: [], pi: [] });
+  });
+
+  it('repairs scoped keys to the exact IPC invariant and round-trips them', () => {
+    const overlong = `provider:${'m'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH)}`;
+    const merged = mergeSettings({ scopedModels: { tau: ['fake:a', overlong], pi: [] } });
+    expect(merged.scopedModels.tau).toEqual([key('fake', 'a')]);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: merged.scopedModels },
+      }).success,
+    ).toBe(true);
   });
 });
 
@@ -116,6 +141,27 @@ describe('SettingsStore', () => {
       false,
     );
     expect(store.current.recentSessions.map((item) => item.id)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('persists scoped models per runtime without dropping the other runtime', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.update({
+      scopedModels: { ...store.current.scopedModels, tau: [key('fake', 'a'), key('fake', 'b')] },
+    });
+    store.update({ scopedModels: { ...store.current.scopedModels, pi: [key('pi', 'c')] } });
+    expect(new SettingsStore(file).current.scopedModels).toEqual({
+      tau: [key('fake', 'a'), key('fake', 'b')],
+      pi: [key('pi', 'c')],
+    });
+  });
+
+  it('atomically persists two distinct scoped toggles against current settings', () => {
+    const store = new SettingsStore(tempFile());
+    store.toggleScopedModel('tau', { provider: 'a:b', modelId: 'c' });
+    store.toggleScopedModel('tau', { provider: 'a', modelId: 'b:c' });
+    expect(store.current.scopedModels.tau).toEqual([key('a:b', 'c'), key('a', 'b:c')]);
+    expect(store.current.runtime.tau.model).toBeNull();
   });
 
   it('does not merge unrelated runtime blocks away on partial update', () => {

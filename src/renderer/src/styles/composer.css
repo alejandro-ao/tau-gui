@@ -1,4 +1,7 @@
 .composer {
+  /* Shared by the textarea and its highlight backdrop so both text layers
+     land on the same pixel grid. Matches the UA textarea padding. */
+  --composer-pad: 2px;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
@@ -6,20 +9,7 @@
   padding: var(--space-3) var(--space-4);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-dim);
   border-radius: var(--radius);
-}
-
-.composer[data-status='running'] {
-  border-left-color: var(--tool-running);
-}
-
-.composer[data-status='error'] {
-  border-left-color: var(--tool-failure);
-}
-
-.composer[data-shell='true'] {
-  border-left-color: var(--shell-prompt);
 }
 
 .composer[data-shell='true'] .composer-prefix,
@@ -27,18 +17,99 @@
   color: var(--shell-prompt);
 }
 
+/* Echo the directive colour on the prompt marker, as shell mode does. */
+.composer[data-directive='prompt'] .composer-prefix {
+  color: var(--directive-prompt);
+}
+
+.composer[data-directive='skill'] .composer-prefix {
+  color: var(--directive-skill);
+}
+
 .composer-prefix {
+  display: inline-grid;
+  width: 1ch;
   color: var(--accent);
   padding-top: 1px;
+  place-items: center;
   user-select: none;
 }
 
-.composer-input {
+.activity-spinner {
+  display: inline-grid;
+  width: 1ch;
+  color: var(--tool-running);
+  place-items: center;
+}
+
+.activity-spinner-frame {
+  grid-area: 1 / 1;
+  opacity: 0;
+  animation: tau-cli-spinner 800ms steps(1, end) infinite;
+}
+
+.activity-spinner-frame:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.activity-spinner-frame:nth-child(3) {
+  animation-delay: 160ms;
+}
+
+.activity-spinner-frame:nth-child(4) {
+  animation-delay: 240ms;
+}
+
+.activity-spinner-frame:nth-child(5) {
+  animation-delay: 320ms;
+}
+
+.activity-spinner-frame:nth-child(6) {
+  animation-delay: 400ms;
+}
+
+.activity-spinner-frame:nth-child(7) {
+  animation-delay: 480ms;
+}
+
+.activity-spinner-frame:nth-child(8) {
+  animation-delay: 560ms;
+}
+
+.activity-spinner-frame:nth-child(9) {
+  animation-delay: 640ms;
+}
+
+.activity-spinner-frame:nth-child(10) {
+  animation-delay: 720ms;
+}
+
+@keyframes tau-cli-spinner {
+  0%,
+  9.99% {
+    opacity: 1;
+  }
+
+  10%,
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Positioning context for the highlight backdrop. */
+.composer-editor {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.composer-input {
+  display: block;
+  width: 100%;
   min-height: 22px;
   /* Auto-grows via scrollHeight; capped at 10 lines, then scrolls. */
   max-height: calc(var(--font-size) * var(--line-height) * 10);
+  padding: var(--composer-pad);
   resize: none;
   background: transparent;
   border: 0;
@@ -48,6 +119,52 @@
   font-size: var(--font-size);
   line-height: var(--line-height);
   overflow-y: auto;
+}
+
+/*
+ * Highlight backdrop.
+ *
+ * A textarea cannot style ranges of its own value, so the draft is mirrored
+ * behind it with identical metrics and transparent glyphs. Only the directive
+ * pill paints, which keeps native text rendering, selection and the caret
+ * untouched. Wrapping can differ from the textarea once its scrollbar appears,
+ * but directives only ever start the first line, so the pill stays aligned.
+ */
+.composer-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: var(--composer-pad);
+  color: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  user-select: none;
+}
+
+/*
+ * Pill drawn behind a resource directive. Horizontal padding is cancelled by
+ * matching negative margins so the mirrored glyphs keep the textarea's advance
+ * widths; only the background extends past them.
+ */
+.composer-directive {
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  box-decoration-break: clone;
+}
+
+.composer-directive[data-kind='prompt'] {
+  background: color-mix(in srgb, var(--directive-prompt) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-prompt) 55%, transparent);
+}
+
+.composer-directive[data-kind='skill'] {
+  background: color-mix(in srgb, var(--directive-skill) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-skill) 55%, transparent);
 }
 
 /* The composer holds focus almost permanently; the global textarea focus ring
@@ -74,6 +191,33 @@
   white-space: nowrap;
 }
 
+.composer-abort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.composer-abort svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.composer-abort:hover,
+.composer-abort:focus-visible {
+  background: var(--panel-alt);
+  border-color: var(--border);
+  color: var(--role-error);
+}
+
 /* ------------------------------------------------------- inline completion */
 
 .composer-shell {
@@ -97,6 +241,14 @@
   padding: var(--space-2) 0;
 }
 
+.completion-section {
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .completion-option {
   display: flex;
   align-items: baseline;
@@ -112,6 +264,26 @@
 .completion-option[data-unavailable='true'] .completion-label {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+/* Same colour language as the composer pills, so the popup previews the
+   highlight the draft will get. */
+.completion-option[data-kind='prompt'] .completion-label {
+  color: var(--directive-prompt);
+}
+
+.completion-option[data-kind='skill'] .completion-label {
+  color: var(--directive-skill);
+}
+
+.completion-option[data-kind='prompt'] .completion-badge {
+  border-color: color-mix(in srgb, var(--directive-prompt) 55%, transparent);
+  color: var(--directive-prompt);
+}
+
+.completion-option[data-kind='skill'] .completion-badge {
+  border-color: color-mix(in srgb, var(--directive-skill) 55%, transparent);
+  color: var(--directive-skill);
 }
 
 .completion-detail,

@@ -5,10 +5,11 @@ import type {
   AppSettings,
   CommandInfo,
   Model,
+  ResourceCatalog,
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
-import type { RuntimeSnapshot } from '../../../shared/ipc.js';
+import type { RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
 
@@ -105,6 +106,7 @@ export type TranscriptBlock =
 export type ModalKind =
   | 'palette'
   | 'model'
+  | 'scoped'
   | 'session'
   | 'tree'
   | 'theme'
@@ -113,7 +115,9 @@ export type ModalKind =
   | 'details'
   | 'settings'
   | 'diagnostics'
-  | 'commands';
+  | 'commands'
+  | 'skills'
+  | 'prompts';
 
 export interface AppState {
   snapshot: RuntimeSnapshot;
@@ -123,6 +127,7 @@ export interface AppState {
   models: Model[];
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
+  resources: ResourceCatalog;
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -136,25 +141,52 @@ export interface AppState {
    * switches, and runtime switches.
    */
   draft: string;
+  /** Incremented whenever a session opens so the composer can reclaim focus. */
+  composerFocusRequest: number;
   modal: ModalKind | null;
   windowFocused: boolean;
   busy: boolean;
+  /** True from the user's session selection until its transcript is hydrated. */
+  sessionTransitioning: boolean;
   lastCompletionPreview: string | null;
   /** Monotonic count of settled turns; keys completion notifications. */
   settledCount: number;
+  /** Runtime and unread-response state for active and background sessions. */
+  sessionActivity: Record<string, SessionActivity>;
 }
 
 export type Action =
-  | { type: 'event'; event: AgentEvent; now: number }
+  | {
+      type: 'event';
+      event: AgentEvent;
+      now: number;
+      /** Present for streamed bridge events; omitted by local reducer replays. */
+      sessionId?: string;
+      runtime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
+  | {
+      type: 'sessionNavigation';
+      active: boolean;
+      targetRuntime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'settings'; settings: AppSettings }
+  | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'diagnostic'; message: string }
   | { type: 'diagnostics'; messages: string[] }
   | { type: 'stats'; stats: SessionStats }
   | { type: 'models'; models: Model[] }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
-  | { type: 'hydrate'; messages: AgentMessage[]; now: number }
+  | { type: 'resources'; resources: ResourceCatalog }
+  | {
+      type: 'hydrate';
+      messages: AgentMessage[];
+      now: number;
+      /** Transcript the messages were read from; omitted by local replays. */
+      sessionId?: string;
+      runtime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'localMessage'; block: TranscriptBlock }
   | { type: 'updateBlock'; id: string; patch: Partial<TranscriptBlock> }
   | { type: 'clearTranscript' }

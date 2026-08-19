@@ -6,12 +6,20 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-// `src/main/ipc.ts` imports Electron for dialogs and notifications; the handler
-// paths exercised here never touch them.
+const electronMocks = vi.hoisted(() => ({ writeText: vi.fn() }));
+
 vi.mock('electron', () => ({
+  clipboard: { writeText: electronMocks.writeText },
   dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
+}));
+
+const resourceMocks = vi.hoisted(() => ({
+  discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
+}));
+vi.mock('../src/main/services/resources.js', () => ({
+  discoverTauResources: resourceMocks.discover,
 }));
 
 const { handleRequest } = await import('../src/main/ipc.js');
@@ -57,11 +65,25 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
 
   const context = {
     settings: { current: settings } as Context['settings'],
-    manager: { active } as unknown as Context['manager'],
+    manager: {
+      active,
+      runtimeFor: () => active,
+      snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
+    } as unknown as Context['manager'],
     window: () => null,
   } as Context;
   return { context, calls };
 }
+
+describe('clipboard handler', () => {
+  it('writes renderer text with Electron clipboard access', async () => {
+    const { context } = makeContext();
+
+    await handleRequest(context, { action: 'ui.copyText', payload: { text: 'copy me' } });
+
+    expect(electronMocks.writeText).toHaveBeenCalledWith('copy me');
+  });
+});
 
 describe('runtime.probe handler', () => {
   it('always probes the binary from settings, ignoring renderer input', async () => {
@@ -97,6 +119,32 @@ describe('runtime.probe handler', () => {
     expect(probe.binary).toBe('pi-not-installed-anywhere');
     expect(probe.resolved).toBeNull();
     expect(probe.error).toContain('was not found on PATH');
+  });
+});
+
+describe('resources.list handler', () => {
+  it.each([
+    ['default', false],
+    ['decline-once', false],
+    ['approve-once', true],
+  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
+    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
+    const { context } = makeContext({ projectTrust });
+
+    await handleRequest(context, { action: 'resources.list' });
+
+    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+  });
+
+  it('rejects malformed discovery output before it crosses IPC', async () => {
+    resourceMocks.discover.mockResolvedValueOnce({
+      skills: [{ name: 'leak', description: null, origin: 'project', content: 'secret' }],
+      prompts: [],
+      diagnostics: [],
+    } as never);
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+
+    await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
   });
 });
 

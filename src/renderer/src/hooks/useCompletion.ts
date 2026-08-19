@@ -7,7 +7,10 @@ import { buildCommands, type AppCommand } from '../components/modals/commands.js
 import { fuzzyFilter } from '../components/modals/fuzzy.js';
 import { useStore } from '../state/store.js';
 
-const MAX_ITEMS = 12;
+// Slash completion is intentionally uncapped so every builtin command is
+// reachable, like Tau's TUI; the popup scrolls. Path results stay capped
+// because the filesystem can return far more.
+const MAX_PATH_ITEMS = 12;
 const DEBOUNCE_MS = 90;
 
 export interface Completion {
@@ -18,6 +21,8 @@ export interface Completion {
   move: (delta: number) => void;
   /** `run` executes a slash command, `insert` only completes the draft text. */
   accept: (mode: 'run' | 'insert', item?: CompletionItem) => void;
+  /** Execute a complete slash invocation, including arguments, when registered locally. */
+  runInvocation: (text: string) => boolean;
   dismiss: () => void;
 }
 
@@ -45,27 +50,72 @@ export function useCompletion(
 
   const slashItems = useMemo<CompletionItem[]>(() => {
     if (slash === null) return [];
-    const candidates = commands.filter(
-      (command): command is AppCommand & { slash: string } => command.slash !== null,
-    );
-    const matches = fuzzyFilter(
-      candidates,
-      slash.slice(1),
-      (command) => `${command.slash} ${command.description}`,
-    );
-    return matches.slice(0, MAX_ITEMS).map((command) => ({
-      id: command.id,
-      label: command.slash,
-      detail: command.description,
-      badge: command.unavailable ? 'unavailable' : command.origin,
-      reason: command.unavailable,
-      insert: command.slash,
+    const haystack = (item: CompletionItem): string => `${item.label} ${item.detail ?? ''}`;
+    // `/skill:<prefix>` completes skill names only, matching Tau's TUI.
+    if (slash.startsWith('/skill:')) {
+      return fuzzyFilter(
+        state.resources.skills.map((skill) => ({
+          id: `skill:${skill.name}`,
+          label: `/skill:${skill.name}`,
+          detail: skill.description,
+          badge: skill.disableModelInvocation ? 'user only' : 'skill',
+          kind: 'skill' as const,
+          insert: `/skill:${skill.name}`,
+        })),
+        slash.slice('/skill:'.length),
+        haystack,
+      );
+    }
+    // Other colon-prefixed tokens offer no completions, like Tau.
+    if (slash.includes(':')) return [];
+    const promptSlashes = new Set(state.resources.prompts.map((prompt) => `/${prompt.name}`));
+    const commandItems: CompletionItem[] = commands
+      .filter(
+        (command): command is AppCommand & { slash: string } =>
+          command.slash !== null && !promptSlashes.has(command.slash),
+      )
+      .map((command) => ({
+        id: command.id,
+        label: command.slash,
+        detail: command.description,
+        badge: command.unavailable ? 'unavailable' : command.origin,
+        reason: command.unavailable,
+        insert: command.slash,
+        section: 'Commands',
+      }));
+    // `/skill:` is an expansion prefix, not a GUI command: accepting it keeps
+    // completion open so the skill list takes over, like Tau's skill command.
+    if (state.snapshot.runtime === 'tau') {
+      commandItems.push({
+        id: 'skill:invoke',
+        label: '/skill:',
+        detail: 'Expand a loaded skill into your prompt',
+        badge: 'skill',
+        insert: '/skill:',
+        keepOpen: true,
+        section: 'Commands',
+      });
+    }
+    const promptItems: CompletionItem[] = state.resources.prompts.map((prompt) => ({
+      id: `prompt:${prompt.name}`,
+      label: `/${prompt.name}`,
+      detail: prompt.description,
+      badge: 'prompt',
+      kind: 'prompt' as const,
+      insert: `/${prompt.name}`,
+      section: 'Custom prompts',
     }));
-  }, [commands, slash]);
+    const query = slash.slice(1);
+    // Filter within each section so commands and prompts never interleave.
+    return [
+      ...fuzzyFilter(commandItems, query, haystack),
+      ...fuzzyFilter(promptItems, query, haystack),
+    ];
+  }, [commands, slash, state.resources, state.snapshot.runtime]);
 
   const pathItems = useMemo<CompletionItem[]>(
     () =>
-      paths.slice(0, MAX_ITEMS).map((entry) => ({
+      paths.slice(0, MAX_PATH_ITEMS).map((entry) => ({
         id: entry.path,
         label: entry.path,
         badge: entry.isDirectory ? 'dir' : null,
@@ -142,7 +192,15 @@ export function useCompletion(
         return;
       }
       const command = commands.find((candidate) => candidate.id === chosen.id);
-      if (!command) return;
+      // Skills and custom prompts are expansion directives, not GUI commands.
+      // Completion inserts them so the user can add arguments before submitting.
+      if (!command) {
+        // Prefix items like `/skill:` insert without a trailing space so
+        // completion stays open and the skill list takes over.
+        const insertion = chosen.keepOpen ? chosen.insert : `${chosen.insert} `;
+        applyText(insertion, insertion.length);
+        return;
+      }
       if (mode === 'insert' || command.unavailable) {
         if (command.unavailable) {
           actions.notice(`${command.title} is unavailable: ${command.unavailable}`);
@@ -153,12 +211,33 @@ export function useCompletion(
         return;
       }
       applyText('', 0);
-      command.run();
+      command.run(command.slash ?? undefined);
     },
     [actions, applyText, commands, cursor, draft, index, items, kind],
   );
 
+  const runInvocation = useCallback(
+    (text: string): boolean => {
+      const slash = text.trim().split(/\s+/, 1)[0]?.toLowerCase();
+      if (!slash?.startsWith('/') || slash.startsWith('/skill:')) return false;
+      // Tau expands custom prompt templates inside its prompt RPC. They take
+      // precedence over same-named GUI commands, matching CodingSession.
+      if (state.resources.prompts.some((prompt) => `/${prompt.name.toLowerCase()}` === slash)) {
+        return false;
+      }
+      const command = commands.find((candidate) => candidate.slash === slash);
+      if (!command) return false;
+      if (command.unavailable) {
+        actions.notice(`${command.title} is unavailable: ${command.unavailable}`);
+      } else {
+        command.run(text.trim());
+      }
+      return true;
+    },
+    [actions, commands, state.resources.prompts],
+  );
+
   const dismiss = useCallback(() => setDismissedFor(token), [token]);
 
-  return { kind, items, index, select, move, accept, dismiss };
+  return { kind, items, index, select, move, accept, runInvocation, dismiss };
 }

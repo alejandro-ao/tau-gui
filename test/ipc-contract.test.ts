@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { requestSchema } from '../src/shared/ipc.js';
+import { envelopeSchema, requestSchema, resourceCatalogSchema } from '../src/shared/ipc.js';
+import { RESOURCE_LIMITS } from '../src/shared/resources.js';
+import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
+
+const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -12,6 +16,9 @@ describe('IPC request validation', () => {
     ).toBe(true);
     expect(requestSchema.safeParse({ action: 'agent.entries' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
+    ).toBe(true);
   });
 
   it('never lets the renderer choose the probed binary', () => {
@@ -38,6 +45,57 @@ describe('IPC request validation', () => {
     );
   });
 
+  it('accepts only the payload-free resources.list request', () => {
+    expect(requestSchema.safeParse({ action: 'resources.list' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'resources.list', payload: { cwd: '/untrusted' } }).success,
+    ).toBe(false);
+  });
+
+  it('validates and bounds resources.list output metadata', () => {
+    const valid = {
+      skills: [
+        {
+          name: 'review',
+          description: null,
+          origin: '~/.tau/skills',
+          disableModelInvocation: false,
+        },
+      ],
+      prompts: [],
+      diagnostics: [],
+    };
+    expect(resourceCatalogSchema.safeParse(valid).success).toBe(true);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        skills: [{ ...valid.skills[0], content: 'must not cross IPC' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        skills: [{ ...valid.skills[0], origin: 'x'.repeat(RESOURCE_LIMITS.originCharacters + 1) }],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        diagnostics: ['x'.repeat(RESOURCE_LIMITS.diagnosticCharacters + 1)],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        prompts: Array.from({ length: RESOURCE_LIMITS.catalogEntries + 1 }, (_, index) => ({
+          name: `p${index}`,
+          description: null,
+          origin: '~/.tau/prompts',
+        })),
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects unknown actions', () => {
     expect(requestSchema.safeParse({ action: 'agent.selfDestruct' }).success).toBe(false);
   });
@@ -57,9 +115,14 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'fs.complete', payload: { query: 'a', limit: 5000 } })
         .success,
     ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'ui.copyText' }).success).toBe(false);
   });
 
   it('rejects settings patches with unknown values', () => {
+    expect(
+      requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'pure-black' } })
+        .success,
+    ).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'neon' } }).success,
     ).toBe(false);
@@ -73,6 +136,93 @@ describe('IPC request validation', () => {
         payload: {
           runtime: { tau: { binary: 'tau', provider: null, model: null, extraArgs: [] } },
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates the optional session target on the envelope', () => {
+    const parsed = envelopeSchema.safeParse({
+      action: 'agent.prompt',
+      payload: { text: 'hi' },
+      session: { runtime: 'tau', sessionId: 'abc' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
+
+    expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'zsh', sessionId: 'a' },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: '' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates scoped model patches', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [key('fake', 'a')], pi: [] } },
+      }).success,
+    ).toBe(true);
+    // Both runtimes must be supplied, and entries must be non-empty strings.
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [key('fake', 'a')] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [''], pi: [] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: {
+          scopedModels: { tau: Array.from({ length: 101 }, () => key('fake', 'a')), pi: [] },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: {
+          scopedModels: { tau: [`["p","${'m'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH)}"]`], pi: [] },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates narrow atomic scoped-model mutations', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: { runtime: 'tau', provider: 'a:b', modelId: 'c' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: {
+          runtime: 'tau',
+          provider: 'p',
+          modelId: 'm'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: { runtime: 'other', provider: 'p', modelId: 'm' },
       }).success,
     ).toBe(false);
   });
