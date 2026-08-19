@@ -67,6 +67,20 @@ describe('picker framework', () => {
     expect(accepted.map((item) => item.id)).toEqual(['gamma']);
   });
 
+  it('gives sanitizer-colliding item ids distinct option and active-descendant ids', async () => {
+    const { view } = await renderPicker([
+      { id: '["a:b","c"]', label: 'colon provider' },
+      { id: '["a?b","c"]', label: 'question provider' },
+    ]);
+    const input = query(view.container, '.picker-input');
+    const rows = [...view.container.querySelectorAll<HTMLElement>('[role="option"]')];
+
+    expect(rows[0]!.id).not.toBe(rows[1]!.id);
+    expect(input.getAttribute('aria-activedescendant')).toBe(rows[0]!.id);
+    await press(input, 'ArrowDown');
+    expect(input.getAttribute('aria-activedescendant')).toBe(rows[1]!.id);
+  });
+
   it('accepts a mouse click on any row, including unavailable entries', async () => {
     const { view, accepted } = await renderPicker();
     const rows = [...view.container.querySelectorAll('[role="option"]')];
