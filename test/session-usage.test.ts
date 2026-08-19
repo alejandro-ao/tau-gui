@@ -66,6 +66,28 @@ describe('deriveSessionUsage', () => {
     expect(usage.compactions).toBe(1);
   });
 
+  it('reports only compaction summaries and tool names still visible after repeated compaction', () => {
+    // Tau and Pi both hydrate the active normalized transcript after compaction. Earlier
+    // summaries and tool calls can be absent; cumulative totals come separately from stats.
+    const activeAfterRepeatedCompaction: AgentMessage[] = [
+      {
+        role: 'compactionSummary',
+        summary: 'latest summary only',
+        tokensBefore: 4000,
+        timestamp: 3,
+      },
+      assistant({
+        toolCalls: [{ id: 'new-call', name: 'bash', arguments: {} }],
+        timestamp: 4,
+      }),
+    ];
+
+    const usage = deriveSessionUsage(activeAfterRepeatedCompaction);
+
+    expect(usage.compactions).toBe(1);
+    expect(usage.toolCalls).toEqual([{ name: 'bash', count: 1 }]);
+  });
+
   it('uses honest unavailable states when cache and cost were not reported', () => {
     const usage = deriveSessionUsage([
       assistant({

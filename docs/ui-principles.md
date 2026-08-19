@@ -13,5 +13,5 @@
 - Keep exact commands, arguments, output, and patches available through expansion.
 - Optimize for keyboard use without sacrificing mouse selection, scrolling, links, and native clipboard behavior.
 - Virtualize long transcripts without changing runtime context or durable history.
-- Derive session analytics only from normalized RPC messages and stats. Label missing provider data and unsupported export event markers honestly; never inspect session JSONL in the renderer.
+- Derive session analytics only from normalized RPC messages and stats. Distinguish cumulative runtime totals from active-transcript request, compaction, and per-tool detail; label missing provider data and unsupported export event markers honestly. Never inspect session JSONL in the renderer.
 - Treat `agent_settled`, not `agent_end`, as the transition to idle.

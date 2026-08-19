@@ -106,10 +106,13 @@ Tracks issue #1. Update this file whenever behavior changes.
   hit figure is derived from reported token counts, so it is shown as an
   estimate (`~`).
 - An always-available **Session usage** main-content tab derives export-style
-  request, token/cache, output/reasoning, cost, tool-call, and compaction metrics
-  from normalized RPC messages. Responsive SVG plots and a request table update
-  after authoritative session hydration; unsupported event markers and missing
-  provider measurements are explicitly unavailable rather than inferred.
+  analytics from normalized RPC messages and cumulative runtime stats. Total
+  cards cover requests, tokens, cost, and tool calls when stats are available;
+  plots, request rows, reasoning, compaction summaries, and per-tool names are
+  explicitly active-transcript-only because older details may be compacted away.
+  SVG ticks are sampled and request rows paginated for long sessions. Unsupported
+  event markers and missing provider measurements are unavailable rather than
+  inferred.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the

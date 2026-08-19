@@ -1,12 +1,16 @@
-import { useMemo, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { deriveSessionUsage, type RequestUsage } from '../../../shared/session-usage.js';
 import { useStore } from '../state/store.js';
 
 const number = new Intl.NumberFormat('en-US');
+const REQUESTS_PER_PAGE = 50;
+const MAX_X_TICKS = 10;
 
 export function SessionUsage(): ReactNode {
   const { state } = useStore();
   const usage = useMemo(() => deriveSessionUsage(state.messages), [state.messages]);
+  const [requestPage, setRequestPage] = useState(0);
+  useEffect(() => setRequestPage(0), [state.agent?.sessionId]);
 
   if (state.sessionTransitioning) {
     return (
@@ -25,11 +29,12 @@ export function SessionUsage(): ReactNode {
     );
   }
 
+  const hasRuntimeStats = state.stats !== null;
+  const scopeLabel = (total: string, visible: string): string =>
+    hasRuntimeStats ? total : visible;
   const aggregateCost = state.stats?.cost;
-  const cost =
-    aggregateCost !== null && aggregateCost !== undefined && aggregateCost > 0
-      ? aggregateCost
-      : usage.reportedCost;
+  const hasAggregateCost = aggregateCost !== null && aggregateCost !== undefined;
+  const cost = hasAggregateCost ? aggregateCost : usage.reportedCost;
   const totals = state.stats?.tokens;
   const totalFresh = totals?.input ?? usage.totalFresh;
   const totalCached = totals?.cacheRead ?? usage.totalCached;
@@ -37,6 +42,11 @@ export function SessionUsage(): ReactNode {
   const totalPrompt = totalFresh + totalCached + totalCacheWrite;
   const cacheHitRate =
     totalPrompt > 0 && (totalCached > 0 || totalCacheWrite > 0) ? totalCached / totalPrompt : null;
+  const pageCount = Math.ceil(usage.requests.length / REQUESTS_PER_PAGE);
+  const currentPage = Math.min(requestPage, pageCount - 1);
+  const firstRequest = currentPage * REQUESTS_PER_PAGE;
+  const visibleRequests = usage.requests.slice(firstRequest, firstRequest + REQUESTS_PER_PAGE);
+  const visibleToolCallCount = usage.toolCalls.reduce((total, tool) => total + tool.count, 0);
   const rates: number[] = [];
   let cached = 0;
   let prompt = 0;
@@ -57,30 +67,58 @@ export function SessionUsage(): ReactNode {
 
       <div className="usage-cards">
         <Metric
-          label="Model requests"
+          label={scopeLabel('Total model requests', 'Visible model requests')}
           value={number.format(state.stats?.assistantMessages ?? usage.requests.length)}
         />
-        <Metric label="Cache hit rate" value={formatPercent(cacheHitRate)} />
-        <Metric label="Cached input" value={number.format(totalCached)} />
-        <Metric label="Cache writes" value={number.format(totalCacheWrite)} />
-        <Metric label="Fresh input" value={number.format(totalFresh)} />
-        <Metric label="Total prompt input" value={number.format(totalPrompt)} />
-        <Metric label="Output tokens" value={number.format(totals?.output ?? usage.totalOutput)} />
+        <Metric
+          label={scopeLabel('Total cache hit rate', 'Visible cache hit rate')}
+          value={formatPercent(cacheHitRate)}
+        />
+        <Metric
+          label={scopeLabel('Total cached input', 'Visible cached input')}
+          value={number.format(totalCached)}
+        />
+        <Metric
+          label={scopeLabel('Total cache writes', 'Visible cache writes')}
+          value={number.format(totalCacheWrite)}
+        />
+        <Metric
+          label={scopeLabel('Total fresh input', 'Visible fresh input')}
+          value={number.format(totalFresh)}
+        />
+        <Metric
+          label={scopeLabel('Total prompt input', 'Visible prompt input')}
+          value={number.format(totalPrompt)}
+        />
+        <Metric
+          label={scopeLabel('Total output tokens', 'Visible output tokens')}
+          value={number.format(totals?.output ?? usage.totalOutput)}
+        />
         <Metric label="Visible reasoning" value={number.format(usage.totalReasoning)} />
-        <Metric label="Estimated cost" value={formatCost(cost)} />
-        <Metric label="Compactions" value={number.format(usage.compactions)} />
+        <Metric
+          label={hasAggregateCost ? 'Total estimated cost' : 'Visible estimated cost'}
+          value={formatCost(cost)}
+        />
+        <Metric
+          label="Total tool calls"
+          value={state.stats ? number.format(state.stats.toolCalls) : 'N/A'}
+        />
+        <Metric label="Visible compaction summaries" value={number.format(usage.compactions)} />
       </div>
 
       <p className="usage-note">
-        Cards prefer cumulative runtime stats, including requests replaced by compaction; plots and
-        the request table cover usage exposed in the normalized active transcript. Cost is the
-        runtime total when available. Model, thinking, branch, and compaction chart markers are not
-        exposed by the message RPC, so none are inferred.
+        Cards labelled Total use cumulative runtime stats, including requests and tool calls
+        replaced by compaction. If runtime stats are unavailable, cards are explicitly labelled
+        Visible and use only the normalized active transcript. Plots, reasoning, compaction
+        summaries, the request table, and the tool-name breakdown are always visible-transcript
+        only. Older compactions and their per-tool names may have been compacted away. Model,
+        thinking, branch, and compaction chart markers are not exposed by the message RPC, so none
+        are inferred.
       </p>
 
       <div className="usage-charts">
         <UsageChart
-          title="Prompt input by request"
+          title="Visible prompt input by request"
           requests={usage.requests}
           series={[
             { name: 'cached', key: 'cached' },
@@ -90,7 +128,7 @@ export function SessionUsage(): ReactNode {
         />
         {usage.cacheHitRate === null ? null : (
           <UsageChart
-            title="Cache hit rate"
+            title="Visible cache hit rate by request"
             requests={usage.requests}
             series={[
               { name: 'request', values: usage.requests.map((request) => request.hitRate * 100) },
@@ -100,7 +138,7 @@ export function SessionUsage(): ReactNode {
           />
         )}
         <UsageChart
-          title="Output and reasoning tokens"
+          title="Visible output and reasoning tokens"
           requests={usage.requests}
           series={[
             { name: 'output', key: 'output' },
@@ -111,7 +149,11 @@ export function SessionUsage(): ReactNode {
 
       <div className="usage-details">
         <section className="usage-panel">
-          <h2>Requests</h2>
+          <h2>Visible requests</h2>
+          <p className="usage-page-status" aria-live="polite">
+            Showing {firstRequest + 1}–{firstRequest + visibleRequests.length} of{' '}
+            {usage.requests.length} visible requests
+          </p>
           <div className="usage-table-wrap">
             <table>
               <thead>
@@ -132,7 +174,7 @@ export function SessionUsage(): ReactNode {
                 </tr>
               </thead>
               <tbody>
-                {usage.requests.map((request) => (
+                {visibleRequests.map((request) => (
                   <tr key={request.number}>
                     <td>{request.number}</td>
                     <td>{formatTime(request.timestamp)}</td>
@@ -152,11 +194,35 @@ export function SessionUsage(): ReactNode {
               </tbody>
             </table>
           </div>
+          {pageCount > 1 ? (
+            <nav className="usage-pagination" aria-label="Visible request pages">
+              <button
+                type="button"
+                disabled={currentPage === 0}
+                onClick={() => setRequestPage((page) => Math.max(0, page - 1))}
+              >
+                Previous
+              </button>
+              <span>
+                Page {currentPage + 1} of {pageCount}
+              </span>
+              <button
+                type="button"
+                disabled={currentPage === pageCount - 1}
+                onClick={() => setRequestPage((page) => Math.min(pageCount - 1, page + 1))}
+              >
+                Next
+              </button>
+            </nav>
+          ) : null}
         </section>
         <section className="usage-panel usage-tools">
-          <h2>Tool calls</h2>
+          <h2>Visible tool-name breakdown</h2>
+          <p className="usage-page-status">
+            {number.format(visibleToolCallCount)} calls remain in the active transcript
+          </p>
           {usage.toolCalls.length === 0 ? (
-            <p className="usage-muted">No tool calls.</p>
+            <p className="usage-muted">No visible tool calls.</p>
           ) : (
             usage.toolCalls.map((tool) => (
               <div className="usage-tool" key={tool.name}>
@@ -232,15 +298,15 @@ function UsageChart({
             />
           </g>
         ))}
-        {requests.map((request, index) => (
+        {sampleTickIndexes(requests.length).map((index) => (
           <text
-            className="usage-tick"
-            key={request.number}
+            className="usage-tick usage-x-tick"
+            key={requests[index]?.number}
             x={x(index)}
             y={height - 12}
             textAnchor="middle"
           >
-            {request.number}
+            {requests[index]?.number}
           </text>
         ))}
       </svg>
@@ -252,6 +318,13 @@ function UsageChart({
         ))}
       </figcaption>
     </figure>
+  );
+}
+
+function sampleTickIndexes(length: number): number[] {
+  if (length <= MAX_X_TICKS) return Array.from({ length }, (_, index) => index);
+  return Array.from({ length: MAX_X_TICKS }, (_, index) =>
+    Math.round((index * (length - 1)) / (MAX_X_TICKS - 1)),
   );
 }
 

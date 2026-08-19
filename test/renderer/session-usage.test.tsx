@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentMessage } from '../../src/shared/domain.js';
+import type { AgentMessage, AssistantMessage, SessionStats } from '../../src/shared/domain.js';
 import { installFakeBridge, mount, query, type Mounted } from './harness.js';
 
 let mounted: Mounted | null = null;
@@ -33,8 +33,11 @@ const messages: AgentMessage[] = [
   },
 ];
 
-async function render(messagesResult: AgentMessage[] = messages): Promise<Mounted> {
-  installFakeBridge({ results: { 'agent.messages': messagesResult } });
+async function render(
+  messagesResult: AgentMessage[] = messages,
+  stats: SessionStats | null = null,
+): Promise<Mounted> {
+  installFakeBridge({ stats, results: { 'agent.messages': messagesResult } });
   const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
   const { App } = await import('../../src/renderer/src/App.js');
   const view = await mount(
@@ -62,10 +65,11 @@ describe('session usage tab', () => {
       query(view.container, '[role="tabpanel"]:not([hidden])').getAttribute('aria-labelledby'),
     ).toBe('tab-session-usage');
     expect(view.container.textContent).toContain('Session usage');
-    expect(view.container.textContent).toContain('Model requests1');
-    expect(view.container.textContent).toContain('Cache hit rate80.0%');
-    expect(view.container.textContent).toContain('Prompt input by request');
-    expect(view.container.textContent).toContain('Output and reasoning tokens');
+    expect(view.container.textContent).toContain('Visible model requests1');
+    expect(view.container.textContent).toContain('Visible cache hit rate80.0%');
+    expect(view.container.textContent).toContain('Visible prompt input by request');
+    expect(view.container.textContent).toContain('Visible output and reasoning tokens');
+    expect(view.container.textContent).toContain('Visible tool-name breakdown');
     expect(view.container.textContent).toContain('read1');
 
     act(() => {
@@ -73,6 +77,59 @@ describe('session usage tab', () => {
     });
     expect(conversation.getAttribute('aria-selected')).toBe('true');
     expect(document.activeElement).toBe(conversation);
+  });
+
+  it('distinguishes cumulative tool totals from the active transcript after repeated compaction', async () => {
+    const stats: SessionStats = {
+      sessionFile: '/tmp/session.jsonl',
+      sessionId: 'compacted',
+      userMessages: 8,
+      assistantMessages: 9,
+      toolCalls: 14,
+      totalMessages: 17,
+      tokens: { input: 900, output: 400, cacheRead: 2000, cacheWrite: 100, total: 3400 },
+      cost: 1.25,
+      contextUsage: { tokens: 3000, contextWindow: 200_000, percent: 1.5 },
+    };
+    const activeMessages: AgentMessage[] = [
+      {
+        role: 'compactionSummary',
+        summary: 'Only the latest of several summaries remains.',
+        tokensBefore: 20_000,
+        timestamp: 2,
+      },
+      ...messages,
+    ];
+    const view = await render(activeMessages, stats);
+    act(() => query<HTMLButtonElement>(view.container, '#tab-session-usage').click());
+
+    expect(view.container.textContent).toContain('Total tool calls14');
+    expect(view.container.textContent).toContain('Visible compaction summaries1');
+    expect(view.container.textContent).toContain('1 calls remain in the active transcript');
+    expect(view.container.textContent).toContain(
+      'Older compactions and their per-tool names may have been compacted away.',
+    );
+  });
+
+  it('bounds chart ticks and mounted table rows while paginating a large session', async () => {
+    const largeSession = Array.from({ length: 500 }, (_, index): AssistantMessage => ({
+      ...(messages[0] as AssistantMessage),
+      toolCalls: [],
+      timestamp: 1_700_000_000_000 + index,
+    }));
+    const view = await render(largeSession);
+    act(() => query<HTMLButtonElement>(view.container, '#tab-session-usage').click());
+
+    expect(view.container.querySelectorAll('.usage-x-tick')).toHaveLength(30);
+    expect(view.container.querySelectorAll('.usage-table-wrap tbody tr')).toHaveLength(50);
+    expect(view.container.textContent).toContain('Showing 1–50 of 500 visible requests');
+
+    act(() =>
+      query<HTMLButtonElement>(view.container, '.usage-pagination button:last-child').click(),
+    );
+    expect(view.container.querySelector('.usage-table-wrap tbody tr td')?.textContent).toBe('51');
+    expect(view.container.querySelectorAll('.usage-table-wrap tbody tr')).toHaveLength(50);
+    expect(view.container.textContent).toContain('Showing 51–100 of 500 visible requests');
   });
 
   it('keeps the tab available and explains an empty session', async () => {
