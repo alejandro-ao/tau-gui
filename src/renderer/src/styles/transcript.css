@@ -109,7 +109,7 @@
 }
 
 .block-user {
-  background: var(--panel);
+  background: var(--user-message-bg);
   padding: var(--space-3) 0;
   border-radius: var(--radius);
 }
