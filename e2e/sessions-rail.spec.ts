@@ -20,6 +20,8 @@ test.describe('sessions rail', () => {
           {
             id: 'older-session',
             name: 'earlier work',
+            firstMessage: 'Continue the earlier work',
+            messageCount: 2,
             path: null,
             cwd: projectDir,
             runtime: 'tau',
@@ -41,32 +43,25 @@ test.describe('sessions rail', () => {
 
     const rail = page.getByTestId('sessions-rail');
     await expect(rail).toBeVisible();
-    // The seeded directory session and the live session are listed; the
-    // session from another directory is not.
+    // The seeded directory session is listed; the empty live session and the
+    // session from another directory are not.
     await expect(rail).toContainText('earlier work');
-    await expect(rail).toContainText('fake-session');
+    await expect(rail).not.toContainText('fake-session');
     await expect(rail).not.toContainText('elsewhere');
 
-    // The live session is highlighted as active.
-    const active = rail.locator('.sessions-rail-item[data-active="true"]');
-    await expect(active).toContainText('fake-session');
-
-    // Clicking the older session resumes it through the runtime.
+    // Clicking the older session resumes it through the runtime. The fake
+    // reports no messages for switched sessions, so it is then hidden as empty.
     await rail.getByRole('button', { name: /earlier work/ }).click();
     await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
-    // After switching, the runtime's (nameless) session state is authoritative,
-    // so the label falls back to the truncated session id.
-    await expect(rail.locator('.sessions-rail-item[data-active="true"]')).toContainText(
-      'older-sessio',
-    );
+    await expect(rail).not.toContainText('earlier work');
   });
 
-  test('tracks the live session once connected', async () => {
+  test('does not list an empty live session once connected', async () => {
     handle = await launchApp();
     const { page } = handle;
     await waitForConnected(page);
-    // Connecting records the current session, so the rail appears even for a
-    // directory with no prior history.
-    await expect(page.getByTestId('sessions-rail')).toContainText('fake-session');
+    const rail = page.getByTestId('sessions-rail');
+    await expect(rail).toContainText('sessions · 0');
+    await expect(rail).not.toContainText('fake-session');
   });
 });

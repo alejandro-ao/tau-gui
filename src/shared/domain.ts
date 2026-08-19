@@ -348,6 +348,10 @@ export interface CommandInfo {
 export interface SessionRef {
   id: string;
   name: string | null;
+  /** First user message, used as the fallback display label. */
+  firstMessage?: string | null;
+  /** Persisted so empty sessions can be omitted from recent-session UI. */
+  messageCount?: number;
   path: string | null;
   cwd: string | null;
   runtime: RuntimeKind;

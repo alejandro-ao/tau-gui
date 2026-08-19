@@ -8,7 +8,7 @@ import type {
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
-import type { RuntimeSnapshot } from '../../../shared/ipc.js';
+import type { RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
 
@@ -142,12 +142,15 @@ export interface AppState {
   lastCompletionPreview: string | null;
   /** Monotonic count of settled turns; keys completion notifications. */
   settledCount: number;
+  /** Runtime and unread-response state for active and background sessions. */
+  sessionActivity: Record<string, SessionActivity>;
 }
 
 export type Action =
   | { type: 'event'; event: AgentEvent; now: number }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
   | { type: 'settings'; settings: AppSettings }
+  | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'diagnostic'; message: string }
   | { type: 'diagnostics'; messages: string[] }
   | { type: 'stats'; stats: SessionStats }

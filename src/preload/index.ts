@@ -51,6 +51,7 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
     type === 'status' ||
     type === 'diagnostic' ||
     type === 'settings' ||
+    type === 'sessionActivity' ||
     type === 'focus'
   );
 }

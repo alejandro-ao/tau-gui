@@ -166,6 +166,15 @@ export interface FileCompletion {
   isDirectory: boolean;
 }
 
+/** Per-session run state used by the sessions rail, including background runtimes. */
+export interface SessionActivity {
+  sessionId: string;
+  runtime: RuntimeSnapshot['runtime'];
+  status: RuntimeStatus;
+  /** `true` marks an unseen answer, `false` clears it, and `null` leaves it unchanged. */
+  responseReady: boolean | null;
+}
+
 /** Maps every action to its resolved value. */
 export interface IpcResultMap {
   'settings.get': AppSettings;
@@ -219,6 +228,7 @@ export type BridgeEvent =
   | { type: 'status'; snapshot: RuntimeSnapshot }
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
+  | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

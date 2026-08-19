@@ -35,6 +35,7 @@ export const INITIAL_STATE: AppState = {
   busy: false,
   lastCompletionPreview: null,
   settledCount: 0,
+  sessionActivity: {},
 };
 
 const MAX_DIAGNOSTICS = 300;
@@ -59,6 +60,23 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
     case 'settings':
       return { ...state, settings: action.settings };
+    case 'sessionActivity': {
+      const key = `${action.activity.runtime}:${action.activity.sessionId}`;
+      const previous = state.sessionActivity[key];
+      return {
+        ...state,
+        sessionActivity: {
+          ...state.sessionActivity,
+          [key]: {
+            ...action.activity,
+            responseReady:
+              action.activity.responseReady === null
+                ? (previous?.responseReady ?? false)
+                : action.activity.responseReady,
+          },
+        },
+      };
+    }
     case 'diagnostic':
       return {
         ...state,

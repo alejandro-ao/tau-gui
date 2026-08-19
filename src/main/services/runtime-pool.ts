@@ -69,7 +69,19 @@ export class RuntimePool {
       this.current = existing;
       const snapshot = existing.snapshot();
       this.broadcast({ type: 'status', snapshot });
+      this.broadcastActivity(existing, snapshot.status, false);
       return snapshot;
+    }
+
+    // An idle process can switch sessions in place. Spawning one process per
+    // click adds visible startup latency; reserve that for a session whose
+    // current process must stay alive because it is still working.
+    const reusable = this.current;
+    if (reusable?.kind === kind && reusable.snapshot().status === 'idle') {
+      await reusable.active.switchSession(ref);
+      await reusable.refreshState();
+      this.index(reusable);
+      return reusable.snapshot();
     }
 
     const previous = this.current;
@@ -127,9 +139,34 @@ export class RuntimePool {
 
   private handleEvent(manager: RuntimeManager, event: BridgeEvent): void {
     if (event.type === 'settings') this.index(manager);
-    // Settings are application-global. Every other event belongs to one
-    // transcript and is shown only while that transcript is selected.
+    if (event.type === 'status') {
+      this.broadcastActivity(
+        manager,
+        event.snapshot.status,
+        manager === this.current ? false : null,
+      );
+    }
+    if (event.type === 'agent' && event.event.type === 'agent_settled') {
+      this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
+    }
+    // Settings are application-global. Every other transcript event is shown
+    // only while that transcript is selected. Session activity is separately
+    // broadcast above so the rail can monitor background runtimes.
     if (event.type === 'settings' || manager === this.current) this.broadcast(event);
+  }
+
+  private broadcastActivity(
+    manager: RuntimeManager,
+    status: ReturnType<RuntimeManager['snapshot']>['status'],
+    responseReady: boolean | null,
+  ): void {
+    const snapshot = manager.snapshot();
+    const sessionId = snapshot.state?.sessionId;
+    if (!sessionId) return;
+    this.broadcast({
+      type: 'sessionActivity',
+      activity: { sessionId, runtime: snapshot.runtime, status, responseReady },
+    });
   }
 
   private index(manager: RuntimeManager): void {

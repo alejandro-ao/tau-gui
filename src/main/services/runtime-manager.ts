@@ -15,6 +15,8 @@ import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_DIAGNOSTICS = 500;
+const SESSION_NAME_POLL_INTERVAL_MS = 100;
+const SESSION_NAME_POLL_LIMIT = 300;
 
 /**
  * Owns the runtime subprocess lifecycle and the derived process state machine:
@@ -30,6 +32,9 @@ export class RuntimeManager {
   private state: AgentState | null = null;
   private runtimeVersion: string | null = null;
   private runtimeKind: RuntimeKind | null = null;
+  private firstMessage: string | null = null;
+  private loadingFirstMessageFor: string | null = null;
+  private watchingSessionNameFor: string | null = null;
   private readonly diagnostics: string[] = [];
 
   constructor(
@@ -130,6 +135,7 @@ export class RuntimeManager {
     this.runtime = null;
     if (runtime) await runtime.stop();
     this.state = null;
+    this.watchingSessionNameFor = null;
     this.runtimeVersion = null;
     this.setStatus('stopped', null);
     return this.snapshot();
@@ -144,21 +150,12 @@ export class RuntimeManager {
     if (!this.runtime) return null;
     try {
       const state = await this.runtime.getState();
+      if (state.sessionId !== this.state?.sessionId) this.firstMessage = null;
       this.state = state;
-      if (state.sessionId) {
-        this.settings.rememberSession(
-          {
-            id: state.sessionId,
-            name: state.sessionName,
-            path: state.sessionFile,
-            cwd: this.cwd,
-            runtime: this.kind,
-            lastSeen: Date.now(),
-          },
-          touch,
-        );
-        this.broadcast({ type: 'settings', settings: this.settings.current });
+      if (!state.sessionName && state.messageCount > 0 && !this.firstMessage) {
+        void this.loadFirstMessage(state.sessionId);
       }
+      if (state.sessionId) this.rememberCurrentSession(touch);
       this.broadcast({ type: 'status', snapshot: this.snapshot() });
       return state;
     } catch (error) {
@@ -171,6 +168,17 @@ export class RuntimeManager {
     switch (event.type) {
       case 'agent_start':
         this.setStatus('running', null);
+        break;
+      case 'message_start':
+        if (
+          event.message.role === 'user' &&
+          !this.firstMessage &&
+          (this.state?.messageCount ?? 0) === 0
+        ) {
+          this.firstMessage = event.message.text.trim() || null;
+          this.rememberCurrentSession(false, 1);
+          void this.watchSessionName(this.state?.sessionId ?? '');
+        }
         break;
       case 'compaction_start':
         this.setStatus('compacting', null);
@@ -198,6 +206,62 @@ export class RuntimeManager {
     this.broadcast({ type: 'agent', event });
   }
 
+  /**
+   * Tau generates the first-turn title with the active model while the agent
+   * run continues. Poll its authoritative state so that title reaches the UI
+   * as soon as that parallel request finishes, rather than at agent_settled.
+   * Pi and older Tau versions simply remain on the immediate first-message
+   * label until the run settles.
+   */
+  private async watchSessionName(sessionId: string): Promise<void> {
+    if (!sessionId || !this.runtime || this.watchingSessionNameFor === sessionId) return;
+    this.watchingSessionNameFor = sessionId;
+    try {
+      for (let attempt = 0; attempt < SESSION_NAME_POLL_LIMIT; attempt += 1) {
+        await delay(SESSION_NAME_POLL_INTERVAL_MS);
+        if (!this.runtime || this.state?.sessionId !== sessionId) return;
+        const state = await this.refreshState();
+        if (!state || state.sessionName || this.status === 'idle') return;
+      }
+    } finally {
+      if (this.watchingSessionNameFor === sessionId) this.watchingSessionNameFor = null;
+    }
+  }
+
+  private async loadFirstMessage(sessionId: string): Promise<void> {
+    if (!this.runtime || this.loadingFirstMessageFor === sessionId) return;
+    this.loadingFirstMessageFor = sessionId;
+    try {
+      const messages = await this.runtime.getMessages();
+      if (this.state?.sessionId !== sessionId) return;
+      this.firstMessage = messages.find((message) => message.role === 'user')?.text.trim() ?? null;
+      this.rememberCurrentSession(false);
+    } catch (error) {
+      this.addDiagnostic(`Failed to load session label: ${(error as Error).message}`);
+    } finally {
+      if (this.loadingFirstMessageFor === sessionId) this.loadingFirstMessageFor = null;
+    }
+  }
+
+  private rememberCurrentSession(touch: boolean, minimumMessageCount = 0): void {
+    const state = this.state;
+    if (!state?.sessionId) return;
+    this.settings.rememberSession(
+      {
+        id: state.sessionId,
+        name: state.sessionName,
+        firstMessage: this.firstMessage,
+        messageCount: Math.max(state.messageCount, minimumMessageCount),
+        path: state.sessionFile,
+        cwd: this.cwd,
+        runtime: this.kind,
+        lastSeen: Date.now(),
+      },
+      touch,
+    );
+    this.broadcast({ type: 'settings', settings: this.settings.current });
+  }
+
   private setStatus(status: RuntimeStatus, detail: string | null = null): void {
     this.status = status;
     this.detail = detail;
@@ -209,6 +273,10 @@ export class RuntimeManager {
     if (this.diagnostics.length > MAX_DIAGNOSTICS) this.diagnostics.shift();
     this.broadcast({ type: 'diagnostic', message: line });
   }
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function describeStartFailure(config: RuntimeLaunchConfig, error: Error): string {

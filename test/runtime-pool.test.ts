@@ -2,6 +2,7 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, SessionRef } from '../src/shared/domain.js';
+import type { BridgeEvent } from '../src/shared/ipc.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
 
@@ -45,14 +46,55 @@ afterEach(async () => {
 });
 
 describe('RuntimePool', () => {
+  it('switches an idle process in place without restarting the runtime', async () => {
+    const settings = makeSettings();
+    const statuses: string[] = [];
+    pool = new RuntimePool(settings, (event) => {
+      if (event.type === 'status') statuses.push(event.snapshot.status);
+    });
+    await pool.start();
+    statuses.length = 0;
+    settings.rememberSession({
+      id: 'other-session',
+      name: 'other',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+
+    await pool.activateSession('other-session');
+
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+    expect(statuses).not.toContain('starting');
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
+
   it('keeps one session running while another session is selected', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    let markRunning: (() => void) | undefined;
+    let markResponseReady: (() => void) | undefined;
+    const running = new Promise<void>((resolve) => {
+      markRunning = resolve;
+    });
+    const responseReady = new Promise<void>((resolve) => {
+      markResponseReady = resolve;
+    });
+    const activities: BridgeEvent[] = [];
+    pool = new RuntimePool(settings, (event) => {
+      if (event.type === 'status' && event.snapshot.status === 'running') markRunning?.();
+      if (event.type === 'sessionActivity') {
+        activities.push(event);
+        if (event.activity.responseReady) markResponseReady?.();
+      }
+    });
     await pool.start();
     const first = pool.snapshot().state?.sessionId;
     expect(first).toBe('fake-session-1');
 
     await pool.active.prompt({ text: 'slow work' });
+    await running;
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
@@ -63,6 +105,23 @@ describe('RuntimePool', () => {
     });
     await pool.activateSession('other-session');
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
+    await responseReady;
+    expect(
+      activities.some(
+        (event) =>
+          event.type === 'sessionActivity' &&
+          event.activity.sessionId === first &&
+          event.activity.status === 'running',
+      ),
+    ).toBe(true);
+    expect(
+      activities.some(
+        (event) =>
+          event.type === 'sessionActivity' &&
+          event.activity.sessionId === first &&
+          event.activity.responseReady === true,
+      ),
+    ).toBe(true);
 
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(2);

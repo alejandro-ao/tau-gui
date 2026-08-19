@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent } from '../src/shared/ipc.js';
@@ -77,6 +77,68 @@ describe('RuntimeManager state machine', () => {
     expect(snapshot.cwd).toBe(process.cwd());
     expect(snapshot.state?.sessionId).toBe('fake-session-1');
     expect(fixture.broadcasts.some((event) => event.type === 'status')).toBe(true);
+  });
+
+  it('records the first user message for an unnamed session', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+
+    fixture.emit({
+      type: 'message_start',
+      message: {
+        role: 'user',
+        text: 'Investigate the sidebar',
+        images: [],
+        timestamp: Date.now(),
+      },
+    });
+
+    const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
+    expect(
+      settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0] : null,
+    ).toMatchObject({
+      firstMessage: 'Investigate the sidebar',
+      messageCount: 1,
+    });
+  });
+
+  it('publishes an auto-generated name before the first turn settles', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+    vi.useFakeTimers();
+    try {
+      const initial = fixture.manager.snapshot().state;
+      if (!initial) throw new Error('agent state missing');
+      fixture.manager.active.getState = vi.fn(() =>
+        Promise.resolve({
+          ...initial,
+          sessionName: 'Sidebar investigation',
+          messageCount: 1,
+        }),
+      );
+
+      fixture.emit({ type: 'agent_start' });
+      fixture.emit({
+        type: 'message_start',
+        message: {
+          role: 'user',
+          text: 'Investigate the sidebar',
+          images: [],
+          timestamp: Date.now(),
+        },
+      });
+      await vi.advanceTimersByTimeAsync(100);
+
+      const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
+      expect(
+        settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0]?.name : null,
+      ).toBe('Sidebar investigation');
+      expect(fixture.manager.snapshot().status).toBe('running');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('stays running on agent_end and only settles on agent_settled', async () => {

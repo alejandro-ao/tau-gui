@@ -118,6 +118,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         case 'settings':
           dispatch({ type: 'settings', settings: event.settings });
           break;
+        case 'sessionActivity':
+          dispatch({ type: 'sessionActivity', activity: event.activity });
+          break;
         case 'diagnostic':
           dispatch({ type: 'diagnostic', message: event.message });
           break;
