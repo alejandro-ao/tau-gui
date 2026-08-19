@@ -94,9 +94,10 @@ test.describe('sessions rail', () => {
     const rail = page.getByTestId('sessions-rail');
     const other = rail.locator('.sessions-rail-item').filter({ hasText: 'Other session' });
     await other.click();
-    await expect(page.getByTestId('prompt-slot')).toContainText('opening session…');
+    await expect(page.getByRole('status', { name: 'Loading thread' })).toBeVisible();
+    await expect(page.getByTestId('connection-notice')).toHaveCount(0);
     await expect(page.getByTestId('prompt-slot')).not.toContainText('working…');
-    await expect(transcript(page)).toContainText('No messages yet');
+    await expect(transcript(page)).not.toContainText('No messages yet');
     await expect(transcript(page)).not.toContainText('src/index.ts');
     await expect(page.locator('.block-tool')).toHaveCount(0);
     await expect(other).toHaveCount(0);

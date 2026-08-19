@@ -12,6 +12,35 @@
   padding: var(--space-5) 0;
 }
 
+.thread-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.thread-loading-spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: thread-loading-spin 0.8s linear infinite;
+}
+
+@keyframes thread-loading-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thread-loading-spinner {
+    animation-duration: 1.6s;
+  }
+}
+
 .boundary {
   position: sticky;
   z-index: 2;

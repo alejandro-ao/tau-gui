@@ -57,7 +57,11 @@ export function Transcript(): ReactNode {
         ) : null}
         <div style={{ height: vwin.topPad }} aria-hidden="true" />
 
-        {groups.length === 0 ? (
+        {state.sessionTransitioning ? (
+          <div className="thread-loading" role="status" aria-label="Loading thread">
+            <span className="thread-loading-spinner" aria-hidden="true" />
+          </div>
+        ) : groups.length === 0 ? (
           <p className="transcript-empty">No messages yet. Type a prompt to start the session.</p>
         ) : null}
 

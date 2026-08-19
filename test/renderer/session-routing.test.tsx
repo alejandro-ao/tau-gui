@@ -66,6 +66,8 @@ describe('session hydration routing', () => {
     const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
     const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
     const { PromptSlot } = await import('../../src/renderer/src/components/PromptSlot.js');
+    const { ConnectionNotice } =
+      await import('../../src/renderer/src/components/ConnectionNotice.js');
     let actions: Actions | null = null;
 
     function Capture(): ReactNode {
@@ -76,6 +78,7 @@ describe('session hydration routing', () => {
     const view = await mount(
       <StoreProvider>
         <Capture />
+        <ConnectionNotice />
         <Transcript />
         <PromptSlot />
       </StoreProvider>,
@@ -149,7 +152,11 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
     expect(view.container.textContent).not.toContain('working…');
-    expect(view.container.textContent).toContain('opening session…');
+    expect(view.container.textContent).not.toContain('opening session…');
+    expect(view.container.querySelector('[aria-label="Loading thread"]')).not.toBeNull();
+    expect(view.container.querySelector('.connection-notice')).toBeNull();
+    expect(view.container.textContent).not.toContain('Starting runtime');
+    expect(view.container.textContent).not.toContain('No messages yet');
 
     await act(async () => {
       resolveSwitch?.();
@@ -159,6 +166,7 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).toContain('second session answer');
     expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
+    expect(view.container.querySelector('[aria-label="Loading thread"]')).toBeNull();
     expect(view.container.textContent).toContain('idle');
   });
 
