@@ -94,6 +94,61 @@ describe('command registry', () => {
     }
   });
 
+  it('passes TUI-style arguments to command actions', () => {
+    const state: AppState = {
+      ...stateWith({}),
+      models: [
+        {
+          id: 'm1',
+          name: 'Model One',
+          provider: 'fake',
+          api: 'chat',
+          reasoning: false,
+          input: ['text'],
+          contextWindow: 1000,
+          maxTokens: 100,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+      ],
+      thinkingLevels: ['medium'],
+    };
+    const { actions, calls } = stubActions();
+    const commands = buildCommands(state, actions);
+
+    commands.find((command) => command.id === 'session.name')?.run('/name release prep');
+    commands.find((command) => command.id === 'session.resume')?.run('/resume session-123');
+    commands.find((command) => command.id === 'session.compact')?.run('/compact keep decisions');
+    commands.find((command) => command.id === 'model.pick')?.run('/model fake:m1');
+    commands.find((command) => command.id === 'thinking.pick')?.run('/thinking medium');
+    commands.find((command) => command.id === 'view.theme')?.run('/theme tau-light');
+
+    expect(calls).toContain('nameSession:release prep');
+    expect(calls).toContain('switchSession:session-123');
+    expect(calls).toContain('compact:keep decisions');
+    expect(calls).toContain('setModel:[object Object]');
+    expect(calls).toContain('setThinking:medium');
+    expect(calls).toContain('updateSettings:[object Object]');
+  });
+
+  it('deduplicates runtime-reported built-ins and never sends unsupported commands as prompts', () => {
+    const { actions } = stubActions();
+    const commands = buildCommands(
+      {
+        ...stateWith({}),
+        commands: [
+          { name: 'compact', description: 'Compact', source: 'runtime' },
+          { name: 'review', description: 'Review', source: 'runtime' },
+        ],
+      },
+      actions,
+    );
+
+    expect(commands.filter((command) => command.slash === '/compact')).toHaveLength(1);
+    expect(commands.find((command) => command.slash === '/review')?.unavailable).toContain(
+      'does not expose command execution over RPC',
+    );
+  });
+
   it('opens the app-owned scoped model manager instead of reporting a gap', () => {
     const { actions, calls } = stubActions();
     const command = buildCommands(stateWith({}), actions).find(

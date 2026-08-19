@@ -44,15 +44,28 @@ Tracks issue #1. Update this file whenever behavior changes.
 ## Phase 3 — interaction parity ✅
 
 - Steering and follow-up queueing with pending state.
-- Command palette (`Ctrl+K`) and slash completion merging RPC commands,
-  frontend commands, skills, and prompt templates through one command registry
-  (`src/renderer/src/components/modals/commands.ts`). Slash completion accepts
-  with Enter (run) or Tab (complete text); unknown slash input is sent as a
-  normal prompt.
+- Command palette (`Ctrl+K`) and slash completion merge RPC-reported and GUI
+  commands through one registry (`src/renderer/src/components/modals/commands.ts`).
+  Slash completion accepts with Enter (run) or Tab (complete text); unknown slash
+  input is sent as a normal prompt. Registered commands are parsed locally before
+  prompting because RPC `prompt` does not execute TUI commands. Arguments work for
+  `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
+  Runtime-reported built-ins are deduplicated against GUI handlers.
+- Tau skills and prompt templates are discovered from the same user/project
+  `.tau` and `.agents` directories with the same precedence and reserved-name
+  rules as Tau. `/skills` and `/prompts` open searchable pickers, and selected
+  invocations are sent through Tau's prompt RPC for authoritative expansion.
+  Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
+  commands (including the `/skill:` prefix) under a `Commands` heading with
+  custom prompt templates under `Custom prompts`; individual skills are offered
+  only once `/skill:` has been typed. Only metadata crosses IPC;
+  resource contents remain in Tau/main-process filesystem access. Project resources
+  are omitted when launch-time project trust is declined.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/clone`) are listed as unavailable with the
-  reason instead of failing silently. `/clone` stays unavailable even on Pi,
-  where the runtime supports it, because the desktop app has no clone flow yet.
+  `/logout`, `/clone`, and extension commands that RPC can list but not execute)
+  are listed as unavailable with the reason instead of being sent incorrectly to
+  the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
+  because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,

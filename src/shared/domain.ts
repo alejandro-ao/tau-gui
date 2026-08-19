@@ -344,9 +344,33 @@ export interface CommandInfo {
   source: 'runtime' | 'frontend';
 }
 
+/** Metadata only: resource contents stay in the main process/runtime. */
+export interface SkillInfo {
+  name: string;
+  description: string | null;
+  origin: string;
+  disableModelInvocation: boolean;
+}
+
+export interface PromptTemplateInfo {
+  name: string;
+  description: string | null;
+  origin: string;
+}
+
+export interface ResourceCatalog {
+  skills: SkillInfo[];
+  prompts: PromptTemplateInfo[];
+  diagnostics: string[];
+}
+
 export interface SessionRef {
   id: string;
   name: string | null;
+  /** First user message, used as the fallback display label. */
+  firstMessage?: string | null;
+  /** Persisted so empty sessions can be omitted from recent-session UI. */
+  messageCount?: number;
   path: string | null;
   cwd: string | null;
   runtime: RuntimeKind;
@@ -356,7 +380,7 @@ export interface SessionRef {
 /* ---------------------------------------------------------------- settings */
 
 export type SidebarPosition = 'right' | 'left' | 'off';
-export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast';
+export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast' | 'pure-black';
 export type TurnNotification = 'desktop' | 'off';
 
 export interface RuntimeSettings {

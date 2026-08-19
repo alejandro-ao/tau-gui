@@ -117,7 +117,11 @@ export function mergeSettings(value: unknown): AppSettings {
 
   return {
     agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
-    theme: pick('theme', (input) => input === 'tau-light' || input === 'high-contrast', 'tau-dark'),
+    theme: pick(
+      'theme',
+      (input) => input === 'tau-light' || input === 'high-contrast' || input === 'pure-black',
+      'tau-dark',
+    ),
     sidebarPosition: pick(
       'sidebarPosition',
       (input) => input === 'left' || input === 'off',
@@ -177,5 +181,15 @@ function mergeRuntime(
 function isSessionRef(value: unknown): value is SessionRef {
   if (typeof value !== 'object' || value === null) return false;
   const wire = value as Record<string, unknown>;
-  return typeof wire['id'] === 'string' && (wire['runtime'] === 'tau' || wire['runtime'] === 'pi');
+  return (
+    typeof wire['id'] === 'string' &&
+    (wire['runtime'] === 'tau' || wire['runtime'] === 'pi') &&
+    (wire['firstMessage'] === undefined ||
+      wire['firstMessage'] === null ||
+      typeof wire['firstMessage'] === 'string') &&
+    (wire['messageCount'] === undefined ||
+      (typeof wire['messageCount'] === 'number' &&
+        Number.isInteger(wire['messageCount']) &&
+        wire['messageCount'] >= 0))
+  );
 }

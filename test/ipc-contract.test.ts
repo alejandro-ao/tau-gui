@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { requestSchema } from '../src/shared/ipc.js';
+import { envelopeSchema, requestSchema } from '../src/shared/ipc.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
 const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
@@ -15,6 +15,9 @@ describe('IPC request validation', () => {
     ).toBe(true);
     expect(requestSchema.safeParse({ action: 'agent.entries' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
+    ).toBe(true);
   });
 
   it('never lets the renderer choose the probed binary', () => {
@@ -60,9 +63,14 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'fs.complete', payload: { query: 'a', limit: 5000 } })
         .success,
     ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'ui.copyText' }).success).toBe(false);
   });
 
   it('rejects settings patches with unknown values', () => {
+    expect(
+      requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'pure-black' } })
+        .success,
+    ).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'neon' } }).success,
     ).toBe(false);
@@ -76,6 +84,30 @@ describe('IPC request validation', () => {
         payload: {
           runtime: { tau: { binary: 'tau', provider: null, model: null, extraArgs: [] } },
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates the optional session target on the envelope', () => {
+    const parsed = envelopeSchema.safeParse({
+      action: 'agent.prompt',
+      payload: { text: 'hi' },
+      session: { runtime: 'tau', sessionId: 'abc' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
+
+    expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'zsh', sessionId: 'a' },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: '' },
       }).success,
     ).toBe(false);
   });

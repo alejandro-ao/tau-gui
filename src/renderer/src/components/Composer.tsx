@@ -10,6 +10,7 @@ import { useCompletion } from '../hooks/useCompletion.js';
 import { useFileDrop } from '../hooks/useFileDrop.js';
 import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
+import { ActivitySpinner } from './ActivitySpinner.js';
 import { CompletionPopup } from './completion/CompletionPopup.js';
 import { insertPaths } from './completion/tokens.js';
 import { hasTextSelection } from './format.js';
@@ -34,6 +35,12 @@ export function Composer(): ReactNode {
   const input = useRef<HTMLTextAreaElement | null>(null);
   const pendingCursor = useRef<number | null>(null);
   const [cursor, setCursor] = useState(0);
+
+  // Focus on initial session load and whenever a session action opens another
+  // transcript. The request counter also handles reopening the active session.
+  useEffect(() => {
+    input.current?.focus();
+  }, [state.composerFocusRequest]);
 
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
@@ -120,6 +127,14 @@ export function Composer(): ReactNode {
       const trimmed = text.trim();
       if (!trimmed) return;
 
+      // Tau's RPC prompt endpoint does not dispatch TUI commands. Consume every
+      // command the desktop app owns before deciding whether to prompt/steer.
+      if (mode === 'primary' && completion.runInvocation(trimmed)) {
+        setDraft('');
+        lastSubmitted.current = trimmed;
+        return;
+      }
+
       if (mode === 'followUp' || (running && !capabilities.steering)) {
         if (!capabilities.followUps) {
           actions.notice('This runtime does not support queued follow-ups.');
@@ -147,6 +162,7 @@ export function Composer(): ReactNode {
       capabilities.directBash,
       capabilities.followUps,
       capabilities.steering,
+      completion,
       running,
       setDraft,
     ],
@@ -235,8 +251,14 @@ export function Composer(): ReactNode {
         data-testid="composer"
         title={shellDisabled ? 'This runtime lacks direct shell execution.' : undefined}
       >
-        <span className="composer-prefix" aria-hidden="true">
-          {shellMode ? '$' : 'τ'}
+        <span className="composer-prefix">
+          {shellMode ? (
+            <span aria-hidden="true">$</span>
+          ) : running ? (
+            <ActivitySpinner />
+          ) : (
+            <span aria-hidden="true">τ</span>
+          )}
         </span>
         <textarea
           ref={input}
@@ -257,8 +279,16 @@ export function Composer(): ReactNode {
         />
         <div className="composer-side">
           {running ? (
-            <button type="button" className="ghost-button" onClick={() => void actions.abort()}>
-              esc abort
+            <button
+              type="button"
+              className="composer-abort"
+              aria-label="abort run"
+              title="Abort run (Esc)"
+              onClick={() => void actions.abort()}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <rect x="6" y="6" width="8" height="8" rx="1" />
+              </svg>
             </button>
           ) : null}
           {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
@@ -280,7 +310,7 @@ export function Composer(): ReactNode {
 
 function placeholder(running: boolean, steering: boolean, followUps: boolean): string {
   if (!running) return 'Ask, or !command for shell · Enter to send · Shift+Enter for newline';
-  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up · Esc aborts';
-  if (followUps) return 'Enter queues a follow-up · Esc aborts';
-  return 'Run in progress · Esc aborts';
+  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up';
+  if (followUps) return 'Enter queues a follow-up';
+  return 'Run in progress';
 }

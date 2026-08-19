@@ -57,7 +57,16 @@ async function runTurn(bridge: FakeBridge, view: Mounted, text: string): Promise
     { type: 'message_end', message: assistant(text) },
     { type: 'agent_settled' },
   ];
-  await emit(bridge, view, ...events.map((event) => ({ type: 'agent' as const, event })));
+  await emit(
+    bridge,
+    view,
+    ...events.map((event) => ({
+      type: 'agent' as const,
+      sessionId: AGENT.sessionId,
+      runtime: 'tau' as const,
+      event,
+    })),
+  );
 }
 
 function titles(bridge: FakeBridge): string[] {

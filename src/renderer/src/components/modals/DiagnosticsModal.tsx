@@ -11,7 +11,8 @@ export function DiagnosticsModal(): ReactNode {
     void actions.loadDiagnostics();
   }, [actions]);
 
-  const text = state.diagnostics.join('\n');
+  const diagnostics = [...state.diagnostics, ...state.resources.diagnostics];
+  const text = diagnostics.join('\n');
 
   return (
     <Modal
@@ -21,11 +22,11 @@ export function DiagnosticsModal(): ReactNode {
       onClose={() => actions.openModal(null)}
       footer={<CopyButton text={text} label="diagnostics" />}
     >
-      {state.diagnostics.length === 0 ? (
+      {diagnostics.length === 0 ? (
         <p className="picker-empty">no diagnostics recorded</p>
       ) : (
         <ul className="diagnostic-list">
-          {state.diagnostics.map((message, index) => (
+          {diagnostics.map((message, index) => (
             <li key={`${index}-${message}`}>{message}</li>
           ))}
         </ul>

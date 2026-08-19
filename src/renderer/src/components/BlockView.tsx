@@ -23,33 +23,37 @@ export function BlockView({
 
     case 'user':
       return (
-        <BlockFrame kind="user" label="you">
-          <pre className="block-text">{block.text}</pre>
-          <div className="block-actions">
+        <div className="message-block message-block-user">
+          <BlockFrame kind="user">
+            <pre className="block-text">{block.text}</pre>
+          </BlockFrame>
+          <div className="message-actions">
             <CopyButton text={block.text} label="message" />
           </div>
-        </BlockFrame>
+        </div>
       );
 
     case 'assistant':
       return (
-        <BlockFrame
-          kind="assistant"
-          label={block.aborted ? 'assistant · aborted' : 'assistant'}
-          labelExtra={
-            block.streaming ? (
-              <span className="streaming-caret" aria-label="streaming">
-                ▌
-              </span>
-            ) : null
-          }
-        >
-          {/* An `errorMessage` renders once, as its own error block. */}
-          <Markdown text={block.text} />
-          <div className="block-actions">
+        <div className="message-block">
+          <BlockFrame
+            kind="assistant"
+            label={block.aborted ? 'assistant · aborted' : 'assistant'}
+            labelExtra={
+              block.streaming ? (
+                <span className="streaming-caret" aria-label="streaming">
+                  ▌
+                </span>
+              ) : null
+            }
+          >
+            {/* An `errorMessage` renders once, as its own error block. */}
+            <Markdown text={block.text} />
+          </BlockFrame>
+          <div className="message-actions">
             <CopyButton text={block.text} label="message" />
           </div>
-        </BlockFrame>
+        </div>
       );
 
     case 'thinking':
@@ -104,7 +108,7 @@ function BlockFrame({
   children,
 }: {
   kind: string;
-  label: string;
+  label?: string;
   labelExtra?: ReactNode;
   children: ReactNode;
 }): ReactNode {
@@ -112,10 +116,12 @@ function BlockFrame({
     <article className={`block block-${kind}`}>
       <div className="role-bar" aria-hidden="true" />
       <div className="block-body">
-        <div className="block-label">
-          <span>{label}</span>
-          {labelExtra}
-        </div>
+        {label ? (
+          <div className="block-label">
+            <span>{label}</span>
+            {labelExtra}
+          </div>
+        ) : null}
         {children}
       </div>
     </article>

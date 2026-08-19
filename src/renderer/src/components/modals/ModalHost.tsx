@@ -6,9 +6,11 @@ import { DiagnosticsModal } from './DiagnosticsModal.js';
 import { HotkeysModal } from './HotkeysModal.js';
 import { ModelModal } from './ModelModal.js';
 import { PaletteModal } from './PaletteModal.js';
+import { PromptsModal } from './PromptsModal.js';
 import { ScopedModelsModal } from './ScopedModelsModal.js';
 import { SessionModal } from './SessionModal.js';
 import { SettingsModal } from './SettingsModal.js';
+import { SkillsModal } from './SkillsModal.js';
 import { ThemeModal } from './ThemeModal.js';
 import { ThinkingModal } from './ThinkingModal.js';
 import { TreeModal } from './TreeModal.js';
@@ -43,5 +45,9 @@ export function ModalHost(): ReactNode {
       return <DiagnosticsModal />;
     case 'commands':
       return <CommandsModal />;
+    case 'skills':
+      return <SkillsModal />;
+    case 'prompts':
+      return <PromptsModal />;
   }
 }

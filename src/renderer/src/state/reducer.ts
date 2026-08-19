@@ -22,6 +22,7 @@ export const INITIAL_STATE: AppState = {
   models: [],
   thinkingLevels: [],
   commands: [],
+  resources: { skills: [], prompts: [], diagnostics: [] },
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -30,11 +31,14 @@ export const INITIAL_STATE: AppState = {
   expandAll: false,
   expanded: {},
   draft: '',
+  composerFocusRequest: 0,
   modal: null,
   windowFocused: true,
   busy: false,
+  sessionTransitioning: false,
   lastCompletionPreview: null,
   settledCount: 0,
+  sessionActivity: {},
 };
 
 const MAX_DIAGNOSTICS = 300;
@@ -54,11 +58,69 @@ export function resetBlockIds(): void {
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'event':
+      // IPC delivery can already contain events queued by the previously
+      // active process when a session switch completes. Never apply a scoped
+      // event unless it belongs to the transcript represented by the latest
+      // snapshot. Local reducer replays omit the scope intentionally.
+      if (
+        action.sessionId !== undefined &&
+        (action.sessionId !== state.snapshot.state?.sessionId ||
+          action.runtime !== state.snapshot.runtime)
+      ) {
+        return state;
+      }
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
+    case 'sessionNavigation':
+      if (!action.active) {
+        return {
+          ...state,
+          sessionTransitioning: false,
+          snapshot:
+            state.snapshot.status === 'starting' && state.snapshot.detail === 'Opening session'
+              ? { ...state.snapshot, status: 'idle', detail: null }
+              : state.snapshot,
+        };
+      }
+      return {
+        ...state,
+        sessionTransitioning: true,
+        snapshot: {
+          ...state.snapshot,
+          runtime: action.targetRuntime ?? state.snapshot.runtime,
+          status: 'starting',
+          detail: 'Opening session',
+          state: null,
+        },
+        agent: null,
+        stats: null,
+        blocks: [],
+        streamingAssistantId: null,
+        streamingThinkingId: null,
+        queue: { steering: [], followUp: [] },
+        expanded: {},
+        composerFocusRequest: state.composerFocusRequest + 1,
+      };
     case 'settings':
       return { ...state, settings: action.settings };
+    case 'sessionActivity': {
+      const key = `${action.activity.runtime}:${action.activity.sessionId}`;
+      const previous = state.sessionActivity[key];
+      return {
+        ...state,
+        sessionActivity: {
+          ...state.sessionActivity,
+          [key]: {
+            ...action.activity,
+            responseReady:
+              action.activity.responseReady === null
+                ? (previous?.responseReady ?? false)
+                : action.activity.responseReady,
+          },
+        },
+      };
+    }
     case 'diagnostic':
       return {
         ...state,
@@ -74,7 +136,18 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, thinkingLevels: action.levels };
     case 'commands':
       return { ...state, commands: action.commands };
+    case 'resources':
+      return { ...state, resources: action.resources };
     case 'hydrate':
+      // Authoritative reads are session-scoped too: a response that describes
+      // another transcript must never replace the rendered one.
+      if (
+        action.sessionId !== undefined &&
+        (action.sessionId !== state.snapshot.state?.sessionId ||
+          action.runtime !== state.snapshot.runtime)
+      ) {
+        return state;
+      }
       return {
         ...state,
         blocks: hydrateBlocks(action.messages, action.now),
@@ -98,6 +171,7 @@ export function reducer(state: AppState, action: Action): AppState {
         streamingThinkingId: null,
         queue: { steering: [], followUp: [] },
         expanded: {},
+        composerFocusRequest: state.composerFocusRequest + 1,
       };
     case 'toggleExpandAll':
       return { ...state, expandAll: !state.expandAll, expanded: {} };
@@ -636,6 +710,7 @@ function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): 
 }
 
 export function isRunning(state: AppState): boolean {
+  if (state.sessionTransitioning) return false;
   const status = state.snapshot.status;
   return status === 'running' || status === 'compacting' || status === 'retrying';
 }
