@@ -7,7 +7,7 @@ export interface CompletionItem {
   detail?: string | null;
   badge?: string | null;
   reason?: string | null;
-  /** Resource directives are colour-coded to match the composer pill. */
+  /** Resource directives are colour-coded to match the composer highlight. */
   kind?: DirectiveKind | null;
   /** Text inserted into the draft, before any trailing separator. */
   insert: string;

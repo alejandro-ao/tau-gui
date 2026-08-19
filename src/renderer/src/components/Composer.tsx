@@ -280,9 +280,9 @@ export function Composer(): ReactNode {
           )}
         </span>
         <div className="composer-editor">
-          {/* Mirror of the draft painted behind the textarea. Its glyphs stay
+          {/* Mirror of the draft painted over the textarea. Plain glyphs stay
               transparent so the textarea keeps rendering text, selection and
-              caret; only directive pills are visible. */}
+              caret; only directive spans paint, in their accent colour. */}
           <div
             ref={backdrop}
             className="composer-highlight"

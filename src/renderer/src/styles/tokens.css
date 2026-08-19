@@ -39,7 +39,7 @@
 
   /*
    * Composer directive highlighting. These alias the role palette instead of
-   * hard-coding hex values, so every theme inherits matching pills by
+   * hard-coding hex values, so every theme inherits matching highlights by
    * overriding `--role-branch` / `--role-skill` alone.
    */
   --directive-prompt: var(--role-branch);

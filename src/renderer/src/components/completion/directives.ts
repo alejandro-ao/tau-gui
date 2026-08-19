@@ -30,7 +30,7 @@ const SKILL_PREFIX = '/skill:';
  *
  * Mirrors dispatch in `useCompletion`: only the first token can be a directive,
  * names match case-insensitively, and unknown names stay unhighlighted so the
- * pill always means "this resolves to a resource that exists".
+ * highlight always means "this resolves to a resource that exists".
  */
 export function matchDirective(text: string, resources: ResourceCatalog): Directive | null {
   if (!text.startsWith('/')) return null;

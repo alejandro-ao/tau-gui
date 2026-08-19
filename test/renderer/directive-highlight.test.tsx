@@ -37,7 +37,7 @@ async function open(): Promise<{ view: Mounted; input: HTMLTextAreaElement }> {
   return { view, input: composer(view) };
 }
 
-function pill(view: Mounted): HTMLElement | null {
+function directive(view: Mounted): HTMLElement | null {
   return view.container.querySelector<HTMLElement>('.composer-directive');
 }
 
@@ -50,11 +50,11 @@ describe('composer directive highlighting', () => {
     const { view, input } = await open();
     await type(input, '/release-notes for v2');
 
-    const marked = pill(view);
+    const marked = directive(view);
     expect(marked?.textContent).toBe('/release-notes');
     expect(marked?.dataset.kind).toBe('prompt');
     expect(query(view.container, '[data-testid="composer"]').dataset.directive).toBe('prompt');
-    // The backdrop must mirror the draft so the pill lines up with the glyphs.
+    // The backdrop must mirror the draft so the highlight lines up with the glyphs.
     expect(backdropText(view)).toBe('/release-notes for v2');
   });
 
@@ -62,18 +62,18 @@ describe('composer directive highlighting', () => {
     const { view, input } = await open();
     await type(input, '/skill:security-review check auth');
 
-    expect(pill(view)?.textContent).toBe('/skill:security-review');
-    expect(pill(view)?.dataset.kind).toBe('skill');
+    expect(directive(view)?.textContent).toBe('/skill:security-review');
+    expect(directive(view)?.dataset.kind).toBe('skill');
     expect(query(view.container, '[data-testid="composer"]').dataset.directive).toBe('skill');
   });
 
   it('leaves GUI and runtime commands unmarked', async () => {
     const { view, input } = await open();
     await type(input, '/hotkeys');
-    expect(pill(view)).toBeNull();
+    expect(directive(view)).toBeNull();
 
     await type(input, '/review the diff');
-    expect(pill(view)).toBeNull();
+    expect(directive(view)).toBeNull();
     expect(query(view.container, '[data-testid="composer"]').dataset.directive).toBeUndefined();
   });
 
@@ -83,19 +83,19 @@ describe('composer directive highlighting', () => {
     await click(query(view.container, '.completion-option[data-kind="prompt"]'));
 
     expect(composer(view).value).toBe('/release-notes ');
-    expect(pill(view)?.textContent).toBe('/release-notes');
+    expect(directive(view)?.textContent).toBe('/release-notes');
   });
 
   it('clears the highlight when the draft stops matching a resource', async () => {
     const { view, input } = await open();
     await type(input, '/release-notes');
-    expect(pill(view)).not.toBeNull();
+    expect(directive(view)).not.toBeNull();
 
     await type(input, '/release-note');
-    expect(pill(view)).toBeNull();
+    expect(directive(view)).toBeNull();
 
     await type(input, 'ask about /release-notes');
-    expect(pill(view)).toBeNull();
+    expect(directive(view)).toBeNull();
     expect(backdropText(view)).toBe('ask about /release-notes');
   });
 

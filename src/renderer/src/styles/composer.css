@@ -126,9 +126,9 @@
  *
  * A textarea cannot style ranges of its own value, so the draft is mirrored
  * behind it with identical metrics and transparent glyphs. Only the directive
- * pill paints, which keeps native text rendering, selection and the caret
- * untouched. Wrapping can differ from the textarea once its scrollbar appears,
- * but directives only ever start the first line, so the pill stays aligned.
+ * spans paint, in their accent colour, covering the textarea's glyphs exactly.
+ * Wrapping can differ from the textarea once its scrollbar appears, but
+ * directives only ever start the first line, so the highlight stays aligned.
  */
 .composer-highlight {
   position: absolute;
@@ -145,26 +145,13 @@
   user-select: none;
 }
 
-/*
- * Pill drawn behind a resource directive. Horizontal padding is cancelled by
- * matching negative margins so the mirrored glyphs keep the textarea's advance
- * widths; only the background extends past them.
- */
-.composer-directive {
-  margin: 0 -4px;
-  padding: 1px 4px;
-  border-radius: 999px;
-  box-decoration-break: clone;
-}
-
+/* Directives are marked by text colour alone; no pill. */
 .composer-directive[data-kind='prompt'] {
-  background: color-mix(in srgb, var(--directive-prompt) 24%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-prompt) 55%, transparent);
+  color: var(--directive-prompt);
 }
 
 .composer-directive[data-kind='skill'] {
-  background: color-mix(in srgb, var(--directive-skill) 24%, transparent);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-skill) 55%, transparent);
+  color: var(--directive-skill);
 }
 
 /* The composer holds focus almost permanently; the global textarea focus ring
@@ -266,7 +253,7 @@
   text-decoration: line-through;
 }
 
-/* Same colour language as the composer pills, so the popup previews the
+/* Same colour language as the composer directives, so the popup previews the
    highlight the draft will get. */
 .completion-option[data-kind='prompt'] .completion-label {
   color: var(--directive-prompt);

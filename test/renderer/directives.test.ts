@@ -42,7 +42,7 @@ describe('composer directives', () => {
     expect(matchDirective('/SKILL:Security-Review', RESOURCES)?.kind).toBe('skill');
   });
 
-  it('ignores unknown names so a pill always resolves to a real resource', () => {
+  it('ignores unknown names so a highlight always resolves to a real resource', () => {
     expect(matchDirective('/hotkeys', RESOURCES)).toBeNull();
     expect(matchDirective('/skill:missing', RESOURCES)).toBeNull();
     expect(matchDirective('/skill:', RESOURCES)).toBeNull();
