@@ -38,6 +38,31 @@ export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const runtimeKind = z.enum(['tau', 'pi']);
+const safePathText = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine(
+    (value) =>
+      ![...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      }),
+    'Path contains control characters',
+  );
+
+/** Metadata only: AGENTS.md contents never cross IPC. */
+export const contextFilesSchema = z
+  .array(
+    z
+      .object({
+        label: safePathText.max(256),
+        path: safePathText,
+      })
+      .strict(),
+  )
+  .max(4);
+export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 
 /**
  * Transcript a renderer request is bound to. Session-scoped commands carry it
@@ -164,6 +189,7 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({ action: z.literal('commands.list') }),
   z.object({ action: z.literal('resources.list') }).strict(),
+  z.object({ action: z.literal('context.list') }).strict(),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -264,6 +290,7 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];

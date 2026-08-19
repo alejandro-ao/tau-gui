@@ -29,7 +29,10 @@ describe('composer draft persistence', () => {
     mounted = view;
     await type(composer(view), 'draft across runtimes');
 
-    await click(query(view.container, '.sidebar-actions button:nth-child(5)'));
+    await press(window, 'k', { ctrlKey: true });
+    const picker = query<HTMLInputElement>(view.container, '.picker-input');
+    await type(picker, '/settings');
+    await press(picker, 'Enter');
     const select = query<HTMLSelectElement>(view.container, '#setting-runtime');
     await act(async () => {
       select.value = 'pi';
@@ -63,7 +66,10 @@ describe('composer draft persistence', () => {
     mounted = view;
     await type(composer(view), 'keep this draft');
 
-    await click(query(view.container, '.sidebar-actions button:nth-child(2)'));
+    await press(window, 'k', { ctrlKey: true });
+    const picker = query<HTMLInputElement>(view.container, '.picker-input');
+    await type(picker, '/resume');
+    await press(picker, 'Enter');
     await click(query(view.container, '[data-modal-name="session"] [role="option"]'));
     await view.flush();
 

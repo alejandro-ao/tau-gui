@@ -38,7 +38,7 @@ const STATS: SessionStats = {
 };
 
 async function renderApp(options: {
-  status?: 'idle' | 'failed';
+  status?: 'idle' | 'running' | 'failed';
   detail?: string | null;
   sidebarPosition?: SidebarPosition;
   stats?: SessionStats | null;
@@ -83,9 +83,12 @@ describe('app shell', () => {
     expect(query(sidebar, '.sidebar-title').textContent).toContain('untitled session');
     const headers = texts(sidebar, 'h2');
     expect(headers).toContain('activity');
-    // Usage/compaction/context wait for runtime data; nothing is fabricated.
+    // Usage/context files wait for main-process data; nothing is fabricated.
     expect(headers).not.toContain('usage');
     expect(headers).not.toContain('context');
+    expect(headers).not.toContain('compaction');
+    expect(headers).not.toContain('commands');
+    expect(headers).not.toContain('open');
     expect(view.container.querySelector('.usage-bar')).toBeNull();
     // The version mark carries the runtime kind and probed version.
     expect(query(view.container, '.version-mark').textContent).toContain('τ = 2π');
@@ -96,39 +99,76 @@ describe('app shell', () => {
     expect(versionLabel('pi', null)).toBe('pi');
   });
 
-  it('reports activity, usage, and context like the TUI', async () => {
-    const view = await renderApp({ stats: STATS });
+  it('reports activity and usage while listing context files instead of run state or tokens', async () => {
+    const view = await renderApp({
+      status: 'running',
+      stats: STATS,
+      results: {
+        'context.list': [
+          { label: '~/.tau/AGENTS.md', path: '/Users/dev/.tau/AGENTS.md' },
+          { label: './.agents/AGENTS.md', path: '/work/project/.agents/AGENTS.md' },
+        ],
+      },
+    });
     const sidebar = query(view.container, '[data-testid="sidebar"]');
     expect(sidebar.textContent).toContain('3 turns, 9 tool calls');
+    expect(sidebar.textContent).not.toContain('running');
+    expect(sidebar.textContent).not.toContain('idle');
     expect(sidebar.textContent).toContain('1.0k in, 500 out');
     // No cost reported by the runtime.
     expect(sidebar.textContent).toContain('$N/A');
     // Cache rate is derived locally and marked as estimated.
     expect(sidebar.textContent).toContain('cache: ~75% session');
-    expect(query(sidebar, '.usage-context').textContent).toContain('12.0k/200.0k');
-    expect(query(sidebar, '.usage-bar').getAttribute('aria-valuenow')).toBe('6');
+    expect(sidebar.textContent).not.toContain('12.0k/200.0k');
+    expect(sidebar.querySelector('[role="progressbar"]')).toBeNull();
+    const files = [...sidebar.querySelectorAll('.context-files li')];
+    expect(files.map((file) => file.textContent)).toEqual([
+      '~/.tau/AGENTS.md',
+      './.agents/AGENTS.md',
+    ]);
+    expect(files.map((file) => file.getAttribute('title'))).toEqual([
+      '/Users/dev/.tau/AGENTS.md',
+      '/work/project/.agents/AGENTS.md',
+    ]);
+    expect(files.map((file) => file.getAttribute('aria-label'))).toEqual([
+      '~/.tau/AGENTS.md: /Users/dev/.tau/AGENTS.md',
+      './.agents/AGENTS.md: /work/project/.agents/AGENTS.md',
+    ]);
   });
 
-  it('collapses resource lists behind disclosures', async () => {
+  it('keeps skills and prompts disclosures but omits sidebar commands', async () => {
     const view = await renderApp({
       results: {
         'commands.list': [
           { name: 'compact', description: 'Compact the session', source: 'runtime' },
-          { name: 'review', description: 'Review the tree', source: 'runtime' },
         ],
+        'resources.list': {
+          skills: [
+            {
+              name: 'review',
+              description: 'Review the tree',
+              origin: '~/.tau/skills',
+              disableModelInvocation: false,
+            },
+          ],
+          prompts: [{ name: 'ship', description: 'Ship safely', origin: '~/.tau/prompts' }],
+          diagnostics: [],
+        },
       },
     });
-    const toggle = query<HTMLButtonElement>(view.container, '.disclosure-toggle');
-    expect(toggle.textContent).toContain('commands');
-    expect(toggle.textContent).toContain('(2)');
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(view.container.querySelector('.disclosure-body')).toBeNull();
+    const toggles = [...view.container.querySelectorAll<HTMLButtonElement>('.disclosure-toggle')];
+    expect(toggles.map((toggle) => toggle.textContent)).toEqual([
+      expect.stringContaining('skills'),
+      expect.stringContaining('prompts'),
+    ]);
+    expect(view.container.textContent).not.toContain('commands (1)');
     await act(async () => {
-      toggle.click();
+      toggles[0]!.click();
+      toggles[1]!.click();
       await Promise.resolve();
     });
-    expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('/compact');
-    expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('/review');
+    expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('review');
+    expect(view.container.textContent).toContain('/ship');
   });
 
   it('shows failure detail with restart and open-directory actions', async () => {

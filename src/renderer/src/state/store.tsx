@@ -146,14 +146,16 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       const target: SessionTarget | undefined = snapshot.state?.sessionId
         ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
         : undefined;
-      const [messages, stats, models, levels, commands, resources] = await Promise.all([
-        attempt('agent.messages', undefined, notice, target),
-        attempt('agent.stats', undefined, notice, target),
-        attempt('models.list', undefined, notice, target),
-        attempt('thinking.list', undefined, notice, target),
-        attempt('commands.list', undefined, notice, target),
-        attempt('resources.list', undefined, notice),
-      ]);
+      const [messages, stats, models, levels, commands, resources, contextFiles] =
+        await Promise.all([
+          attempt('agent.messages', undefined, notice, target),
+          attempt('agent.stats', undefined, notice, target),
+          attempt('models.list', undefined, notice, target),
+          attempt('thinking.list', undefined, notice, target),
+          attempt('commands.list', undefined, notice, target),
+          attempt('resources.list', undefined, notice),
+          attempt('context.list', undefined, notice),
+        ]);
       if (epoch !== refreshEpoch.current) return;
       if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
       if (stats) dispatch({ type: 'stats', stats });
@@ -161,6 +163,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (levels) dispatch({ type: 'thinkingLevels', levels });
       if (commands) dispatch({ type: 'commands', commands });
       if (resources) dispatch({ type: 'resources', resources });
+      if (contextFiles) dispatch({ type: 'contextFiles', files: contextFiles });
     },
     [notice],
   );

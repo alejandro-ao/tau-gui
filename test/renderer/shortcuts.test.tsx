@@ -107,7 +107,7 @@ describe('global shortcuts', () => {
     expect(fromComposer.defaultPrevented).toBe(true);
 
     // A focused button keeps native reverse tab navigation.
-    const button = query<HTMLButtonElement>(view.container, '.sidebar .ghost-button');
+    const button = query<HTMLButtonElement>(view.container, '.sessions-rail-new');
     button.focus();
     bridge.calls.length = 0;
     const fromButton = await dispatchTab(button);

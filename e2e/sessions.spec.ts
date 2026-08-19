@@ -57,7 +57,8 @@ test('/new from the composer clears the transcript too', async () => {
 
 test('the recent-session picker lists the session remembered by the app', async () => {
   const { page } = handle;
-  await page.getByTestId('sidebar').getByRole('button', { name: 'sessions' }).click();
+  await composer(page).fill('/resume');
+  await composer(page).press('Enter');
 
   const picker = page.getByTestId('modal-session');
   await expect(picker).toBeVisible();

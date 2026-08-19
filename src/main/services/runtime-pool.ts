@@ -1,4 +1,4 @@
-import type { AgentState } from '../../shared/domain.js';
+import type { AgentState, ProjectTrust } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
@@ -68,6 +68,11 @@ export class RuntimePool {
     return (
       this.current?.snapshot() ?? new RuntimeManager(this.settings, () => undefined).snapshot()
     );
+  }
+
+  /** Trust used to launch the selected process, not the mutable settings value. */
+  get effectiveProjectTrust(): ProjectTrust | null {
+    return this.current?.effectiveProjectTrust ?? null;
   }
 
   listDiagnostics(): string[] {

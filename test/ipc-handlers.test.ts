@@ -18,8 +18,14 @@ vi.mock('electron', () => ({
 const resourceMocks = vi.hoisted(() => ({
   discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
 }));
+const contextFileMocks = vi.hoisted(() => ({
+  discover: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../src/main/services/resources.js', () => ({
   discoverTauResources: resourceMocks.discover,
+}));
+vi.mock('../src/main/services/context-files.js', () => ({
+  discoverContextFiles: contextFileMocks.discover,
 }));
 
 const { handleRequest } = await import('../src/main/ipc.js');
@@ -45,11 +51,12 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   context: Context;
   calls: Calls;
 } {
-  const settings: AppSettings = {
+  let appSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...settingsPatch,
     runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
+  const launchProjectTrust = appSettings.projectTrust;
   const calls: Calls = { abortShell: 0, entries: [], openedDirectories: [] };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -65,7 +72,15 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   };
 
   const context = {
-    settings: { current: settings } as Context['settings'],
+    settings: {
+      get current() {
+        return appSettings;
+      },
+      update(patch: Partial<AppSettings>) {
+        appSettings = { ...appSettings, ...patch };
+        return appSettings;
+      },
+    } as Context['settings'],
     manager: {
       active,
       runtimeFor: () => active,
@@ -74,6 +89,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         return Promise.resolve({ runtime: 'tau', cwd });
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
+      effectiveProjectTrust: launchProjectTrust,
     } as unknown as Context['manager'],
     window: () => null,
   } as Context;
@@ -171,6 +187,16 @@ describe('resources.list handler', () => {
     expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
   });
 
+  it('keeps resource discovery bound to launch-time trust after settings change', async () => {
+    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+    context.settings.update({ projectTrust: 'decline-once' });
+
+    await handleRequest(context, { action: 'resources.list' });
+
+    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject: true });
+  });
+
   it('rejects malformed discovery output before it crosses IPC', async () => {
     resourceMocks.discover.mockResolvedValueOnce({
       skills: [{ name: 'leak', description: null, origin: 'project', content: 'secret' }],
@@ -180,6 +206,46 @@ describe('resources.list handler', () => {
     const { context } = makeContext({ projectTrust: 'approve-once' });
 
     await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
+  });
+});
+
+describe('context.list handler', () => {
+  it.each([
+    ['default', false],
+    ['decline-once', false],
+    ['approve-once', true],
+  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
+    contextFileMocks.discover.mockResolvedValueOnce([]);
+    const { context } = makeContext({ projectTrust });
+
+    await handleRequest(context, { action: 'context.list' });
+
+    expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+  });
+
+  it.each([
+    ['approve-once', 'decline-once', true],
+    ['decline-once', 'approve-once', false],
+  ] as const)(
+    'keeps context discovery bound to %s launch trust after settings change to %s',
+    async (launchTrust, changedTrust, includeProject) => {
+      contextFileMocks.discover.mockResolvedValueOnce([]);
+      const { context } = makeContext({ projectTrust: launchTrust });
+      context.settings.update({ projectTrust: changedTrust });
+
+      await handleRequest(context, { action: 'context.list' });
+
+      expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+    },
+  );
+
+  it('rejects extra or malformed metadata before it crosses IPC', async () => {
+    contextFileMocks.discover.mockResolvedValueOnce([
+      { label: './.tau/AGENTS.md', path: '/project/.tau/AGENTS.md', content: 'secret' },
+    ] as never);
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+
+    await expect(handleRequest(context, { action: 'context.list' })).rejects.toThrow();
   });
 });
 
