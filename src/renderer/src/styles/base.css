@@ -9,10 +9,10 @@ body,
 #root {
   height: 100%;
   margin: 0;
+  background: transparent;
 }
 
 body {
-  background: var(--screen);
   color: var(--text);
   font-family: var(--font-mono);
   font-size: var(--font-size);
