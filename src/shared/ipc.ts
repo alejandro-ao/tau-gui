@@ -22,6 +22,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from './domain.js';
+import { MAX_SCOPED_MODELS } from './scoped-models.js';
 
 export interface RuntimeProbe {
   binary: string;
@@ -44,6 +45,10 @@ const runtimeSettings = z.object({
   extraArgs: z.array(z.string()),
 });
 
+// Scoped models are GUI-owned identities (`provider:modelId`), so the patch
+// requires the complete per-runtime map and bounds both size and key length.
+const scopedModelKeys = z.array(z.string().min(1).max(200)).max(MAX_SCOPED_MODELS);
+
 export const settingsPatchSchema = z
   .object({
     agentRuntime: runtimeKind,
@@ -54,6 +59,7 @@ export const settingsPatchSchema = z
     cwd: z.string().nullable(),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
+    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
   })
   .partial();
 

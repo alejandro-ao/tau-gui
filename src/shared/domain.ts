@@ -38,7 +38,6 @@ export interface RuntimeCapabilities {
   resourceReload: boolean;
   systemPromptInspection: boolean;
   toolCatalog: boolean;
-  scopedModels: boolean;
 }
 
 export interface RuntimeLaunchConfig {
@@ -376,6 +375,12 @@ export interface AppSettings {
   cwd: string | null;
   projectTrust: ProjectTrust;
   runtime: Record<RuntimeKind, RuntimeSettings>;
+  /**
+   * App-owned scoped ("favourite") models per runtime, stored as
+   * `provider:modelId` keys. No runtime exposes scoped models over RPC, so the
+   * GUI owns this list and applies it with ordinary `set_model` calls.
+   */
+  scopedModels: Record<RuntimeKind, string[]>;
   recentSessions: SessionRef[];
 }
 
@@ -391,6 +396,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     tau: { binary: 'tau', provider: null, model: null, extraArgs: [] },
     pi: { binary: 'pi', provider: null, model: null, extraArgs: [] },
   },
+  scopedModels: { tau: [], pi: [] },
   recentSessions: [],
 };
 
@@ -410,5 +416,4 @@ export const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
   resourceReload: false,
   systemPromptInspection: false,
   toolCatalog: false,
-  scopedModels: false,
 };

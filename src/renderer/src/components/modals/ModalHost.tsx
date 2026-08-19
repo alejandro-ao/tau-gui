@@ -6,6 +6,7 @@ import { DiagnosticsModal } from './DiagnosticsModal.js';
 import { HotkeysModal } from './HotkeysModal.js';
 import { ModelModal } from './ModelModal.js';
 import { PaletteModal } from './PaletteModal.js';
+import { ScopedModelsModal } from './ScopedModelsModal.js';
 import { SessionModal } from './SessionModal.js';
 import { SettingsModal } from './SettingsModal.js';
 import { ThemeModal } from './ThemeModal.js';
@@ -22,6 +23,8 @@ export function ModalHost(): ReactNode {
       return <PaletteModal />;
     case 'model':
       return <ModelModal />;
+    case 'scoped':
+      return <ScopedModelsModal />;
     case 'session':
       return <SessionModal />;
     case 'tree':

@@ -77,6 +77,34 @@ describe('IPC request validation', () => {
     ).toBe(false);
   });
 
+  it('validates scoped model patches', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: ['fake:a'], pi: [] } },
+      }).success,
+    ).toBe(true);
+    // Both runtimes must be supplied, and entries must be non-empty strings.
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: ['fake:a'] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [''], pi: [] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: Array.from({ length: 101 }, () => 'fake:a'), pi: [] } },
+      }).success,
+    ).toBe(false);
+  });
+
   it('requires a complete runtime map when runtime settings change', () => {
     const runtime = { binary: 'tau', provider: null, model: null, extraArgs: [] };
     expect(

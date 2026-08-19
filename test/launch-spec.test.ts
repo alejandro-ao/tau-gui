@@ -92,7 +92,6 @@ describe('capability tables', () => {
       expect(capabilities.systemPromptInspection).toBe(false);
       expect(capabilities.providerLogin).toBe(false);
       expect(capabilities.resourceReload).toBe(false);
-      expect(capabilities.scopedModels).toBe(false);
     }
     expect(CAPABILITIES.tau.extensionDialogs).toBe(false);
   });

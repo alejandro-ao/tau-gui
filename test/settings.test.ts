@@ -33,6 +33,14 @@ describe('mergeSettings', () => {
     expect(merged.runtime.tau.binary).toBe('tau');
     expect(merged.recentSessions).toHaveLength(1);
   });
+
+  it('repairs scoped model lists and keeps runtimes isolated', () => {
+    const merged = mergeSettings({
+      scopedModels: { tau: ['fake:a', 'fake:a', 7, ''], pi: ['pi:b'], zeta: ['x'] },
+    });
+    expect(merged.scopedModels).toEqual({ tau: ['fake:a'], pi: ['pi:b'] });
+    expect(mergeSettings({ scopedModels: 'nope' }).scopedModels).toEqual({ tau: [], pi: [] });
+  });
 });
 
 describe('SettingsStore', () => {
@@ -116,6 +124,17 @@ describe('SettingsStore', () => {
       false,
     );
     expect(store.current.recentSessions.map((item) => item.id)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('persists scoped models per runtime without dropping the other runtime', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.update({ scopedModels: { ...store.current.scopedModels, tau: ['fake:a', 'fake:b'] } });
+    store.update({ scopedModels: { ...store.current.scopedModels, pi: ['pi:c'] } });
+    expect(new SettingsStore(file).current.scopedModels).toEqual({
+      tau: ['fake:a', 'fake:b'],
+      pi: ['pi:c'],
+    });
   });
 
   it('does not merge unrelated runtime blocks away on partial update', () => {

@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AppSettings, SessionRef } from '../../shared/domain.js';
+import type { AppSettings, RuntimeKind, SessionRef } from '../../shared/domain.js';
 import { DEFAULT_SETTINGS } from '../../shared/domain.js';
+import { MAX_SCOPED_MODELS } from '../../shared/scoped-models.js';
 
 const MAX_RECENT_SESSIONS = 30;
 
@@ -29,6 +30,7 @@ export class SettingsStore {
       ...this.settings,
       ...patch,
       runtime: { ...this.settings.runtime, ...(patch.runtime ?? {}) },
+      scopedModels: { ...this.settings.scopedModels, ...(patch.scopedModels ?? {}) },
     };
     this.write();
     return this.settings;
@@ -116,10 +118,27 @@ export function mergeSettings(value: unknown): AppSettings {
       tau: mergeRuntime(runtime['tau'], DEFAULT_SETTINGS.runtime.tau),
       pi: mergeRuntime(runtime['pi'], DEFAULT_SETTINGS.runtime.pi),
     },
+    scopedModels: mergeScopedModels(wire['scopedModels']),
     recentSessions: Array.isArray(wire['recentSessions'])
       ? wire['recentSessions'].filter(isSessionRef).slice(0, MAX_RECENT_SESSIONS)
       : [],
   };
+}
+
+function mergeScopedModels(value: unknown): Record<RuntimeKind, string[]> {
+  const wire =
+    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+  const read = (kind: RuntimeKind): string[] =>
+    Array.isArray(wire[kind])
+      ? [
+          ...new Set(
+            (wire[kind] as unknown[]).filter(
+              (item): item is string => typeof item === 'string' && item.length > 0,
+            ),
+          ),
+        ].slice(0, MAX_SCOPED_MODELS)
+      : [];
+  return { tau: read('tau'), pi: read('pi') };
 }
 
 function mergeRuntime(

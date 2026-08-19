@@ -34,6 +34,8 @@ clean-machine release smoke tests still need credentials and hardware. See
 - Inspect exact tool commands, arguments, output, and patches through collapsed
   or expanded blocks (`Ctrl+O` toggles everything).
 - Switch models (`Ctrl+P`) and thinking levels (`Shift+Tab`).
+- Scope favourite models with `/scoped-models`: the app stores the list per
+  runtime, and `Ctrl+P` cycles only scoped models once two are scoped.
 - Run direct shell commands with `!` (adds output to context) and `!!` (does not).
 - Compact, name, branch, resume, and export sessions.
 - Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file

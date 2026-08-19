@@ -191,14 +191,13 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'model.scoped',
     title: '/scoped-models',
-    description: 'Manage scoped/favourite models',
+    description: 'Manage app-owned scoped/favourite models',
     group: 'model',
-    origin: 'backend',
+    // No runtime exposes scoped models over RPC, so the GUI owns the list.
+    origin: 'frontend',
     slash: '/scoped-models',
-    unavailable: missing(
-      capabilities.scopedModels,
-      'scoped model management needs runtime RPC support',
-    ),
+    unavailable: null,
+    run: () => actions.openModal('scoped'),
   });
   add({
     id: 'thinking.pick',
