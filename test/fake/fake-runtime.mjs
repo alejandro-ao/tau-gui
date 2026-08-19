@@ -8,6 +8,7 @@
  *
  * Usage: node fake-runtime.mjs --mode rpc [--cwd DIR] [...ignored]
  */
+import { existsSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const args = process.argv.slice(2);
@@ -20,7 +21,7 @@ const cwdIndex = args.indexOf('--cwd');
 const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
 const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
 const baseDelay = Number(process.env.FAKE_RUNTIME_DELAY_MS ?? '0');
-const assistantDelay = Number(process.env.FAKE_RUNTIME_ASSISTANT_DELAY_MS ?? '0');
+const assistantPauseFile = process.env.FAKE_RUNTIME_ASSISTANT_PAUSE_FILE;
 const switchDelay = Number(process.env.FAKE_RUNTIME_SWITCH_DELAY_MS ?? '0');
 const switchError = process.env.FAKE_RUNTIME_SWITCH_ERROR === '1';
 // Real runtimes mint a unique session id per launch. Tests that need two live
@@ -283,9 +284,12 @@ async function runPrompt(message) {
 
   const lower = message.toLowerCase();
   try {
-    // Lets Electron tests inspect the local user render before any assistant
-    // event without changing normal fake-runtime timing.
-    if (assistantDelay > 0 && lower.includes('delay assistant')) await sleep(assistantDelay);
+    // Lets Electron tests deterministically inspect the local user render
+    // before any assistant event without changing normal fake-runtime timing.
+    if (assistantPauseFile && lower.includes('delay assistant')) {
+      writeFileSync(assistantPauseFile, 'paused\n');
+      while (assistantPauseFile && existsSync(assistantPauseFile)) await sleep(10);
+    }
 
     if (lower.includes('error')) {
       await streamAssistant({

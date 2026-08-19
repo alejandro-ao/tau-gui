@@ -1,7 +1,12 @@
 import { expect, test, type Locator } from '@playwright/test';
+import { existsSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { launchApp, submitPrompt, transcript, waitForSettled, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
+let assistantPauseFile: string;
 
 async function fullyInsideTranscript(message: Locator, viewport: Locator): Promise<boolean> {
   const [messageBox, viewportBox] = await Promise.all([
@@ -16,14 +21,16 @@ async function fullyInsideTranscript(message: Locator, viewport: Locator): Promi
 }
 
 test.beforeEach(async () => {
+  assistantPauseFile = join(tmpdir(), `tau-gui-assistant-pause-${randomUUID()}`);
   // A per-chunk delay keeps the streaming phase observable without flakiness.
   handle = await launchApp({
-    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_ASSISTANT_DELAY_MS: '30000' },
+    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_ASSISTANT_PAUSE_FILE: assistantPauseFile },
   });
 });
 
 test.afterEach(async () => {
   await handle.close();
+  rmSync(assistantPauseFile, { force: true });
 });
 
 test('a prompt streams assistant text and then finalizes', async () => {
@@ -54,22 +61,21 @@ test('a newly sent message stays visible above the composer in a long thread', a
     Reflect.set(element, 'scrollTop', 0);
   });
 
-  const assistantCount = await page.locator('.block-assistant').count();
   await submitPrompt(page, 'delay assistant and keep this newest message visible');
   const newest = page
     .locator('.block-user')
     .filter({ hasText: 'delay assistant and keep this newest message visible' });
 
-  // The fake runtime pauses before message_start: this assertion can only be
-  // satisfied by the send render, not by a later assistant chunk re-pinning.
+  // Synchronize with the fake runtime after its user echo and before
+  // message_start. Assistant block counts are not a valid signal here because
+  // transcript virtualization changes which earlier blocks are mounted.
+  await expect.poll(() => existsSync(assistantPauseFile)).toBe(true);
   await expect(newest).toBeVisible({ timeout: 1000 });
-  expect(await page.locator('.block-assistant').count()).toBe(assistantCount);
   await expect
     .poll(() => fullyInsideTranscript(newest, transcript(page)), { timeout: 1000 })
     .toBe(true);
   await page.waitForTimeout(100);
   expect(await fullyInsideTranscript(newest, transcript(page))).toBe(true);
-  expect(await page.locator('.block-assistant').count()).toBe(assistantCount);
   await expect(page.getByRole('button', { name: 'Go to bottom' })).toHaveCount(0);
 });
 
