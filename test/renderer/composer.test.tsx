@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   installFakeBridge,
@@ -33,11 +33,24 @@ async function renderComposer(options: {
     capabilities: options.capabilities ?? ALL_CAPABILITIES,
   });
   // Imported lazily so the fake bridge exists before the store bootstraps.
-  const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
+  const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
   const { Composer } = await import('../../src/renderer/src/components/Composer.js');
+  function ExternalDraftControl(): ReactNode {
+    const { actions } = useStore();
+    return (
+      <button
+        type="button"
+        data-testid="external-draft"
+        onClick={() => actions.setDraft('/skill:review ')}
+      >
+        replace draft
+      </button>
+    );
+  }
   const view = await mount(
     <StoreProvider>
       <Composer />
+      <ExternalDraftControl />
     </StoreProvider>,
   );
   mounted = view;
@@ -234,5 +247,39 @@ describe('Composer key handling', () => {
 
     await press(input, 'z', { metaKey: true, shiftKey: true });
     expect(input.value).toBe('');
+  });
+
+  it('makes external replacements undoable and invalidates stale redo', async () => {
+    const { input, view } = await renderComposer({});
+    await type(input, 'original draft');
+    await press(input, 'c', { ctrlKey: true });
+    await press(input, 'z', { ctrlKey: true });
+
+    await act(async () => {
+      query<HTMLButtonElement>(view.container, '[data-testid="external-draft"]').click();
+      await Promise.resolve();
+    });
+    expect(input.value).toBe('/skill:review ');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('/skill:review ');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('original draft');
+  });
+
+  it('restores the selection captured before a replacement', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'select me');
+    await act(async () => {
+      input.setSelectionRange(0, 6);
+      input.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await type(input, 'replacement');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('select me');
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 6]);
   });
 });

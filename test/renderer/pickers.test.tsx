@@ -172,6 +172,7 @@ describe('tree modal', () => {
       results: { 'agent.tree': TREE, 'session.fork': 'add jsonl framing tests' },
     });
     mounted = view;
+    await type(composer(view), 'draft before fork');
     await click(query(view.container, '.sidebar-actions button:nth-child(3)'));
     await view.flush();
 
@@ -189,6 +190,9 @@ describe('tree modal', () => {
     await view.flush();
     expect(bridge.payloads('session.fork')).toEqual([{ entryId: 'e1' }]);
     expect(composer(view).value).toBe('add jsonl framing tests');
+
+    await press(composer(view), 'z', { ctrlKey: true });
+    expect(composer(view).value).toBe('draft before fork');
   });
 
   it('explains that the runtime cannot expose the tree', async () => {

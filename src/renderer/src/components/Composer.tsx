@@ -50,7 +50,6 @@ export function Composer(): ReactNode {
   const undoStack = useRef<EditSnapshot[]>([]);
   const redoStack = useRef<EditSnapshot[]>([]);
   const [cursor, setCursor] = useState(0);
-  draftRef.current = draft;
 
   // Focus on initial session load and whenever a session action opens another
   // transcript. The request counter also handles reopening the active session.
@@ -82,6 +81,24 @@ export function Composer(): ReactNode {
     },
     [actions],
   );
+
+  // Modal selections and asynchronous prefills dispatch to the shared store
+  // directly. Treat those replacements as edits and invalidate stale redo.
+  useEffect(() => {
+    const previousText = draftRef.current;
+    if (draft === previousText) return;
+    undoStack.current.push({
+      text: previousText,
+      selectionStart: selection.current.start,
+      selectionEnd: selection.current.end,
+    });
+    if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+    redoStack.current = [];
+    draftRef.current = draft;
+    selection.current = { start: draft.length, end: draft.length };
+    pendingSelection.current = { start: draft.length, end: draft.length };
+    setCursor(draft.length);
+  }, [draft]);
 
   /** Replaces the draft and restores the caret once React has re-rendered. */
   const applyText = useCallback(
