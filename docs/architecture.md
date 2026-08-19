@@ -26,7 +26,7 @@ The renderer never consumes raw runtime events. Runtime adapters normalize wire 
 
 Runtime session files remain runtime-owned. The GUI uses RPC for messages, entries, trees, statistics, switching, compaction, naming, and export. GUI-owned recent-session metadata may reference runtime IDs or paths but must not reinterpret persisted transcripts.
 
-`RuntimePool` keeps a separate `RuntimeManager` and subprocess for each live session. Selecting another recent session activates its existing process or launches one without stopping the previously viewed process. Only the active manager's transcript/status events reach the renderer; global settings updates still propagate. This prevents background streams from being mixed into the visible transcript. All processes are stopped during app shutdown.
+`RuntimePool` keeps a separate `RuntimeManager` and subprocess for each live session. Selecting another recent session activates its existing process or launches one without stopping the previously viewed process. Only the active manager's transcript/status events reach the renderer; global settings updates still propagate. Every streamed agent event also carries its immutable runtime/session identity, and the renderer applies it only when that identity matches the latest active snapshot. This second boundary rejects events queued before a switch and prevents background streams from being mixed into the visible transcript. All processes are stopped during app shutdown.
 
 ## Initial runtime limitations
 

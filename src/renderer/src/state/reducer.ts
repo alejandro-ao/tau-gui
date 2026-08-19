@@ -55,6 +55,17 @@ export function resetBlockIds(): void {
 export function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'event':
+      // IPC delivery can already contain events queued by the previously
+      // active process when a session switch completes. Never apply a scoped
+      // event unless it belongs to the transcript represented by the latest
+      // snapshot. Local reducer replays omit the scope intentionally.
+      if (
+        action.sessionId !== undefined &&
+        (action.sessionId !== state.snapshot.state?.sessionId ||
+          action.runtime !== state.snapshot.runtime)
+      ) {
+        return state;
+      }
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };

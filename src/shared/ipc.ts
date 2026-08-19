@@ -224,7 +224,13 @@ export type IpcResponse<A extends IpcAction = IpcAction> =
   { ok: true; value: IpcResult<A> } | { ok: false; error: string };
 
 export type BridgeEvent =
-  | { type: 'agent'; event: AgentEvent }
+  | {
+      type: 'agent';
+      /** Immutable routing identity for the transcript that produced this event. */
+      sessionId: string;
+      runtime: RuntimeSnapshot['runtime'];
+      event: AgentEvent;
+    }
   | { type: 'status'; snapshot: RuntimeSnapshot }
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }

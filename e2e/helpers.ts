@@ -17,7 +17,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import type { AgentEvent, AppSettings, RuntimeKind } from '../src/shared/domain.js';
-import { IPC_EVENT_CHANNEL } from '../src/shared/ipc.js';
+import { IPC_EVENT_CHANNEL, type RuntimeSnapshot } from '../src/shared/ipc.js';
 
 export const REPO_ROOT = resolve(import.meta.dirname, '..');
 export const MAIN_ENTRY = join(REPO_ROOT, 'out/main/index.js');
@@ -244,14 +244,26 @@ export async function setWindowSize(
  * the production preload validation path; no application code is stubbed.
  */
 export async function injectAgentEvent(app: ElectronApplication, event: AgentEvent): Promise<void> {
+  const page = app.windows()[0];
+  if (!page) throw new Error('Application window is unavailable');
+  const scope = await page.evaluate(async () => {
+    const bridge = (
+      globalThis as { tau?: { invoke: (action: string) => Promise<RuntimeSnapshot> } }
+    ).tau;
+    const snapshot = await bridge?.invoke('runtime.snapshot');
+    return { sessionId: snapshot?.state?.sessionId, runtime: snapshot?.runtime };
+  });
+  if (!scope.sessionId || !scope.runtime) throw new Error('Active session is unavailable');
   await app.evaluate(
     ({ BrowserWindow }, payload) => {
       BrowserWindow.getAllWindows()[0]?.webContents.send(payload.channel, {
         type: 'agent',
+        sessionId: payload.sessionId,
+        runtime: payload.runtime,
         event: payload.event,
       });
     },
-    { channel: IPC_EVENT_CHANNEL, event },
+    { channel: IPC_EVENT_CHANNEL, ...scope, event },
   );
 }
 

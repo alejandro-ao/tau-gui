@@ -45,9 +45,12 @@ const bridge: TauBridge = {
 
 function isBridgeEvent(value: unknown): value is BridgeEvent {
   if (typeof value !== 'object' || value === null) return false;
-  const type = (value as { type?: unknown }).type;
+  const record = value as { type?: unknown; sessionId?: unknown; runtime?: unknown };
+  const type = record.type;
   return (
-    type === 'agent' ||
+    (type === 'agent' &&
+      typeof record.sessionId === 'string' &&
+      (record.runtime === 'tau' || record.runtime === 'pi')) ||
     type === 'status' ||
     type === 'diagnostic' ||
     type === 'settings' ||

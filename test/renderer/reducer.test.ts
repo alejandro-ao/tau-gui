@@ -31,6 +31,57 @@ beforeEach(() => {
   resetBlockIds();
 });
 
+describe('session event routing', () => {
+  const activeState: AppState = {
+    ...INITIAL_STATE,
+    snapshot: {
+      ...INITIAL_STATE.snapshot,
+      runtime: 'tau',
+      status: 'idle',
+      state: {
+        model: null,
+        thinkingLevel: 'medium',
+        isStreaming: false,
+        isCompacting: false,
+        sessionFile: null,
+        sessionId: 'active-session',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        pendingMessageCount: 0,
+      },
+    },
+  };
+
+  it('rejects a queued tool event from the previously active session', () => {
+    const event: AgentEvent = {
+      type: 'tool_start',
+      toolCallId: 'stale-call',
+      toolName: 'read',
+      args: { path: 'old-session.ts' },
+    };
+
+    const stale = reducer(activeState, {
+      type: 'event',
+      event,
+      sessionId: 'background-session',
+      runtime: 'tau',
+      now: 1000,
+    });
+    const current = reducer(activeState, {
+      type: 'event',
+      event,
+      sessionId: 'active-session',
+      runtime: 'tau',
+      now: 1000,
+    });
+
+    expect(stale).toBe(activeState);
+    expect(stale.blocks).toEqual([]);
+    expect(current.blocks).toHaveLength(1);
+  });
+});
+
 describe('streaming assembly', () => {
   it('creates a provisional assistant block from deltas', () => {
     const state = replay([

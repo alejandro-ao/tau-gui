@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { installFakeBridge, mount, query, texts, type Mounted } from './harness.js';
-import type { SessionStats, SidebarPosition } from '../../src/shared/domain.js';
+import type { AgentState, SessionStats, SidebarPosition } from '../../src/shared/domain.js';
 import { versionLabel } from '../../src/renderer/src/components/Sidebar.js';
 
 let mounted: Mounted | null = null;
@@ -11,6 +11,19 @@ afterEach(() => {
   mounted?.unmount();
   mounted = null;
 });
+
+const AGENT: AgentState = {
+  model: null,
+  thinkingLevel: 'medium',
+  isStreaming: true,
+  isCompacting: false,
+  sessionFile: null,
+  sessionId: 'abc123',
+  sessionName: null,
+  autoCompactionEnabled: true,
+  messageCount: 0,
+  pendingMessageCount: 0,
+};
 
 const STATS: SessionStats = {
   sessionFile: '/work/project/.tau/session.jsonl',
@@ -129,7 +142,11 @@ describe('app shell', () => {
   });
 
   it('shows queued steering and follow-up chips', async () => {
-    const bridge = installFakeBridge({ status: 'running', capabilities: { steering: true } });
+    const bridge = installFakeBridge({
+      status: 'running',
+      capabilities: { steering: true },
+      agent: AGENT,
+    });
     const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
     const { App } = await import('../../src/renderer/src/App.js');
     const view = await mount(
@@ -143,6 +160,8 @@ describe('app shell', () => {
     await act(async () => {
       bridge.emit({
         type: 'agent',
+        sessionId: AGENT.sessionId,
+        runtime: 'tau',
         event: { type: 'queue_update', steering: ['use vitest'], followUp: ['then lint'] },
       });
       await Promise.resolve();

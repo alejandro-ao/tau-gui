@@ -147,7 +147,14 @@ export interface AppState {
 }
 
 export type Action =
-  | { type: 'event'; event: AgentEvent; now: number }
+  | {
+      type: 'event';
+      event: AgentEvent;
+      now: number;
+      /** Present for streamed bridge events; omitted by local reducer replays. */
+      sessionId?: string;
+      runtime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }

@@ -105,7 +105,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     const unsubscribe = subscribe((event) => {
       switch (event.type) {
         case 'agent':
-          dispatch({ type: 'event', event: event.event, now: Date.now() });
+          dispatch({
+            type: 'event',
+            event: event.event,
+            sessionId: event.sessionId,
+            runtime: event.runtime,
+            now: Date.now(),
+          });
           if (event.event.type === 'agent_settled') {
             void attempt('agent.stats', undefined, notice).then((stats) => {
               if (stats) dispatch({ type: 'stats', stats });

@@ -203,7 +203,11 @@ export class RuntimeManager {
       default:
         break;
     }
-    this.broadcast({ type: 'agent', event });
+    // Stream events carry their immutable session identity. Main-process
+    // filtering prevents normal background delivery; the identity also lets
+    // the renderer reject an event already queued before a session switch.
+    const sessionId = this.state?.sessionId;
+    if (sessionId) this.broadcast({ type: 'agent', sessionId, runtime: this.kind, event });
   }
 
   /**
