@@ -6,11 +6,11 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn() }));
+const electronMocks = vi.hoisted(() => ({ writeText: vi.fn(), showOpenDialog: vi.fn() }));
 
 vi.mock('electron', () => ({
   clipboard: { writeText: electronMocks.writeText },
-  dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
+  dialog: { showSaveDialog: vi.fn(), showOpenDialog: electronMocks.showOpenDialog },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
 }));
@@ -18,8 +18,14 @@ vi.mock('electron', () => ({
 const resourceMocks = vi.hoisted(() => ({
   discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
 }));
+const contextFileMocks = vi.hoisted(() => ({
+  discover: vi.fn(() => Promise.resolve([])),
+}));
 vi.mock('../src/main/services/resources.js', () => ({
   discoverTauResources: resourceMocks.discover,
+}));
+vi.mock('../src/main/services/context-files.js', () => ({
+  discoverContextFiles: contextFileMocks.discover,
 }));
 
 const { handleRequest } = await import('../src/main/ipc.js');
@@ -38,18 +44,20 @@ beforeAll(() => {
 interface Calls {
   abortShell: number;
   entries: (string | undefined)[];
+  openedDirectories: string[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   context: Context;
   calls: Calls;
 } {
-  const settings: AppSettings = {
+  let appSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...settingsPatch,
     runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
-  const calls: Calls = { abortShell: 0, entries: [] };
+  const launchProjectTrust = appSettings.projectTrust;
+  const calls: Calls = { abortShell: 0, entries: [], openedDirectories: [] };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
@@ -64,11 +72,24 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   };
 
   const context = {
-    settings: { current: settings } as Context['settings'],
+    settings: {
+      get current() {
+        return appSettings;
+      },
+      update(patch: Partial<AppSettings>) {
+        appSettings = { ...appSettings, ...patch };
+        return appSettings;
+      },
+    } as Context['settings'],
     manager: {
       active,
       runtimeFor: () => active,
+      openSession: (cwd: string) => {
+        calls.openedDirectories.push(cwd);
+        return Promise.resolve({ runtime: 'tau', cwd });
+      },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
+      effectiveProjectTrust: launchProjectTrust,
     } as unknown as Context['manager'],
     window: () => null,
   } as Context;
@@ -82,6 +103,36 @@ describe('clipboard handler', () => {
     await handleRequest(context, { action: 'ui.copyText', payload: { text: 'copy me' } });
 
     expect(electronMocks.writeText).toHaveBeenCalledWith('copy me');
+  });
+});
+
+describe('directory chooser handler', () => {
+  it('uses the native directory-only dialog and returns its selected path', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/work/chosen'],
+    });
+    const { context } = makeContext();
+
+    await expect(handleRequest(context, { action: 'fs.pickDirectory' })).resolves.toBe(
+      '/work/chosen',
+    );
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: ['openDirectory', 'createDirectory'] }),
+    );
+  });
+});
+
+describe('fresh directory session handler', () => {
+  it('routes the validated cwd to the runtime pool operation', async () => {
+    const { context, calls } = makeContext();
+
+    await handleRequest(context, {
+      action: 'runtime.openSession',
+      payload: { cwd: '/work/chosen' },
+    });
+
+    expect(calls.openedDirectories).toEqual(['/work/chosen']);
   });
 });
 
@@ -136,6 +187,16 @@ describe('resources.list handler', () => {
     expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
   });
 
+  it('keeps resource discovery bound to launch-time trust after settings change', async () => {
+    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+    context.settings.update({ projectTrust: 'decline-once' });
+
+    await handleRequest(context, { action: 'resources.list' });
+
+    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject: true });
+  });
+
   it('rejects malformed discovery output before it crosses IPC', async () => {
     resourceMocks.discover.mockResolvedValueOnce({
       skills: [{ name: 'leak', description: null, origin: 'project', content: 'secret' }],
@@ -145,6 +206,46 @@ describe('resources.list handler', () => {
     const { context } = makeContext({ projectTrust: 'approve-once' });
 
     await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
+  });
+});
+
+describe('context.list handler', () => {
+  it.each([
+    ['default', false],
+    ['decline-once', false],
+    ['approve-once', true],
+  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
+    contextFileMocks.discover.mockResolvedValueOnce([]);
+    const { context } = makeContext({ projectTrust });
+
+    await handleRequest(context, { action: 'context.list' });
+
+    expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+  });
+
+  it.each([
+    ['approve-once', 'decline-once', true],
+    ['decline-once', 'approve-once', false],
+  ] as const)(
+    'keeps context discovery bound to %s launch trust after settings change to %s',
+    async (launchTrust, changedTrust, includeProject) => {
+      contextFileMocks.discover.mockResolvedValueOnce([]);
+      const { context } = makeContext({ projectTrust: launchTrust });
+      context.settings.update({ projectTrust: changedTrust });
+
+      await handleRequest(context, { action: 'context.list' });
+
+      expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+    },
+  );
+
+  it('rejects extra or malformed metadata before it crosses IPC', async () => {
+    contextFileMocks.discover.mockResolvedValueOnce([
+      { label: './.tau/AGENTS.md', path: '/project/.tau/AGENTS.md', content: 'secret' },
+    ] as never);
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+
+    await expect(handleRequest(context, { action: 'context.list' })).rejects.toThrow();
   });
 });
 

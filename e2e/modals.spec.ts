@@ -47,7 +47,8 @@ test('the palette traps focus, closes on Escape, and preserves the draft', async
 
 test('the hotkeys modal closes with its explicit close button', async () => {
   const { page } = handle;
-  await page.getByTestId('sidebar').getByRole('button', { name: 'keys' }).click();
+  await composer(page).fill('/hotkeys');
+  await composer(page).press('Enter');
   const modal = page.getByTestId('modal-hotkeys');
   await expect(modal).toBeVisible();
   await expect(modal.getByRole('dialog')).toHaveAttribute('aria-modal', 'true');

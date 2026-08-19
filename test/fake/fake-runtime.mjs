@@ -20,6 +20,7 @@ const cwdIndex = args.indexOf('--cwd');
 const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
 const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
 const baseDelay = Number(process.env.FAKE_RUNTIME_DELAY_MS ?? '0');
+const holdBeforeAssistant = process.env.FAKE_RUNTIME_HOLD_BEFORE_ASSISTANT === '1';
 const switchDelay = Number(process.env.FAKE_RUNTIME_SWITCH_DELAY_MS ?? '0');
 const switchError = process.env.FAKE_RUNTIME_SWITCH_ERROR === '1';
 // Real runtimes mint a unique session id per launch. Tests that need two live
@@ -282,6 +283,14 @@ async function runPrompt(message) {
 
   const lower = message.toLowerCase();
   try {
+    // Lets Electron tests deterministically inspect the local user render.
+    // The normal agent/user events are observable through the app, then this
+    // test-only run remains held before the first assistant event until its
+    // owning Electron process closes the runtime's stdin.
+    if (holdBeforeAssistant && lower.includes('hold assistant')) {
+      await new Promise(() => undefined);
+    }
+
     if (lower.includes('error')) {
       await streamAssistant({
         text: 'I could not reach the provider.',

@@ -38,6 +38,31 @@ export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const runtimeKind = z.enum(['tau', 'pi']);
+const safePathText = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine(
+    (value) =>
+      ![...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      }),
+    'Path contains control characters',
+  );
+
+/** Metadata only: AGENTS.md contents never cross IPC. */
+export const contextFilesSchema = z
+  .array(
+    z
+      .object({
+        label: safePathText.max(256),
+        path: safePathText,
+      })
+      .strict(),
+  )
+  .max(4);
+export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 
 /**
  * Transcript a renderer request is bound to. Session-scoped commands carry it
@@ -75,6 +100,7 @@ export const settingsPatchSchema = z
     turnNotification: z.enum(['desktop', 'off']),
     showThinking: z.boolean(),
     cwd: z.string().nullable(),
+    workingDirectories: z.array(z.string().min(1)).max(100),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
     scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
@@ -85,6 +111,10 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings.get') }),
   z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
   z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
+  z.object({
+    action: z.literal('settings.rememberWorkingDirectory'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
+  }),
   z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
 
   z.object({
@@ -93,6 +123,10 @@ export const requestSchema = z.discriminatedUnion('action', [
       cwd: z.string().nullable().optional(),
       sessionRef: z.string().nullable().optional(),
     }),
+  }),
+  z.object({
+    action: z.literal('runtime.openSession'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
   }),
   z.object({ action: z.literal('runtime.stop') }),
   // The probe never accepts a renderer-supplied binary: only the runtime kind
@@ -155,6 +189,7 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({ action: z.literal('commands.list') }),
   z.object({ action: z.literal('resources.list') }).strict(),
+  z.object({ action: z.literal('context.list') }).strict(),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -222,8 +257,10 @@ export interface IpcResultMap {
   'settings.get': AppSettings;
   'settings.update': AppSettings;
   'settings.toggleScopedModel': AppSettings;
+  'settings.rememberWorkingDirectory': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
+  'runtime.openSession': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
   'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
@@ -253,6 +290,7 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];

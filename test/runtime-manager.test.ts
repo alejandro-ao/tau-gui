@@ -9,11 +9,15 @@ import type { SettingsStore } from '../src/main/services/settings.js';
 const FAKE = fileURLToPath(new URL('./fake/fake-runtime.mjs', import.meta.url));
 
 /** Minimal in-memory settings double: no disk, no Electron. */
-function makeSettings(binary: string): SettingsStore {
+function makeSettings(
+  binary: string,
+  projectTrust: AppSettings['projectTrust'] = 'default',
+): SettingsStore {
   const remembered: SessionRef[] = [];
   let settings: AppSettings = {
     ...DEFAULT_SETTINGS,
     cwd: process.cwd(),
+    projectTrust,
     runtime: {
       tau: { binary, provider: null, model: null, extraArgs: [] },
       pi: { binary, provider: null, model: null, extraArgs: [] },
@@ -40,21 +44,27 @@ function makeSettings(binary: string): SettingsStore {
 
 interface Fixture {
   manager: RuntimeManager;
+  settings: SettingsStore;
   broadcasts: BridgeEvent[];
   /** Feeds an event through the manager's event handler, as the adapter does. */
   emit: (event: AgentEvent) => void;
   diagnose: (line: string) => void;
 }
 
-function makeManager(binary = FAKE): Fixture {
+function makeManager(
+  binary = FAKE,
+  projectTrust: AppSettings['projectTrust'] = 'default',
+): Fixture {
   const broadcasts: BridgeEvent[] = [];
-  const manager = new RuntimeManager(makeSettings(binary), (event) => broadcasts.push(event));
+  const settings = makeSettings(binary, projectTrust);
+  const manager = new RuntimeManager(settings, (event) => broadcasts.push(event));
   const internals = manager as unknown as {
     handleEvent: (event: AgentEvent) => void;
     addDiagnostic: (line: string) => void;
   };
   return {
     manager,
+    settings,
     broadcasts,
     emit: (event) => internals.handleEvent.call(manager, event),
     diagnose: (line) => internals.addDiagnostic.call(manager, line),
@@ -77,6 +87,20 @@ describe('RuntimeManager state machine', () => {
     expect(snapshot.cwd).toBe(process.cwd());
     expect(snapshot.state?.sessionId).toBe('fake-session-1');
     expect(fixture.broadcasts.some((event) => event.type === 'status')).toBe(true);
+  });
+
+  it('retains the active process launch trust after settings change', async () => {
+    const fixture = makeManager(FAKE, 'approve-once');
+    active = fixture.manager;
+    await fixture.manager.start();
+
+    fixture.settings.update({ projectTrust: 'decline-once' });
+
+    expect(fixture.settings.current.projectTrust).toBe('decline-once');
+    expect(fixture.manager.effectiveProjectTrust).toBe('approve-once');
+    await fixture.manager.stop();
+    active = null;
+    expect(fixture.manager.effectiveProjectTrust).toBeNull();
   });
 
   it('records the first user message for an unnamed session', async () => {
