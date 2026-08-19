@@ -1,4 +1,4 @@
-import { dialog, Notification, shell } from 'electron';
+import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcRequest, IpcResult } from '../shared/ipc.js';
 import { probeRuntime } from './services/discovery.js';
@@ -169,6 +169,9 @@ export async function handleRequest(
       await shell.openExternal(url.toString());
       return null;
     }
+    case 'ui.copyText':
+      clipboard.writeText(request.payload.text);
+      return null;
     case 'ui.setTitle': {
       context.window()?.setTitle(request.payload.title.slice(0, 200));
       return null;

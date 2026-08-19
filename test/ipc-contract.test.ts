@@ -12,6 +12,9 @@ describe('IPC request validation', () => {
     ).toBe(true);
     expect(requestSchema.safeParse({ action: 'agent.entries' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
+    ).toBe(true);
   });
 
   it('never lets the renderer choose the probed binary', () => {
@@ -57,6 +60,7 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'fs.complete', payload: { query: 'a', limit: 5000 } })
         .success,
     ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'ui.copyText' }).success).toBe(false);
   });
 
   it('rejects settings patches with unknown values', () => {

@@ -138,6 +138,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
 
   z.object({ action: z.literal('ui.openExternal'), payload: z.object({ url: z.string() }) }),
+  z.object({ action: z.literal('ui.copyText'), payload: z.object({ text: z.string() }) }),
   z.object({ action: z.literal('ui.setTitle'), payload: z.object({ title: z.string() }) }),
   z.object({
     action: z.literal('ui.notify'),
@@ -213,6 +214,7 @@ export interface IpcResultMap {
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];
   'ui.openExternal': null;
+  'ui.copyText': null;
   'ui.setTitle': null;
   'ui.notify': null;
   'diagnostics.list': string[];

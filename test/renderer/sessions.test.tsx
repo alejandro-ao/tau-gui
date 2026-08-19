@@ -100,7 +100,9 @@ describe('session and context flows', () => {
     await runSlash(view, '/diagnostics');
     const dialog = query(view.container, '[data-modal-name="diagnostics"]');
     expect(dialog.textContent).toContain('tau: stderr noise');
-    expect(query(dialog, '.modal-footer button').textContent).toContain('copy diagnostics');
+    expect(query(dialog, '.modal-footer button').getAttribute('aria-label')).toBe(
+      'Copy diagnostics',
+    );
   });
 
   it('applies a theme from the theme picker', async () => {
