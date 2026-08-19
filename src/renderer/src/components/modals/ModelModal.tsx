@@ -1,6 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import type { Model } from '../../../../shared/domain.js';
-import { isScopedModel, modelRefOf } from '../../../../shared/scoped-models.js';
+import { isScopedModel, modelKey, modelRefOf } from '../../../../shared/scoped-models.js';
 import { useStore } from '../../state/store.js';
 import { formatTokens } from '../format.js';
 import { Picker, type PickerItem } from './Picker.js';
@@ -14,7 +14,7 @@ export function ModelModal(): ReactNode {
   const items = useMemo<PickerItem[]>(
     () =>
       state.models.map((model) => ({
-        id: `${model.provider}:${model.id}`,
+        id: modelKey(modelRefOf(model)),
         label: model.name,
         hint: model.provider,
         badge: isScopedModel(scopedKeys, modelRefOf(model)) ? 'scoped' : null,
@@ -35,9 +35,7 @@ export function ModelModal(): ReactNode {
       emptyLabel="the runtime reported no models"
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
-        const model = state.models.find(
-          (candidate) => `${candidate.provider}:${candidate.id}` === item.id,
-        );
+        const model = state.models.find((candidate) => modelKey(modelRefOf(candidate)) === item.id);
         if (!model) return;
         actions.openModal(null);
         void actions.setModel({ provider: model.provider, modelId: model.id });

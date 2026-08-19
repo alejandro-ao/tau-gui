@@ -239,4 +239,33 @@ describe('model picker', () => {
     await click(rows[2]!);
     expect(bridge.payloads('models.set')).toEqual([{ provider: 'anthropic', modelId: 'haiku' }]);
   });
+
+  it('selects each provider/model tuple when colon-concatenated identities would collide', async () => {
+    const collisionModels: Model[] = [
+      { ...MODELS[0]!, provider: 'a:b', id: 'c', name: 'Provider with colon' },
+      { ...MODELS[1]!, provider: 'a', id: 'b:c', name: 'Model with colon' },
+    ];
+    const { view, bridge } = await renderApp({
+      agent: AGENT,
+      results: { 'models.list': collisionModels },
+    });
+    mounted = view;
+
+    await click(query(view.container, '.status-right .status-link'));
+    let dialog = query(view.container, '[data-modal-name="model"]');
+    let rows = [...dialog.querySelectorAll<HTMLElement>('[role="option"]')];
+    expect(rows).toHaveLength(2);
+    expect(new Set(rows.map((row) => row.id)).size).toBe(2);
+    await click(rows[0]!);
+
+    await click(query(view.container, '.status-right .status-link'));
+    dialog = query(view.container, '[data-modal-name="model"]');
+    rows = [...dialog.querySelectorAll<HTMLElement>('[role="option"]')];
+    await click(rows[1]!);
+
+    expect(bridge.payloads('models.set')).toEqual([
+      { provider: 'a:b', modelId: 'c' },
+      { provider: 'a', modelId: 'b:c' },
+    ]);
+  });
 });
