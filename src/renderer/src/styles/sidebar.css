@@ -113,10 +113,11 @@
   flex: 0 0 260px;
   min-width: 160px;
   max-width: min(420px, 45vw);
-  background: var(--panel);
+  background: color-mix(in srgb, var(--panel) 84%, transparent);
   border-right: 1px solid var(--border);
   overflow: hidden;
   font-size: var(--font-size-sm);
+  backdrop-filter: blur(14px);
 }
 
 .sessions-rail-header {
