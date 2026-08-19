@@ -310,6 +310,75 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
   });
 
+  it('recovers a retained session queue after the first restart launch fails', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    const cwd = fileURLToPath(new URL('.', import.meta.url));
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+    try {
+      await pool.start({ cwd });
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    await pool.active.prompt({ text: 'interrupted before failed restart' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+    pool.enqueuePrompt('follow-up', 'drains after retry', target);
+
+    const internals = pool as unknown as {
+      createManager: () => RuntimeManager;
+      managers: Set<RuntimeManager>;
+    };
+    const replaced = [...internals.managers][0]!;
+    const createManager = internals.createManager.bind(pool);
+    const replacements: RuntimeManager[] = [];
+    internals.createManager = () => {
+      const manager = createManager();
+      replacements.push(manager);
+      return manager;
+    };
+    const runtime = settings.current.runtime;
+    settings.update({
+      agentRuntime: 'pi',
+      runtime: {
+        ...runtime,
+        tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
+      },
+    });
+
+    await expect(pool.restart()).rejects.toThrow('not found');
+
+    expect(replaced.isStarted).toBe(false);
+    expect(replacements).toHaveLength(1);
+    expect(replacements[0]!.isStarted).toBe(false);
+    expect(internals.managers.size).toBe(0);
+    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual([
+      'drains after retry',
+    ]);
+
+    settings.update({
+      runtime: {
+        ...settings.current.runtime,
+        tau: { ...runtime.tau, binary: FAKE },
+      },
+    });
+    const restarted = await pool.restart();
+
+    expect(restarted.runtime).toBe('tau');
+    expect(restarted.cwd).toBe(cwd);
+    expect(restarted.state?.sessionId).toBe(target.sessionId);
+    expect(replacements).toHaveLength(2);
+    expect(internals.managers.has(replacements[0]!)).toBe(false);
+    expect(internals.managers.size).toBe(1);
+    await waitFor(async () => {
+      const messages = await pool!.active.getMessages();
+      return messages.some(
+        (message) => message.role === 'user' && message.text === 'drains after retry',
+      );
+    });
+    expect(pool.queueSnapshot(target).followUp).toEqual([]);
+  });
+
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

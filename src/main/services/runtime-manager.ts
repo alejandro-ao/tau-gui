@@ -86,12 +86,16 @@ export class RuntimeManager {
   }
 
   async start(
-    options: { cwd?: string | null; sessionRef?: string | null } = {},
+    options: {
+      cwd?: string | null;
+      sessionRef?: string | null;
+      runtime?: RuntimeKind;
+    } = {},
   ): Promise<RuntimeSnapshot> {
     if (this.runtime) await this.stop();
     const settings = this.settings.current;
     const cwd = options.cwd ?? settings.cwd ?? process.cwd();
-    const kind = settings.agentRuntime;
+    const kind = options.runtime ?? settings.agentRuntime;
     const runtimeSettings = settings.runtime[kind];
     const config: RuntimeLaunchConfig = {
       kind,

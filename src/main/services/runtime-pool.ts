@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentState, ProjectTrust } from '../../shared/domain.js';
+import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
@@ -19,6 +19,8 @@ export class RuntimePool {
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
   private current: RuntimeManager | null = null;
   private starting: Promise<RuntimeSnapshot> | null = null;
+  /** Identity retained while a failed replacement leaves no live session owner. */
+  private failedRestart: RestartIdentity | null = null;
   /** Serializes lifecycle transitions so rapid clicks cannot launch duplicate owners. */
   private transitions: Promise<void> = Promise.resolve();
   private readonly queues: PromptQueueService;
@@ -78,6 +80,9 @@ export class RuntimePool {
   }
 
   queueSnapshot(target?: SessionTarget | null): ReturnType<PromptQueueService['snapshot']> {
+    if (target && this.failedRestart?.target && sameTarget(target, this.failedRestart.target)) {
+      return this.queues.snapshot(target);
+    }
     const manager = this.managerFor(target);
     return this.queues.snapshot(targetFor(manager));
   }
@@ -139,7 +144,7 @@ export class RuntimePool {
   }
 
   private async startFresh(
-    options: { cwd?: string | null; sessionRef?: string | null },
+    options: { cwd?: string | null; sessionRef?: string | null; runtime?: RuntimeKind },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
     const previous = this.current;
@@ -171,11 +176,22 @@ export class RuntimePool {
   /** Restarts the viewed transcript and lets its retained queue resume draining. */
   async restart(): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
-      const snapshot = this.current?.snapshot();
-      const state = snapshot?.state;
-      const sessionRef =
-        snapshot?.runtime === 'pi' ? (state?.sessionFile ?? state?.sessionId) : state?.sessionId;
-      return this.startFresh({ cwd: snapshot?.cwd ?? null, sessionRef: sessionRef ?? null });
+      const identity = this.current ? restartIdentity(this.current.snapshot()) : this.failedRestart;
+      try {
+        const snapshot = await this.startFresh({
+          cwd: identity?.cwd ?? null,
+          sessionRef: identity?.sessionRef ?? null,
+          runtime: identity?.runtime,
+        });
+        this.failedRestart = null;
+        return snapshot;
+      } catch (error) {
+        // Replacing a process is destructive even when its successor cannot
+        // launch. Keep the detached transcript identity so another restart can
+        // resume that same runtime/session and recover its main-owned queue.
+        this.failedRestart = identity;
+        throw error;
+      }
     });
   }
 
@@ -515,6 +531,13 @@ export class RuntimePool {
   }
 }
 
+interface RestartIdentity {
+  runtime: RuntimeKind;
+  cwd: string | null;
+  sessionRef: string | null;
+  target: SessionTarget | null;
+}
+
 interface RunLifecycle {
   sessionId: string | null;
   phase: 'ready' | 'handoff' | 'running' | 'ended' | 'blocked';
@@ -524,6 +547,17 @@ interface RunLifecycle {
 
 function freshLifecycle(sessionId: string | null): RunLifecycle {
   return { sessionId, phase: 'ready', turnOpen: false, turnEnded: false };
+}
+
+function restartIdentity(snapshot: RuntimeSnapshot): RestartIdentity {
+  const state = snapshot.state;
+  const sessionId = state?.sessionId ?? null;
+  return {
+    runtime: snapshot.runtime,
+    cwd: snapshot.cwd,
+    sessionRef: snapshot.runtime === 'pi' ? (state?.sessionFile ?? sessionId) : sessionId,
+    target: sessionId ? { runtime: snapshot.runtime, sessionId } : null,
+  };
 }
 
 function targetFor(manager: RuntimeManager): SessionTarget {
@@ -550,4 +584,8 @@ function isBusy(manager: RuntimeManager): boolean {
 function matches(manager: RuntimeManager, target: SessionTarget): boolean {
   const snapshot = manager.snapshot();
   return snapshot.runtime === target.runtime && snapshot.state?.sessionId === target.sessionId;
+}
+
+function sameTarget(left: SessionTarget, right: SessionTarget): boolean {
+  return left.runtime === right.runtime && left.sessionId === right.sessionId;
 }
