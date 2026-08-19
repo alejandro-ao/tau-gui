@@ -221,6 +221,7 @@ describe('RuntimeManager state machine', () => {
     expect(fixture.manager.snapshot().status).toBe('running');
 
     // A compaction_end without a preceding start must not fabricate `running`.
+    fixture.emit({ type: 'agent_end', willRetry: false });
     fixture.emit({ type: 'agent_settled' });
     fixture.emit({
       type: 'compaction_end',
@@ -230,6 +231,18 @@ describe('RuntimeManager state machine', () => {
       errorMessage: null,
     });
     expect(fixture.manager.snapshot().status).toBe('idle');
+  });
+
+  it('ignores a delayed duplicate settle during a newer active run', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+
+    fixture.emit({ type: 'agent_start' });
+    fixture.emit({ type: 'turn_start' });
+    fixture.emit({ type: 'agent_settled' });
+
+    expect(fixture.manager.snapshot().status).toBe('running');
   });
 
   it('clears the running state on runtime_error', async () => {

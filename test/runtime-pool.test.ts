@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent } from '../src/shared/ipc.js';
@@ -240,6 +240,51 @@ describe('RuntimePool', () => {
     expect(
       messages.filter((message) => message.role === 'user').map((message) => message.text),
     ).toEqual(['slow initial', 'priority first', 'follow second']);
+  });
+
+  it('ignores a delayed duplicate settle after the next queued run starts', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '20';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    await pool.active.prompt({ text: 'slow initial' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+    const prompt = vi.spyOn(pool.active, 'prompt');
+    pool.enqueuePrompt('follow-up', 'queued first', target);
+    pool.enqueuePrompt('follow-up', 'queued second', target);
+
+    await waitFor(async () => {
+      const messages = await pool!.active.getMessages();
+      return (
+        prompt.mock.calls.length === 1 &&
+        pool!.snapshot().status === 'running' &&
+        messages.some((message) => message.role === 'user' && message.text === 'queued first')
+      );
+    });
+
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    const manager = [...internals.managers][0];
+    if (!manager) throw new Error('runtime manager missing');
+    const managerInternals = manager as unknown as {
+      handleEvent: (event: { type: 'agent_settled' }) => void;
+    };
+    managerInternals.handleEvent({ type: 'agent_settled' });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(pool.snapshot().status).toBe('running');
+    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual(['queued second']);
+
+    await waitFor(() => prompt.mock.calls.length === 2);
+    expect(prompt.mock.calls.map(([request]) => request.text)).toEqual([
+      'queued first',
+      'queued second',
+    ]);
   });
 
   it('retains queued work across a runtime restart of the same session', async () => {

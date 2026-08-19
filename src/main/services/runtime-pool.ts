@@ -1,4 +1,4 @@
-import type { AgentState } from '../../shared/domain.js';
+import type { AgentEvent, AgentState } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
@@ -15,6 +15,8 @@ export class RuntimePool {
   private readonly sessions = new Map<string, RuntimeManager>();
   /** Stable ownership assigned at activation; never inferred from transient startup state. */
   private readonly owners = new Map<string, RuntimeManager>();
+  /** Queue scheduling state is independent of RuntimeManager's presentation status. */
+  private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
   private current: RuntimeManager | null = null;
   private starting: Promise<RuntimeSnapshot> | null = null;
   /** Serializes lifecycle transitions so rapid clicks cannot launch duplicate owners. */
@@ -146,6 +148,7 @@ export class RuntimePool {
       return snapshot;
     } catch (error) {
       this.managers.delete(manager);
+      this.runLifecycles.delete(manager);
       throw error;
     }
   }
@@ -262,6 +265,7 @@ export class RuntimePool {
     this.removeIndexes(manager);
     this.removeOwnership(manager);
     this.managers.delete(manager);
+    this.runLifecycles.delete(manager);
     this.current = null;
     return snapshot;
   }
@@ -272,6 +276,7 @@ export class RuntimePool {
     this.sessions.clear();
     this.owners.clear();
     this.managers.clear();
+    this.runLifecycles.clear();
     await Promise.allSettled(managers.map((manager) => manager.stop()));
   }
 
@@ -302,20 +307,27 @@ export class RuntimePool {
   private createManager(): RuntimeManager {
     const manager = new RuntimeManager(this.settings, (event) => this.handleEvent(manager, event));
     this.managers.add(manager);
+    this.runLifecycles.set(manager, freshLifecycle(null));
     return manager;
   }
 
   private handleEvent(manager: RuntimeManager, event: BridgeEvent): void {
     if (event.type === 'status') {
+      if (['stopped', 'failed', 'disconnected'].includes(event.snapshot.status)) {
+        this.lifecycleFor(manager).phase = 'blocked';
+      }
       this.broadcastActivity(
         manager,
         event.snapshot.status,
         manager === this.current ? false : null,
       );
     }
-    if (event.type === 'agent' && event.event.type === 'agent_settled') {
-      this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
-      void this.schedule(manager);
+    if (event.type === 'agent') {
+      const settled = this.advanceLifecycle(manager, event.event);
+      if (event.event.type === 'agent_settled') {
+        this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
+        if (settled) void this.schedule(manager);
+      }
     }
     // Settings are application-global. Every other transcript event is shown
     // only while that transcript is selected. Session activity is separately
@@ -323,10 +335,90 @@ export class RuntimePool {
     if (event.type === 'settings' || manager === this.current) this.broadcast(event);
   }
 
+  /**
+   * Advances the queue's authoritative run gate from normalized stream evidence.
+   * RuntimeManager separately protects presentation status; this scheduling
+   * gate accepts a settle only after the current run closed its final
+   * turn and emitted agent_end (or an explicit runtime error). A stale settle
+   * therefore cannot drain another item after a new prompt has started.
+   */
+  private advanceLifecycle(manager: RuntimeManager, event: AgentEvent): boolean {
+    const lifecycle = this.lifecycleFor(manager);
+    switch (event.type) {
+      case 'agent_start':
+        lifecycle.phase = 'running';
+        lifecycle.turnOpen = false;
+        lifecycle.turnEnded = false;
+        return false;
+      case 'turn_start':
+        lifecycle.phase = 'running';
+        lifecycle.turnOpen = true;
+        lifecycle.turnEnded = false;
+        return false;
+      case 'turn_end':
+        if (lifecycle.phase === 'running') {
+          lifecycle.turnOpen = false;
+          lifecycle.turnEnded = true;
+        }
+        return false;
+      case 'agent_end':
+        if (event.willRetry) {
+          lifecycle.phase = 'running';
+          lifecycle.turnEnded = false;
+        } else if (lifecycle.phase === 'running' && !lifecycle.turnOpen && lifecycle.turnEnded) {
+          lifecycle.phase = 'ended';
+        }
+        return false;
+      case 'retry_start':
+        lifecycle.phase = 'running';
+        lifecycle.turnEnded = false;
+        return false;
+      case 'runtime_error':
+        if (lifecycle.phase === 'running') lifecycle.phase = 'ended';
+        return false;
+      case 'agent_settled':
+        if (lifecycle.phase !== 'ready' && lifecycle.phase !== 'ended') return false;
+        lifecycle.phase = 'ready';
+        lifecycle.turnOpen = false;
+        lifecycle.turnEnded = false;
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  private lifecycleFor(manager: RuntimeManager): RunLifecycle {
+    const sessionId = manager.snapshot().state?.sessionId ?? null;
+    let lifecycle = this.runLifecycles.get(manager);
+    if (!lifecycle || lifecycle.sessionId !== sessionId) {
+      lifecycle = freshLifecycle(sessionId);
+      this.runLifecycles.set(manager, lifecycle);
+    }
+    return lifecycle;
+  }
+
   private async schedule(manager: RuntimeManager): Promise<void> {
     const snapshot = manager.snapshot();
-    if (!manager.isStarted || snapshot.status !== 'idle' || !snapshot.state?.sessionId) return;
-    await this.queues.dispatchNext(targetFor(manager), (text) => manager.active.prompt({ text }));
+    const lifecycle = this.lifecycleFor(manager);
+    if (
+      !manager.isStarted ||
+      snapshot.status !== 'idle' ||
+      !snapshot.state?.sessionId ||
+      lifecycle.phase !== 'ready'
+    ) {
+      return;
+    }
+    await this.queues.dispatchNext(targetFor(manager), async (text) => {
+      lifecycle.phase = 'handoff';
+      try {
+        await manager.active.prompt({ text });
+      } catch (error) {
+        // A rejected RPC never started a run, so the reinstated item may be
+        // attempted again at the next idle scheduling boundary.
+        if (lifecycle.phase === 'handoff') lifecycle.phase = 'ready';
+        throw error;
+      }
+    });
   }
 
   private broadcastActivity(
@@ -392,8 +484,20 @@ export class RuntimePool {
     this.removeIndexes(manager);
     this.removeOwnership(manager);
     this.managers.delete(manager);
+    this.runLifecycles.delete(manager);
     if (this.current === manager) this.current = null;
   }
+}
+
+interface RunLifecycle {
+  sessionId: string | null;
+  phase: 'ready' | 'handoff' | 'running' | 'ended' | 'blocked';
+  turnOpen: boolean;
+  turnEnded: boolean;
+}
+
+function freshLifecycle(sessionId: string | null): RunLifecycle {
+  return { sessionId, phase: 'ready', turnOpen: false, turnEnded: false };
 }
 
 function targetFor(manager: RuntimeManager): SessionTarget {
