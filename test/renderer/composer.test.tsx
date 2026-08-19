@@ -71,6 +71,32 @@ async function type(input: HTMLTextAreaElement, value: string): Promise<void> {
   });
 }
 
+async function userInput(
+  input: HTMLTextAreaElement,
+  value: string,
+  selectionStart: number,
+  inputType: string,
+): Promise<void> {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const setValue = descriptor?.set;
+  await act(async () => {
+    if (setValue) Reflect.apply(setValue, input, [value]);
+    input.setSelectionRange(selectionStart, selectionStart);
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+    await Promise.resolve();
+  });
+}
+
+async function typeWithKeyboard(input: HTMLTextAreaElement, text: string): Promise<void> {
+  for (const character of text) {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const value = `${input.value.slice(0, start)}${character}${input.value.slice(end)}`;
+    await userInput(input, value, start + character.length, 'insertText');
+  }
+}
+
 async function press(
   input: HTMLTextAreaElement,
   key: string,
@@ -217,6 +243,28 @@ describe('Composer key handling', () => {
 
     await press(input, 'y', { ctrlKey: true });
     expect(input.value).toBe('first prompt');
+  });
+
+  it('coalesces contiguous keyboard typing into one undo unit', async () => {
+    const { input } = await renderComposer({});
+    await typeWithKeyboard(input, 'hello');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('hello');
+  });
+
+  it('coalesces contiguous backward deletion into one undo unit', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'hello');
+    for (const value of ['hell', 'hel', 'he']) {
+      await userInput(input, value, value.length, 'deleteContentBackward');
+    }
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('hello');
   });
 
   it('undoes deleted text with the platform modifier', async () => {

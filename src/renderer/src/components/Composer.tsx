@@ -28,7 +28,23 @@ interface EditSnapshot {
   selectionEnd: number;
 }
 
+type UserEditKind = 'insert' | 'deleteBackward' | 'deleteForward';
+
+interface UserEdit {
+  kind: UserEditKind;
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
 const MAX_EDIT_HISTORY = 100;
+
+function userEditKind(inputType: string): UserEditKind | null {
+  if (inputType === 'insertText' || inputType === 'insertCompositionText') return 'insert';
+  if (/^delete.*Backward$/.test(inputType)) return 'deleteBackward';
+  if (/^delete.*Forward$/.test(inputType)) return 'deleteForward';
+  return null;
+}
 
 /** `!cmd` runs and keeps output in context, `!!cmd` runs and excludes it. */
 export function parseShellIntent(text: string): ShellIntent | null {
@@ -49,6 +65,7 @@ export function Composer(): ReactNode {
   const pendingSelection = useRef<{ start: number; end: number } | null>(null);
   const undoStack = useRef<EditSnapshot[]>([]);
   const redoStack = useRef<EditSnapshot[]>([]);
+  const lastUserEdit = useRef<UserEdit | null>(null);
   const [cursor, setCursor] = useState(0);
 
   // Focus on initial session load and whenever a session action opens another
@@ -63,18 +80,38 @@ export function Composer(): ReactNode {
   const shellDisabled = shellMode && !capabilities.directBash;
 
   const setDraft = useCallback(
-    (text: string, selectionStart = text.length, selectionEnd = selectionStart, restore = true) => {
+    (
+      text: string,
+      selectionStart = text.length,
+      selectionEnd = selectionStart,
+      restore = true,
+      userEdit: UserEditKind | null = null,
+    ) => {
       const previousText = draftRef.current;
       if (text === previousText) return;
-      undoStack.current.push({
-        text: previousText,
-        selectionStart: selection.current.start,
-        selectionEnd: selection.current.end,
-      });
-      if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+      const previousSelection = selection.current;
+      const previousUserEdit = lastUserEdit.current;
+      const continuesUserEdit =
+        userEdit !== null &&
+        previousUserEdit?.kind === userEdit &&
+        previousUserEdit.text === previousText &&
+        previousUserEdit.selectionStart === previousSelection.start &&
+        previousUserEdit.selectionEnd === previousSelection.end &&
+        previousSelection.start === previousSelection.end;
+      if (!continuesUserEdit) {
+        undoStack.current.push({
+          text: previousText,
+          selectionStart: previousSelection.start,
+          selectionEnd: previousSelection.end,
+        });
+        if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+      }
       redoStack.current = [];
       draftRef.current = text;
       selection.current = { start: selectionStart, end: selectionEnd };
+      lastUserEdit.current = userEdit
+        ? { kind: userEdit, text, selectionStart, selectionEnd }
+        : null;
       if (restore) pendingSelection.current = { start: selectionStart, end: selectionEnd };
       setCursor(selectionStart);
       actions.setDraft(text);
@@ -94,6 +131,7 @@ export function Composer(): ReactNode {
     });
     if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
     redoStack.current = [];
+    lastUserEdit.current = null;
     draftRef.current = draft;
     selection.current = { start: draft.length, end: draft.length };
     pendingSelection.current = { start: draft.length, end: draft.length };
@@ -112,6 +150,7 @@ export function Composer(): ReactNode {
     (source: { current: EditSnapshot[] }, destination: { current: EditSnapshot[] }) => {
       const next = source.current.pop();
       if (!next) return;
+      lastUserEdit.current = null;
       const element = input.current;
       destination.current.push({
         text: draftRef.current,
@@ -248,6 +287,15 @@ export function Composer(): ReactNode {
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     const key = event.key.toLowerCase();
+    if (
+      key.startsWith('arrow') ||
+      key === 'home' ||
+      key === 'end' ||
+      key === 'pageup' ||
+      key === 'pagedown'
+    ) {
+      lastUserEdit.current = null;
+    }
     const commandModifier = (event.metaKey || event.ctrlKey) && !event.altKey;
     if (commandModifier && key === 'z') {
       event.preventDefault();
@@ -381,11 +429,16 @@ export function Composer(): ReactNode {
             placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
             spellCheck={false}
             onChange={(event) => {
+              const inputType =
+                'inputType' in event.nativeEvent && typeof event.nativeEvent.inputType === 'string'
+                  ? event.nativeEvent.inputType
+                  : '';
               setDraft(
                 event.target.value,
                 event.target.selectionStart,
                 event.target.selectionEnd,
                 false,
+                userEditKind(inputType),
               );
             }}
             onSelect={(event) => {
@@ -396,6 +449,7 @@ export function Composer(): ReactNode {
               setCursor(event.currentTarget.selectionStart);
             }}
             onClick={(event) => {
+              lastUserEdit.current = null;
               selection.current = {
                 start: event.currentTarget.selectionStart,
                 end: event.currentTarget.selectionEnd,
