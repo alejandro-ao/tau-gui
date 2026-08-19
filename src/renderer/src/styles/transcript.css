@@ -225,7 +225,7 @@
   padding-bottom: var(--space-3);
   border-bottom: 1px solid var(--border);
   color: var(--text-faint);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   line-height: 1.2;
 }
 
