@@ -124,7 +124,10 @@ export const requestSchema = z.discriminatedUnion('action', [
     action: z.literal('session.compact'),
     payload: z.object({ instructions: z.string().optional() }).optional(),
   }),
-  z.object({ action: z.literal('session.exportHtml') }),
+  z.object({
+    action: z.literal('session.exportHtml'),
+    payload: z.object({ destination: z.string().min(1) }).optional(),
+  }),
   z.object({
     action: z.literal('session.autoCompaction'),
     payload: z.object({ enabled: z.boolean() }),

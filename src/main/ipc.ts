@@ -117,6 +117,9 @@ export async function handleRequest(
       await runtime().setAutoCompaction(request.payload.enabled);
       return null;
     case 'session.exportHtml': {
+      if (request.payload?.destination) {
+        return runtime().exportHtml(request.payload.destination);
+      }
       const window = context.window();
       const options = {
         title: 'Export session as HTML',

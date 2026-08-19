@@ -88,6 +88,15 @@ describe('slash command completion', () => {
     expect(actionsOf(bridge)).not.toContain('agent.prompt');
   });
 
+  it('runs registered commands with arguments instead of prompting the model', async () => {
+    const { input, bridge } = await open();
+    await type(input, '/name release prep');
+    await press(input, 'Enter');
+
+    expect(bridge.payloads('session.name')).toEqual([{ name: 'release prep' }]);
+    expect(actionsOf(bridge)).not.toContain('agent.prompt');
+  });
+
   it('sends unknown slash input as a normal prompt', async () => {
     const { view, input, bridge } = await open();
     await type(input, '/definitely-not-a-command');

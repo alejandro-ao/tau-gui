@@ -47,7 +47,8 @@ describe('command palette', () => {
     const hotkeys = rows.find((row) => row.textContent?.startsWith('/hotkeys'));
     expect(hotkeys?.textContent).toContain('frontend');
     const review = rows.find((row) => row.textContent?.startsWith('/review'));
-    expect(review?.textContent).toContain('backend');
+    expect(review?.getAttribute('data-unavailable')).toBe('true');
+    expect(review?.textContent).toContain('does not expose command execution over RPC');
   });
 
   it('refuses unavailable entries with the reason instead of failing silently', async () => {

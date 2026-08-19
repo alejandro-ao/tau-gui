@@ -127,6 +127,14 @@ export function Composer(): ReactNode {
       const trimmed = text.trim();
       if (!trimmed) return;
 
+      // Tau's RPC prompt endpoint does not dispatch TUI commands. Consume every
+      // command the desktop app owns before deciding whether to prompt/steer.
+      if (mode === 'primary' && completion.runInvocation(trimmed)) {
+        setDraft('');
+        lastSubmitted.current = trimmed;
+        return;
+      }
+
       if (mode === 'followUp' || (running && !capabilities.steering)) {
         if (!capabilities.followUps) {
           actions.notice('This runtime does not support queued follow-ups.');
@@ -154,6 +162,7 @@ export function Composer(): ReactNode {
       capabilities.directBash,
       capabilities.followUps,
       capabilities.steering,
+      completion,
       running,
       setDraft,
     ],

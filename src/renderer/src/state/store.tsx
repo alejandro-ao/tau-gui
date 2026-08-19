@@ -45,7 +45,7 @@ export interface Actions {
   nameSession: (name: string) => Promise<void>;
   fork: (entryId: string) => Promise<string | null>;
   compact: (instructions?: string) => Promise<void>;
-  exportHtml: () => Promise<void>;
+  exportHtml: (destination?: string) => Promise<void>;
   openDirectory: () => Promise<void>;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
   probeRuntime: (kind: RuntimeKind, binary: string) => Promise<RuntimeProbe | null>;
@@ -471,8 +471,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           });
         });
       },
-      exportHtml: async () => {
-        const path = await attempt('session.exportHtml', undefined, notice, viewed());
+      exportHtml: async (destination) => {
+        const path = await attempt(
+          'session.exportHtml',
+          destination ? { destination } : undefined,
+          notice,
+          viewed(),
+        );
         if (path) {
           dispatch({
             type: 'localMessage',
