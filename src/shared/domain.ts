@@ -350,6 +350,8 @@ export interface SkillInfo {
   description: string | null;
   origin: string;
   disableModelInvocation: boolean;
+  /** Approximate token count derived in main from the complete SKILL.md text. */
+  estimatedTokens: number;
 }
 
 export interface PromptTemplateInfo {
@@ -397,6 +399,8 @@ export interface AppSettings {
   turnNotification: TurnNotification;
   showThinking: boolean;
   cwd: string | null;
+  /** GUI-managed directories shown in the sessions rail, newest first. */
+  workingDirectories: string[];
   projectTrust: ProjectTrust;
   runtime: Record<RuntimeKind, RuntimeSettings>;
   /**
@@ -415,6 +419,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   turnNotification: 'desktop',
   showThinking: true,
   cwd: null,
+  workingDirectories: [],
   projectTrust: 'default',
   runtime: {
     tau: { binary: 'tau', provider: null, model: null, extraArgs: [] },

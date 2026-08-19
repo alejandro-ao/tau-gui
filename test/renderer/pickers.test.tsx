@@ -17,6 +17,19 @@ afterEach(() => {
   mounted = null;
 });
 
+async function runPaletteCommand(view: Mounted, search: string): Promise<void> {
+  await press(window, 'k', { ctrlKey: true });
+  const input = query<HTMLInputElement>(view.container, '.picker-input');
+  await type(input, search);
+  await press(input, 'Enter');
+}
+
+async function runComposerCommand(view: Mounted, command: string): Promise<void> {
+  const input = composer(view);
+  await type(input, command);
+  await press(input, 'Enter');
+}
+
 const MODELS: Model[] = [
   {
     id: 'gpt-5',
@@ -146,7 +159,7 @@ describe('session picker', () => {
       settings: { recentSessions: RECENTS },
     });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(2)'));
+    await runPaletteCommand(view, '/resume');
     const dialog = query(view.container, '[data-modal-name="session"]');
     expect(dialog.textContent).toContain('needs runtime list_sessions support');
     expect(options(dialog)).toHaveLength(2);
@@ -158,9 +171,7 @@ describe('session picker', () => {
 
     const rows = [...dialog.querySelectorAll('[role="option"]')];
     await click(rows[1]!);
-    expect(bridge.payloads('session.switch')).toEqual([
-      { ref: '/work/project/.tau/sessions/two.jsonl' },
-    ]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-2' }]);
   });
 });
 
@@ -172,7 +183,8 @@ describe('tree modal', () => {
       results: { 'agent.tree': TREE, 'session.fork': 'add jsonl framing tests' },
     });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(3)'));
+    await runComposerCommand(view, '/tree');
+    await type(composer(view), 'draft before fork');
     await view.flush();
 
     const dialog = query(view.container, '[data-modal-name="tree"]');
@@ -189,14 +201,16 @@ describe('tree modal', () => {
     await view.flush();
     expect(bridge.payloads('session.fork')).toEqual([{ entryId: 'e1' }]);
     expect(composer(view).value).toBe('add jsonl framing tests');
+
+    await press(composer(view), 'z', { ctrlKey: true });
+    expect(composer(view).value).toBe('draft before fork');
   });
 
-  it('explains that the runtime cannot expose the tree', async () => {
+  it('reports when the runtime cannot expose the tree', async () => {
     const { view } = await renderApp({ capabilities: { sessionTree: false } });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(3)'));
-    const dialog = query(view.container, '[data-modal-name="tree"]');
-    expect(dialog.textContent).toContain('does not expose session tree inspection');
+    await runComposerCommand(view, '/tree');
+    expect(view.container.textContent).toContain('does not expose session tree inspection');
   });
 });
 
@@ -204,7 +218,7 @@ describe('session details', () => {
   it('renames the session and lists usage context', async () => {
     const { view, bridge } = await renderApp({ agent: AGENT });
     mounted = view;
-    await click(query(view.container, '.sidebar-actions button:nth-child(4)'));
+    await runComposerCommand(view, '/session');
     const dialog = query(view.container, '[data-modal-name="details"]');
     expect(dialog.textContent).toContain('session-1');
     expect(dialog.textContent).toContain('auto-compaction');

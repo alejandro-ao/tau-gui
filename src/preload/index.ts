@@ -6,7 +6,12 @@ import type {
   IpcResult,
   SessionTarget,
 } from '../shared/ipc.js';
-import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL, resourceCatalogSchema } from '../shared/ipc.js';
+import {
+  contextFilesSchema,
+  IPC_EVENT_CHANNEL,
+  IPC_INVOKE_CHANNEL,
+  resourceCatalogSchema,
+} from '../shared/ipc.js';
 
 /**
  * Narrow, context-isolated bridge. The renderer gets exactly two capabilities:
@@ -42,6 +47,9 @@ const bridge: TauBridge = {
     if (action === 'resources.list') {
       return resourceCatalogSchema.parse(response.value) as IpcResult<typeof action>;
     }
+    if (action === 'context.list') {
+      return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     return response.value as IpcResult<typeof action>;
   },
   subscribe(listener) {
@@ -65,17 +73,45 @@ const bridge: TauBridge = {
 
 function isBridgeEvent(value: unknown): value is BridgeEvent {
   if (typeof value !== 'object' || value === null) return false;
-  const record = value as { type?: unknown; sessionId?: unknown; runtime?: unknown };
+  const record = value as {
+    type?: unknown;
+    sessionId?: unknown;
+    runtime?: unknown;
+    snapshot?: unknown;
+  };
   const type = record.type;
   return (
     (type === 'agent' &&
       typeof record.sessionId === 'string' &&
       (record.runtime === 'tau' || record.runtime === 'pi')) ||
+    (type === 'queue' && isQueueSnapshot(record.snapshot)) ||
     type === 'status' ||
     type === 'diagnostic' ||
     type === 'settings' ||
     type === 'sessionActivity' ||
     type === 'focus'
+  );
+}
+
+function isQueueSnapshot(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) return false;
+  const snapshot = value as Record<string, unknown>;
+  const validItems = (items: unknown): boolean =>
+    Array.isArray(items) &&
+    items.every(
+      (item) =>
+        typeof item === 'object' &&
+        item !== null &&
+        typeof (item as Record<string, unknown>)['id'] === 'string' &&
+        typeof (item as Record<string, unknown>)['text'] === 'string' &&
+        ((item as Record<string, unknown>)['kind'] === 'steering' ||
+          (item as Record<string, unknown>)['kind'] === 'follow-up'),
+    );
+  return (
+    (snapshot['runtime'] === 'tau' || snapshot['runtime'] === 'pi') &&
+    typeof snapshot['sessionId'] === 'string' &&
+    validItems(snapshot['steering']) &&
+    validItems(snapshot['followUp'])
   );
 }
 

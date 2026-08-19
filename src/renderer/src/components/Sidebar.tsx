@@ -1,29 +1,17 @@
 import type { ReactNode } from 'react';
-import { isRunning } from '../state/reducer.js';
+import { formatApproximateTokens } from '../../../shared/token-estimate.js';
 import { useStore } from '../state/store.js';
 import { Disclosure } from './Disclosure.js';
 import { formatCost, formatPercent, formatTokens } from './format.js';
 
-const PICKERS = [
-  { modal: 'palette', label: 'palette' },
-  { modal: 'session', label: 'sessions' },
-  { modal: 'tree', label: 'tree' },
-  { modal: 'details', label: 'details' },
-  { modal: 'settings', label: 'settings' },
-  { modal: 'hotkeys', label: 'keys' },
-] as const;
-
 /**
- * Session sidebar modeled on Tau's TUI: title, activity, usage, compaction,
- * context, collapsible resource sections, and the version mark at the bottom.
- * Sections whose data the runtime does not report are omitted entirely.
+ * Session sidebar modeled on Tau's TUI: title, activity, usage, context files,
+ * collapsible resource sections, and the version mark at the bottom.
+ * Sections whose data is unavailable are omitted entirely.
  */
 export function Sidebar({ id }: { id?: string }): ReactNode {
-  const { state, actions } = useStore();
-  const { snapshot, agent, stats, commands, resources } = state;
-  const running = isRunning(state);
-  const context = stats?.contextUsage ?? null;
-  const contextPercent = context ? Math.min(100, Math.max(0, context.percent)) : 0;
+  const { state } = useStore();
+  const { snapshot, agent, stats, resources, contextFiles } = state;
   const cacheHitRate = cacheRate(stats?.tokens.cacheRead ?? 0, stats?.tokens.input ?? 0);
 
   return (
@@ -39,9 +27,6 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
             {stats.userMessages} turns, {stats.toolCalls} tool calls
           </p>
         ) : null}
-        <p className="sidebar-state" data-running={running}>
-          {running ? '● running' : '○ idle'}
-        </p>
       </section>
 
       {stats ? (
@@ -58,36 +43,16 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
         </section>
       ) : null}
 
-      {agent ? (
-        <section className="sidebar-section">
-          <h2>compaction</h2>
-          <p className="sidebar-line dim">
-            {/* The auto-compaction threshold is not exposed over RPC. */}
-            {agent.autoCompactionEnabled ? 'auto' : 'off'}
-          </p>
-        </section>
-      ) : null}
-
-      {context ? (
+      {contextFiles.length > 0 ? (
         <section className="sidebar-section">
           <h2>context</h2>
-          <div className="usage-context">
-            <p className="sidebar-line">
-              {formatTokens(context.tokens)}/{formatTokens(context.contextWindow)} ·{' '}
-              {formatPercent(contextPercent)}
-            </p>
-            <div
-              className="usage-bar"
-              data-warn={contextPercent >= 80}
-              role="progressbar"
-              aria-valuenow={Math.round(contextPercent)}
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-label="context used"
-            >
-              <span style={{ width: `${contextPercent}%` }} />
-            </div>
-          </div>
+          <ul className="context-files">
+            {contextFiles.map((file) => (
+              <li key={file.path} title={file.path} aria-label={`${file.label}: ${file.path}`}>
+                {file.label}
+              </li>
+            ))}
+          </ul>
         </section>
       ) : null}
 
@@ -95,6 +60,9 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
         <Disclosure
           title="skills"
           count={resources.skills.length}
+          meta={formatApproximateTokens(
+            resources.skills.reduce((total, skill) => total + skill.estimatedTokens, 0),
+          )}
           items={resources.skills.map((skill) => ({
             label: skill.name,
             title: `${skill.description ?? 'No description'} · ${skill.origin}`,
@@ -113,34 +81,6 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
           }))}
         />
       ) : null}
-
-      {commands.length > 0 ? (
-        <Disclosure
-          title="commands"
-          count={commands.length}
-          items={commands.map((command) => ({
-            label: `/${command.name}`,
-            title: command.description,
-          }))}
-        />
-      ) : null}
-
-      {/* Mouse parity for every keyboard-first picker. */}
-      <section className="sidebar-section">
-        <h2>open</h2>
-        <div className="sidebar-actions">
-          {PICKERS.map((picker) => (
-            <button
-              key={picker.modal}
-              type="button"
-              className="ghost-button"
-              onClick={() => actions.openModal(picker.modal)}
-            >
-              {picker.label}
-            </button>
-          ))}
-        </div>
-      </section>
 
       <div className="version-mark">
         <span>τ = 2π</span>

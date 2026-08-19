@@ -38,6 +38,31 @@ export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const runtimeKind = z.enum(['tau', 'pi']);
+const safePathText = z
+  .string()
+  .min(1)
+  .max(4_096)
+  .refine(
+    (value) =>
+      ![...value].some((character) => {
+        const codePoint = character.codePointAt(0) ?? 0;
+        return codePoint <= 0x1f || codePoint === 0x7f;
+      }),
+    'Path contains control characters',
+  );
+
+/** Metadata only: AGENTS.md contents never cross IPC. */
+export const contextFilesSchema = z
+  .array(
+    z
+      .object({
+        label: safePathText.max(256),
+        path: safePathText,
+      })
+      .strict(),
+  )
+  .max(4);
+export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 
 /**
  * Transcript a renderer request is bound to. Session-scoped commands carry it
@@ -75,6 +100,7 @@ export const settingsPatchSchema = z
     turnNotification: z.enum(['desktop', 'off']),
     showThinking: z.boolean(),
     cwd: z.string().nullable(),
+    workingDirectories: z.array(z.string().min(1)).max(100),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
     scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
@@ -85,6 +111,10 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings.get') }),
   z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
   z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
+  z.object({
+    action: z.literal('settings.rememberWorkingDirectory'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
+  }),
   z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
 
   z.object({
@@ -94,7 +124,12 @@ export const requestSchema = z.discriminatedUnion('action', [
       sessionRef: z.string().nullable().optional(),
     }),
   }),
+  z.object({
+    action: z.literal('runtime.openSession'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
+  }),
   z.object({ action: z.literal('runtime.stop') }),
+  z.object({ action: z.literal('runtime.restart') }),
   // The probe never accepts a renderer-supplied binary: only the runtime kind
   // may be selected, and the executable always comes from persisted settings.
   z.object({
@@ -106,6 +141,15 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
   z.object({ action: z.literal('agent.steer'), payload: z.object({ text: z.string().min(1) }) }),
   z.object({ action: z.literal('agent.followUp'), payload: z.object({ text: z.string().min(1) }) }),
+  z.object({ action: z.literal('queue.snapshot') }).strict(),
+  z.object({ action: z.literal('queue.pop') }).strict(),
+  z.object({
+    action: z.literal('queue.resolve'),
+    payload: z.object({
+      id: z.string().min(1),
+      outcome: z.enum(['accept', 'restore']),
+    }),
+  }),
   z.object({ action: z.literal('agent.abort') }),
   z.object({ action: z.literal('agent.state') }),
   z.object({ action: z.literal('agent.messages') }),
@@ -155,6 +199,7 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({ action: z.literal('commands.list') }),
   z.object({ action: z.literal('resources.list') }).strict(),
+  z.object({ action: z.literal('context.list') }).strict(),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -201,11 +246,25 @@ export interface RuntimeSnapshot {
   cwd: string | null;
   gitBranch: string | null;
   state: AgentState | null;
+  /** Queue address retained while a failed restart leaves no live runtime state. */
+  recoveryTarget?: SessionTarget | null;
 }
 
 export interface FileCompletion {
   path: string;
   isDirectory: boolean;
+}
+
+export interface PromptQueueItem {
+  /** Stable application identity; duplicate text is intentionally allowed. */
+  id: string;
+  kind: 'steering' | 'follow-up';
+  text: string;
+}
+
+export interface PromptQueueSnapshot extends SessionTarget {
+  steering: PromptQueueItem[];
+  followUp: PromptQueueItem[];
 }
 
 /** Per-session run state used by the sessions rail, including background runtimes. */
@@ -222,14 +281,20 @@ export interface IpcResultMap {
   'settings.get': AppSettings;
   'settings.update': AppSettings;
   'settings.toggleScopedModel': AppSettings;
+  'settings.rememberWorkingDirectory': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
+  'runtime.openSession': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
+  'runtime.restart': RuntimeSnapshot;
   'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
   'agent.prompt': null;
   'agent.steer': null;
   'agent.followUp': null;
+  'queue.snapshot': PromptQueueSnapshot;
+  'queue.pop': PromptQueueItem | null;
+  'queue.resolve': boolean;
   'agent.abort': null;
   'agent.state': AgentState;
   'agent.messages': AgentMessage[];
@@ -253,6 +318,7 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];
@@ -277,6 +343,7 @@ export type BridgeEvent =
       event: AgentEvent;
     }
   | { type: 'status'; snapshot: RuntimeSnapshot }
+  | { type: 'queue'; snapshot: PromptQueueSnapshot }
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }

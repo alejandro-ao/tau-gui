@@ -66,22 +66,23 @@ it costs nothing and cannot depend on provider availability.
 
 ## Coverage map
 
-| Spec                 | Flow                                                              |
-| -------------------- | ----------------------------------------------------------------- |
-| `startup.spec.ts`    | window, runtime connection, sidebar session/model, status cwd     |
-| `prompting.spec.ts`  | streaming text and finalization, thinking block                   |
-| `tools.spec.ts`      | read/edit/bash blocks, success state, Ctrl+O + per-block expand   |
-| `cancel.spec.ts`     | Esc aborts the slow run, composer stays usable                    |
-| `steering.spec.ts`   | Enter steers, Alt+Enter queues a follow-up, settles once          |
-| `errors.spec.ts`     | error block rendering, composer still usable                      |
-| `models.spec.ts`     | model picker from the status row and the palette, status updates  |
-| `sessions.spec.ts`   | Ctrl+N and `/new` clear the transcript, recent-session picker     |
-| `modals.spec.ts`     | focus trap, Escape closes, draft preserved                        |
-| `crash.spec.ts`      | runtime SIGKILL → disconnected → restart keeps the draft          |
-| `preload.spec.ts`    | no Node integration, narrow bridge surface, IPC validation        |
-| `shell.spec.ts`      | `!echo hi` shell mode output                                      |
-| `visual.spec.ts`     | themes, roles, tool states, diff, pickers, layouts, sidebar modes |
-| `smoke.real.spec.ts` | optional real-runtime startup smoke                               |
+| Spec                    | Flow                                                              |
+| ----------------------- | ----------------------------------------------------------------- |
+| `startup.spec.ts`       | window, runtime connection, sidebar session/model, status cwd     |
+| `prompting.spec.ts`     | streaming, finalization, thinking, coalesced keyboard undo        |
+| `tools.spec.ts`         | read/edit/bash blocks, success state, Ctrl+O + per-block expand   |
+| `cancel.spec.ts`        | Esc aborts the slow run, composer stays usable                    |
+| `steering.spec.ts`      | main-owned priority/follow-up queues, lossless Up recall          |
+| `errors.spec.ts`        | error block rendering, composer still usable                      |
+| `models.spec.ts`        | model picker from the status row and the palette, status updates  |
+| `sessions.spec.ts`      | `/new` clears in-place; recent-session picker                     |
+| `sessions-rail.spec.ts` | Working-directory grouping and session selection                  |
+| `modals.spec.ts`        | focus trap, Escape closes, draft preserved                        |
+| `crash.spec.ts`         | runtime SIGKILL → disconnected → restart keeps the draft          |
+| `preload.spec.ts`       | no Node integration, narrow bridge surface, IPC validation        |
+| `shell.spec.ts`         | `!echo hi` shell mode output                                      |
+| `visual.spec.ts`        | themes, roles, tool states, diff, pickers, layouts, sidebar modes |
+| `smoke.real.spec.ts`    | optional real-runtime startup smoke                               |
 
 ## Real-runtime smoke tests
 

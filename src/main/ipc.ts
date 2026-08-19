@@ -1,7 +1,8 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { resourceCatalogSchema } from '../shared/ipc.js';
+import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
+import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
@@ -34,6 +35,8 @@ export async function handleRequest(
       return settings.update(request.payload);
     case 'settings.toggleScopedModel':
       return settings.toggleScopedModel(request.payload.runtime, request.payload);
+    case 'settings.rememberWorkingDirectory':
+      return settings.rememberWorkingDirectory(request.payload.cwd);
     case 'settings.forgetSession':
       return settings.forgetSession(request.payload.id);
 
@@ -42,8 +45,12 @@ export async function handleRequest(
         cwd: request.payload.cwd ?? null,
         sessionRef: request.payload.sessionRef ?? null,
       });
+    case 'runtime.openSession':
+      return manager.openSession(request.payload.cwd);
     case 'runtime.stop':
       return manager.stop();
+    case 'runtime.restart':
+      return manager.restart();
     case 'runtime.probe': {
       // The binary is always read from settings: the renderer cannot ask the
       // main process to execute an arbitrary path.
@@ -57,11 +64,17 @@ export async function handleRequest(
       await runtime().prompt({ text: request.payload.text });
       return null;
     case 'agent.steer':
-      await runtime().steer({ text: request.payload.text });
+      manager.enqueuePrompt('steering', request.payload.text, target);
       return null;
     case 'agent.followUp':
-      await runtime().followUp({ text: request.payload.text });
+      manager.enqueuePrompt('follow-up', request.payload.text, target);
       return null;
+    case 'queue.snapshot':
+      return manager.queueSnapshot(target);
+    case 'queue.pop':
+      return manager.popPrompt(target);
+    case 'queue.resolve':
+      return manager.resolvePromptRecall(request.payload.id, request.payload.outcome, target);
     case 'agent.abort':
       await runtime().abort();
       return null;
@@ -150,12 +163,19 @@ export async function handleRequest(
         return { skills: [], prompts: [], diagnostics: [] };
       }
       const catalog = await discoverTauResources(snapshot.cwd, {
-        // Only an explicit main-process trust choice authorizes project reads.
-        // "default" may lead the runtime to prompt, but it is not a positive
-        // decision available to this discovery service.
-        includeProject: settings.current.projectTrust === 'approve-once',
+        // Bind discovery to the active process's launch-time trust. Mutable
+        // settings may change without restarting that process.
+        includeProject: manager.effectiveProjectTrust === 'approve-once',
       });
       return resourceCatalogSchema.parse(catalog);
+    }
+    case 'context.list': {
+      const snapshot = manager.snapshot();
+      if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
+      const files = await discoverContextFiles(snapshot.cwd, {
+        includeProject: manager.effectiveProjectTrust === 'approve-once',
+      });
+      return contextFilesSchema.parse(files);
     }
 
     case 'fs.complete': {

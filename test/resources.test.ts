@@ -36,6 +36,7 @@ describe('Tau resource discovery', () => {
         description: 'Project review',
         origin: './.agents/skills',
         disableModelInvocation: true,
+        estimatedTokens: 24,
       },
     ]);
     expect(catalog.prompts).toEqual([

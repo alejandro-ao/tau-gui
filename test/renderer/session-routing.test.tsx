@@ -352,6 +352,57 @@ describe('session hydration routing', () => {
     expect(prompt?.session).toEqual({ runtime: 'tau', sessionId: 'second-session' });
   });
 
+  it('keeps a streaming session selected and usable when picker startup fails', async () => {
+    const first = { ...agent('first-session'), isStreaming: true };
+    const bridge = installFakeBridge({
+      agent: first,
+      status: 'running',
+      results: { 'fs.pickDirectory': '/work/rejected' },
+    });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
+    let actions: Actions | null = null;
+    let selectedSession: string | undefined;
+
+    function Capture(): ReactNode {
+      const store = useStore();
+      actions = store.actions;
+      selectedSession = store.state.snapshot.state?.sessionId;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+        <Transcript />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+
+    bridge.setResult('runtime.openSession', Promise.reject(new Error('Runtime failed to start')));
+    bridge.setResult('agent.messages', [assistant('streaming session completed')]);
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+
+    await act(async () => {
+      await storeActions.newSessionFromDirectoryPicker();
+    });
+    await view.flush();
+
+    expect(selectedSession).toBe('first-session');
+    expect(view.container.textContent).toContain('streaming session completed');
+    expect(view.container.textContent).toContain('Runtime failed to start');
+    const hydrate = bridge.calls.filter((call) => call.action === 'agent.messages').at(-1);
+    expect(hydrate?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+
+    await act(async () => {
+      await storeActions.submit('still usable');
+    });
+    const prompt = bridge.calls.filter((call) => call.action === 'agent.prompt').at(-1);
+    expect(prompt?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+  });
+
   it('reconciles the view with the runtime when opening a session fails', async () => {
     const first = agent('first-session');
     const second = agent('second-session');

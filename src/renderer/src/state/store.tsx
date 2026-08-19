@@ -15,10 +15,22 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
-import type { FileCompletion, RuntimeProbe, SessionTarget } from '../../../shared/ipc.js';
+import type {
+  FileCompletion,
+  PromptQueueItem,
+  RuntimeProbe,
+  SessionTarget,
+} from '../../../shared/ipc.js';
 import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
-import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
+import {
+  INITIAL_STATE,
+  isRunning,
+  nextBlockId,
+  reducer,
+  snapshotTarget,
+  windowTitle,
+} from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
 
 export interface Store {
@@ -27,12 +39,17 @@ export interface Store {
   actions: Actions;
 }
 
+export interface QueueRecall extends PromptQueueItem {
+  resolve: (outcome: 'accept' | 'restore') => Promise<void>;
+}
+
 export interface Actions {
   start: (cwd?: string | null, sessionRef?: string | null) => Promise<void>;
   stop: () => Promise<void>;
   submit: (text: string) => Promise<void>;
   steer: (text: string) => Promise<void>;
   followUp: (text: string) => Promise<void>;
+  popQueued: () => Promise<QueueRecall | null>;
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
   setModel: (ref: ModelRef) => Promise<void>;
@@ -42,7 +59,10 @@ export interface Actions {
   toggleScopedModel: (ref: ModelRef) => Promise<void>;
   setThinking: (level: ThinkingLevel) => Promise<void>;
   cycleThinking: () => Promise<void>;
+  /** Creates a session in the active session's directory without prompting. */
   newSession: () => Promise<void>;
+  /** Chooses, persists, and opens a directory with a fresh session. */
+  newSessionFromDirectoryPicker: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
   /** Resumes a recent session, switching runtime or restarting if needed. */
   resumeSession: (ref: SessionRef) => Promise<void>;
@@ -113,11 +133,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   }, []);
 
   /** Transcript identity every session-scoped call is bound to. */
-  const viewed = useCallback((): SessionTarget | undefined => {
-    const snapshot = stateRef.current.snapshot;
-    const sessionId = snapshot.state?.sessionId;
-    return sessionId ? { runtime: snapshot.runtime, sessionId } : undefined;
-  }, []);
+  const viewed = useCallback(
+    (): SessionTarget | undefined => snapshotTarget(stateRef.current.snapshot),
+    [],
+  );
 
   /** Reloads everything that describes the current session from the runtime. */
   const refresh = useCallback(
@@ -135,22 +154,31 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         return;
       }
       if (snapshot) dispatch({ type: 'snapshot', snapshot });
-      if (!snapshot || snapshot.status === 'stopped' || snapshot.status === 'failed') return;
+      if (!snapshot) return;
 
       // Every read is bound to the transcript the snapshot just described, so a
       // session switch that starts mid-flight cannot answer with another
-      // session's messages.
-      const target: SessionTarget | undefined = snapshot.state?.sessionId
-        ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
-        : undefined;
-      const [messages, stats, models, levels, commands, resources] = await Promise.all([
-        attempt('agent.messages', undefined, notice, target),
-        attempt('agent.stats', undefined, notice, target),
-        attempt('models.list', undefined, notice, target),
-        attempt('thinking.list', undefined, notice, target),
-        attempt('commands.list', undefined, notice, target),
-        attempt('resources.list', undefined, notice),
-      ]);
+      // session's messages. Failed restart snapshots retain this address even
+      // though no process can provide agent state.
+      const target = snapshotTarget(snapshot);
+      if (snapshot.status === 'stopped' || snapshot.status === 'failed') {
+        if (target) {
+          const queue = await attempt('queue.snapshot', undefined, notice, target);
+          if (epoch === refreshEpoch.current && queue) dispatch({ type: 'queue', snapshot: queue });
+        }
+        return;
+      }
+      const [messages, stats, models, levels, commands, resources, contextFiles, queue] =
+        await Promise.all([
+          attempt('agent.messages', undefined, notice, target),
+          attempt('agent.stats', undefined, notice, target),
+          attempt('models.list', undefined, notice, target),
+          attempt('thinking.list', undefined, notice, target),
+          attempt('commands.list', undefined, notice, target),
+          attempt('resources.list', undefined, notice),
+          attempt('context.list', undefined, notice),
+          attempt('queue.snapshot', undefined, notice, target),
+        ]);
       if (epoch !== refreshEpoch.current) return;
       if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
       if (stats) dispatch({ type: 'stats', stats });
@@ -158,6 +186,8 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (levels) dispatch({ type: 'thinkingLevels', levels });
       if (commands) dispatch({ type: 'commands', commands });
       if (resources) dispatch({ type: 'resources', resources });
+      if (contextFiles) dispatch({ type: 'contextFiles', files: contextFiles });
+      if (queue) dispatch({ type: 'queue', snapshot: queue });
     },
     [notice],
   );
@@ -185,6 +215,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             // tool remains falsely running.
             void refresh({ runtime: event.runtime, sessionId: event.sessionId });
           }
+          break;
+        case 'queue':
+          dispatch({ type: 'queue', snapshot: event.snapshot });
           break;
         case 'status':
           // Status is transcript-scoped too. Keeping the previous manager's
@@ -299,6 +332,20 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (failure) notice(failure);
     };
 
+    const chooseDirectoryAndStart = async (): Promise<void> => {
+      const cwd = await attempt('fs.pickDirectory', undefined, notice);
+      if (!cwd) return;
+      const settings = await attempt('settings.rememberWorkingDirectory', { cwd }, notice);
+      if (!settings) return;
+      dispatch({ type: 'settings', settings });
+      const navigation = beginNavigation(stateRef.current.snapshot.runtime);
+      try {
+        await navigate(navigation, () => invoke('runtime.openSession', { cwd }));
+      } finally {
+        finishNavigation(navigation);
+      }
+    };
+
     return {
       start: async (cwd, sessionRef) => {
         invalidateRefresh();
@@ -333,6 +380,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       followUp: async (text) => {
         if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
         await attempt('agent.followUp', { text }, notice, viewed());
+      },
+      popQueued: async () => {
+        if (stateRef.current.sessionTransitioning) return null;
+        const target = viewed();
+        if (!target) return null;
+        const item = await attempt('queue.pop', undefined, notice, target);
+        if (!item) return null;
+        return {
+          ...item,
+          resolve: async (outcome) => {
+            await attempt('queue.resolve', { id: item.id, outcome }, notice, target);
+          },
+        };
       },
       abort: async () => {
         await attempt('agent.abort', undefined, notice, viewed());
@@ -437,6 +497,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           finishNavigation(navigation);
         }
       },
+      newSessionFromDirectoryPicker: chooseDirectoryAndStart,
       switchSession: async (ref) => {
         const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
@@ -534,19 +595,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           });
         }
       },
-      openDirectory: async () => {
-        invalidateRefresh();
-        const cwd = await attempt('fs.pickDirectory', undefined, notice);
-        if (!cwd) return;
-        const settings = await attempt('settings.update', { cwd }, notice);
-        if (settings) dispatch({ type: 'settings', settings });
-        await run(async () => {
-          const snapshot = await invoke('runtime.start', { cwd });
-          dispatch({ type: 'snapshot', snapshot });
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
-      },
+      openDirectory: chooseDirectoryAndStart,
       probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);
@@ -569,9 +618,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       restart: async () => {
         invalidateRefresh();
         await run(async () => {
-          const snapshot = await invoke('runtime.start', {
-            cwd: stateRef.current.settings.cwd ?? null,
-          });
+          const snapshot = await invoke('runtime.restart');
           dispatch({ type: 'snapshot', snapshot });
           dispatch({ type: 'clearTranscript' });
           await refresh();

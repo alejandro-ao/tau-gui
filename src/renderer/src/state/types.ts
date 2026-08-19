@@ -9,7 +9,12 @@ import type {
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
-import type { RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
+import type {
+  ContextFile,
+  PromptQueueSnapshot,
+  RuntimeSnapshot,
+  SessionActivity,
+} from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
 
@@ -128,11 +133,12 @@ export interface AppState {
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
   resources: ResourceCatalog;
+  contextFiles: ContextFile[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
   streamingThinkingId: string | null;
-  queue: { steering: string[]; followUp: string[] };
+  queue: PromptQueueSnapshot;
   diagnostics: string[];
   expandAll: boolean;
   expanded: Record<string, boolean>;
@@ -165,6 +171,7 @@ export type Action =
       runtime?: RuntimeSnapshot['runtime'];
     }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
+  | { type: 'queue'; snapshot: PromptQueueSnapshot }
   | {
       type: 'sessionNavigation';
       active: boolean;
@@ -179,6 +186,7 @@ export type Action =
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
+  | { type: 'contextFiles'; files: ContextFile[] }
   | {
       type: 'hydrate';
       messages: AgentMessage[];
