@@ -16,6 +16,8 @@ export class RuntimePool {
   private readonly owners = new Map<string, RuntimeManager>();
   private current: RuntimeManager | null = null;
   private starting: Promise<RuntimeSnapshot> | null = null;
+  /** Serializes lifecycle transitions so rapid clicks cannot launch duplicate owners. */
+  private transitions: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly settings: SettingsStore,
@@ -48,7 +50,7 @@ export class RuntimePool {
     // runtime handshake completes. Share that handshake rather than letting
     // the second call stop the process the first call just launched.
     if (this.starting) return this.starting;
-    const starting = this.startFresh(options);
+    const starting = this.enqueueTransition(() => this.startFresh(options));
     this.starting = starting;
     try {
       return await starting;
@@ -74,6 +76,10 @@ export class RuntimePool {
 
   /** Selects an existing process or launches a new process for the session. */
   async activateSession(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(() => this.activateSessionNow(ref, cwd));
+  }
+
+  private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     const kind = this.settings.current.agentRuntime;
     const recent = this.settings.current.recentSessions.find(
       (session) => session.runtime === kind && (session.id === ref || session.path === ref),
@@ -123,10 +129,12 @@ export class RuntimePool {
       this.claimSnapshot(manager);
       return snapshot;
     } catch (error) {
-      this.removeOwnership(manager);
-      this.managers.delete(manager);
-      this.current = previous;
-      if (previous) this.broadcast({ type: 'status', snapshot: previous.snapshot() });
+      // A failed resume may happen after the subprocess has started. Always
+      // close it; otherwise a detached process can keep writing the same
+      // session while a later click launches another owner.
+      await this.remove(manager);
+      if (this.current === null || this.current === manager) this.current = previous;
+      if (this.current) this.broadcast({ type: 'status', snapshot: this.current.snapshot() });
       throw error;
     }
   }
@@ -160,6 +168,15 @@ export class RuntimePool {
     this.index(manager);
     this.claimSnapshot(manager);
     return state;
+  }
+
+  private enqueueTransition<T>(work: () => Promise<T>): Promise<T> {
+    const result = this.transitions.then(work, work);
+    this.transitions = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private createManager(): RuntimeManager {

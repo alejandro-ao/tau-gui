@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   launchApp,
+  runtimePids,
   submitPrompt,
   transcript,
   waitForConnected,
@@ -103,6 +104,7 @@ test.describe('sessions rail', () => {
     await expect(other).toHaveCount(0);
     await expect(page.getByLabel('composer')).toBeEnabled();
     await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
+    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
 
     // Let the first runtime enter and finish its tool calls while hidden.
     await page.waitForTimeout(1_000);
@@ -116,6 +118,7 @@ test.describe('sessions rail', () => {
     await expect(background).toHaveAttribute('aria-busy', 'false');
     await expect(background).toHaveAttribute('aria-current', 'true');
     await waitForSettled(page, 10_000);
+    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
   });
 
   test('does not list an empty live session once connected', async () => {

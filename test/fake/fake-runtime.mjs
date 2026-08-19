@@ -21,6 +21,7 @@ const cwd = cwdIndex >= 0 ? args[cwdIndex + 1] : process.cwd();
 const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
 const baseDelay = Number(process.env.FAKE_RUNTIME_DELAY_MS ?? '0');
 const switchDelay = Number(process.env.FAKE_RUNTIME_SWITCH_DELAY_MS ?? '0');
+const switchError = process.env.FAKE_RUNTIME_SWITCH_ERROR === '1';
 let stepDelay = baseDelay;
 
 const MODELS = [
@@ -520,6 +521,7 @@ async function dispatch(command) {
         );
         if (fields.length === 0) throw new Error('switch_session requires sessionPath');
         if (switchDelay > 0) await sleep(switchDelay);
+        if (switchError) throw new Error('forced switch failure');
         state.lastSwitchField = fields.join(',');
         state.sessionId = command.sessionId ?? command.sessionPath;
         respond(id, type, { cancelled: false });

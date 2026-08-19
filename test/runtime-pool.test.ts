@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent } from '../src/shared/ipc.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
+import type { RuntimeManager } from '../src/main/services/runtime-manager.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
 
 const FAKE = fileURLToPath(new URL('./fake/fake-runtime.mjs', import.meta.url));
@@ -58,6 +59,66 @@ describe('RuntimePool', () => {
     expect(internals.managers.size).toBe(1);
   });
 
+  it('serializes duplicate activation requests onto one session owner', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    settings.rememberSession({
+      id: 'other-session',
+      name: 'other',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+
+    await Promise.all([
+      pool.activateSession('other-session'),
+      pool.activateSession('other-session'),
+    ]);
+
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(2);
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+  });
+
+  it('stops a subprocess whose session activation fails', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    settings.rememberSession({
+      id: 'broken-session',
+      name: 'broken',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+    const created: RuntimeManager[] = [];
+    const internals = pool as unknown as {
+      createManager: () => RuntimeManager;
+      managers: Set<RuntimeManager>;
+    };
+    const createManager = internals.createManager.bind(pool);
+    internals.createManager = () => {
+      const manager = createManager();
+      created.push(manager);
+      return manager;
+    };
+
+    process.env['FAKE_RUNTIME_SWITCH_ERROR'] = '1';
+    try {
+      await expect(pool.activateSession('broken-session')).rejects.toThrow('forced switch failure');
+    } finally {
+      delete process.env['FAKE_RUNTIME_SWITCH_ERROR'];
+    }
+
+    expect(created).toHaveLength(1);
+    expect(created[0]?.isStarted).toBe(false);
+    expect(internals.managers.size).toBe(1);
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
   it('keeps an idle session bound to its own runtime process', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);
@@ -100,11 +161,16 @@ describe('RuntimePool', () => {
         if (event.activity.responseReady) markResponseReady?.();
       }
     });
-    await pool.start();
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
     const first = pool.snapshot().state?.sessionId;
     expect(first).toBe('fake-session-1');
 
-    await pool.active.prompt({ text: 'slow work' });
+    await pool.active.prompt({ text: 'tool work' });
     await running;
     settings.rememberSession({
       id: 'other-session',
@@ -139,9 +205,12 @@ describe('RuntimePool', () => {
 
     await pool.activateSession(first!);
     expect(pool.snapshot().state?.sessionId).toBe(first);
-    expect((await pool.active.getMessages()).some((message) => message.role === 'assistant')).toBe(
-      true,
-    );
+    const messages = await pool.active.getMessages();
+    expect(
+      messages.some((message) => message.role === 'assistant' && message.text.includes('Done')),
+    ).toBe(true);
+    expect(messages.filter((message) => message.role === 'toolResult')).toHaveLength(3);
+    expect((await pool.active.getStats()).toolCalls).toBe(3);
     expect(internals.managers.size).toBe(2);
   });
 });
