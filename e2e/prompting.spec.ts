@@ -1,12 +1,7 @@
 import { expect, test, type Locator } from '@playwright/test';
-import { existsSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { randomUUID } from 'node:crypto';
 import { launchApp, submitPrompt, transcript, waitForSettled, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
-let assistantPauseFile: string;
 
 async function fullyInsideTranscript(message: Locator, viewport: Locator): Promise<boolean> {
   const [messageBox, viewportBox] = await Promise.all([
@@ -21,16 +16,14 @@ async function fullyInsideTranscript(message: Locator, viewport: Locator): Promi
 }
 
 test.beforeEach(async () => {
-  assistantPauseFile = join(tmpdir(), `tau-gui-assistant-pause-${randomUUID()}`);
   // A per-chunk delay keeps the streaming phase observable without flakiness.
   handle = await launchApp({
-    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_ASSISTANT_PAUSE_FILE: assistantPauseFile },
+    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_HOLD_BEFORE_ASSISTANT: '1' },
   });
 });
 
 test.afterEach(async () => {
   await handle.close();
-  rmSync(assistantPauseFile, { force: true });
 });
 
 test('a prompt streams assistant text and then finalizes', async () => {
@@ -55,27 +48,42 @@ test('a prompt streams assistant text and then finalizes', async () => {
 test('a newly sent message stays visible above the composer in a long thread', async () => {
   const { page } = handle;
   await submitPrompt(page, 'fill the transcript '.repeat(200));
+  // Do not let an idle-state race queue the next message behind this run.
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
   await waitForSettled(page);
 
-  await transcript(page).evaluate((element) => {
+  const viewport = transcript(page);
+  await viewport.dispatchEvent('wheel');
+  await viewport.evaluate((element) => {
     Reflect.set(element, 'scrollTop', 0);
   });
+  await viewport.dispatchEvent('scroll');
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) =>
+          Reflect.get(element, 'scrollHeight') -
+          Reflect.get(element, 'scrollTop') -
+          Reflect.get(element, 'clientHeight'),
+      ),
+    )
+    .toBeGreaterThan(80);
+  const assistantCount = await page.locator('.block-assistant').count();
 
-  await submitPrompt(page, 'delay assistant and keep this newest message visible');
+  await submitPrompt(page, 'hold assistant and keep this newest message visible');
   const newest = page
     .locator('.block-user')
-    .filter({ hasText: 'delay assistant and keep this newest message visible' });
+    .filter({ hasText: 'hold assistant and keep this newest message visible' });
 
-  // Synchronize with the fake runtime after its user echo and before
-  // message_start. Assistant block counts are not a valid signal here because
-  // transcript virtualization changes which earlier blocks are mounted.
-  await expect.poll(() => existsSync(assistantPauseFile)).toBe(true);
+  // The fake runtime reports running and echoes the user over its normal RPC
+  // event stream, then holds before message_start. No filesystem lifecycle or
+  // timing marker can disappear between independent Electron launches.
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
+  await expect(page.locator('.block-assistant')).toHaveCount(assistantCount);
   await expect(newest).toBeVisible({ timeout: 1000 });
-  await expect
-    .poll(() => fullyInsideTranscript(newest, transcript(page)), { timeout: 1000 })
-    .toBe(true);
+  await expect.poll(() => fullyInsideTranscript(newest, viewport), { timeout: 1000 }).toBe(true);
   await page.waitForTimeout(100);
-  expect(await fullyInsideTranscript(newest, transcript(page))).toBe(true);
+  expect(await fullyInsideTranscript(newest, viewport)).toBe(true);
   await expect(page.getByRole('button', { name: 'Go to bottom' })).toHaveCount(0);
 });
 
