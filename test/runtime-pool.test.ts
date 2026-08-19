@@ -291,6 +291,21 @@ describe('RuntimePool', () => {
     expect(internals.managers.size).toBe(1);
     expect(pool.snapshot().state?.sessionId).not.toBe('fake-session-1');
   });
+
+  it('relaunches for a new session after the runtime stopped', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    await pool.stop();
+    expect(pool.snapshot().status).toBe('stopped');
+
+    const snapshot = await pool.newSession();
+
+    expect(snapshot.status).toBe('idle');
+    expect(snapshot.state?.sessionId).toBe('fake-session-1');
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
 });
 
 async function waitFor(check: () => boolean | Promise<boolean>, timeout = 5_000): Promise<void> {

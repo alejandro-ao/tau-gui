@@ -127,7 +127,7 @@ export class RuntimePool {
   async newSession(target?: SessionTarget | null): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
       const manager = target ? this.ownerOf(target) : this.current;
-      if (manager && !isBusy(manager)) {
+      if (manager?.isStarted && !isBusy(manager)) {
         this.current = manager;
         await manager.active.newSession();
         await manager.refreshState();
@@ -136,7 +136,12 @@ export class RuntimePool {
         this.claimSnapshot(manager);
         return manager.snapshot();
       }
-      return this.startFresh({ cwd: manager?.snapshot().cwd ?? null }, { replaceCurrent: false });
+      // A busy runtime keeps both its transcript and its process; a stopped or
+      // failed one is replaced rather than left behind.
+      return this.startFresh(
+        { cwd: manager?.snapshot().cwd ?? null },
+        { replaceCurrent: !manager || !isBusy(manager) },
+      );
     });
   }
 
