@@ -43,7 +43,11 @@ Tracks issue #1. Update this file whenever behavior changes.
 
 ## Phase 3 — interaction parity ✅
 
-- Steering and follow-up queueing with pending state.
+- Main-process, per-session editable prompt queues: Enter during a run queues
+  priority guidance, Alt+Enter queues a follow-up, and settled turns drain
+  steering FIFO before follow-up FIFO as fresh prompts. Empty-composer Up
+  atomically removes newest follow-up then newest guidance for editing; stable
+  IDs preserve duplicate text and native runtime queues are not authoritative.
 - Command palette (`Ctrl+K`) and slash completion merge RPC-reported and GUI
   commands through one registry (`src/renderer/src/components/modals/commands.ts`).
   Slash completion accepts with Enter (run) or Tab (complete text); unknown slash

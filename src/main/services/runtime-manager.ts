@@ -35,6 +35,8 @@ export class RuntimeManager {
   private runtimeKind: RuntimeKind | null = null;
   private launchProjectTrust: ProjectTrust | null = null;
   private firstMessage: string | null = null;
+  /** Prevents stale duplicate settles from changing an active run's UI status. */
+  private settleExpected = true;
   private loadingFirstMessageFor: string | null = null;
   private watchingSessionNameFor: string | null = null;
   /** Manual name accepted before Tau indexes an empty session. */
@@ -84,12 +86,16 @@ export class RuntimeManager {
   }
 
   async start(
-    options: { cwd?: string | null; sessionRef?: string | null } = {},
+    options: {
+      cwd?: string | null;
+      sessionRef?: string | null;
+      runtime?: RuntimeKind;
+    } = {},
   ): Promise<RuntimeSnapshot> {
     if (this.runtime) await this.stop();
     const settings = this.settings.current;
     const cwd = options.cwd ?? settings.cwd ?? process.cwd();
-    const kind = settings.agentRuntime;
+    const kind = options.runtime ?? settings.agentRuntime;
     const runtimeSettings = settings.runtime[kind];
     const config: RuntimeLaunchConfig = {
       kind,
@@ -150,6 +156,7 @@ export class RuntimeManager {
     this.watchingSessionNameFor = null;
     this.pendingSessionName = null;
     this.runtimeVersion = null;
+    this.settleExpected = true;
     this.setStatus('stopped', null);
     return this.snapshot();
   }
@@ -215,6 +222,7 @@ export class RuntimeManager {
   private handleEvent(event: AgentEvent): void {
     switch (event.type) {
       case 'agent_start':
+        this.settleExpected = false;
         this.setStatus('running', null);
         break;
       case 'message_start':
@@ -232,6 +240,7 @@ export class RuntimeManager {
         this.setStatus('compacting', null);
         break;
       case 'retry_start':
+        this.settleExpected = false;
         this.setStatus('retrying', event.message || null);
         break;
       case 'compaction_end':
@@ -240,12 +249,20 @@ export class RuntimeManager {
           this.setStatus('running', null);
         }
         break;
+      case 'agent_end':
+        this.settleExpected = !event.willRetry;
+        break;
       case 'agent_settled':
-        // Idle depends on agent_settled, never merely agent_end.
-        this.setStatus('idle', null);
-        void this.persistPendingSessionName();
+        // Idle depends on an agent_end/agent_settled pair. A delayed duplicate
+        // from the previous run must not make the current streaming run idle.
+        if (this.settleExpected) {
+          this.settleExpected = false;
+          this.setStatus('idle', null);
+          void this.persistPendingSessionName();
+        }
         break;
       case 'runtime_error':
+        this.settleExpected = true;
         this.setStatus('idle', event.message);
         break;
       default:

@@ -213,7 +213,7 @@ describe('app shell', () => {
     expect(view.container.querySelector('textarea')).not.toBeNull();
   });
 
-  it('shows queued steering and follow-up chips', async () => {
+  it('stacks queued steering and follow-ups plainly above the composer', async () => {
     const bridge = installFakeBridge({
       status: 'running',
       capabilities: { steering: true },
@@ -231,18 +231,27 @@ describe('app shell', () => {
 
     await act(async () => {
       bridge.emit({
-        type: 'agent',
-        sessionId: AGENT.sessionId,
-        runtime: 'tau',
-        event: { type: 'queue_update', steering: ['use vitest'], followUp: ['then lint'] },
+        type: 'queue',
+        snapshot: {
+          runtime: 'tau',
+          sessionId: AGENT.sessionId,
+          steering: [{ id: 'prompt-1', kind: 'steering', text: 'use vitest' }],
+          followUp: [{ id: 'prompt-2', kind: 'follow-up', text: 'then lint' }],
+        },
       });
       await Promise.resolve();
     });
 
-    expect(texts(view.container, '.chip')).toEqual([
+    const queue = query(view.container, '.queued-messages');
+    expect(texts(queue, '.queued-message')).toEqual([
       'steering: use vitest',
       'follow-up: then lint',
     ]);
+    expect(Array.from(queue.children).every((item) => item.tagName === 'DIV')).toBe(true);
+    expect(queue.querySelector('.chip')).toBeNull();
+    expect(query(view.container, '.prompt-slot').nextElementSibling?.classList).toContain(
+      'composer-shell',
+    );
     const spinner = query(view.container, '.activity-spinner');
     expect(spinner.getAttribute('aria-label')).toBe('Model working');
     expect(spinner.closest('.composer-prefix')).not.toBeNull();

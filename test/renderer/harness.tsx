@@ -73,6 +73,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'runtime.start': snapshot,
     'runtime.openSession': snapshot,
     'runtime.stop': snapshot,
+    'runtime.restart': snapshot,
     'agent.messages': [],
     'agent.stats': options.stats ?? null,
     'models.list': [],

@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useCompletion } from '../hooks/useCompletion.js';
 import { useFileDrop } from '../hooks/useFileDrop.js';
-import { isRunning } from '../state/reducer.js';
+import { isRunning, snapshotTarget } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import { ActivitySpinner } from './ActivitySpinner.js';
 import { CompletionPopup } from './completion/CompletionPopup.js';
@@ -57,7 +57,10 @@ export function parseShellIntent(text: string): ShellIntent | null {
 export function Composer(): ReactNode {
   const { state, actions } = useStore();
   const draft = state.draft;
-  const lastSubmitted = useRef<string | null>(null);
+  const submittedBySession = useRef(new Map<string, string>());
+  const recallInFlight = useRef(false);
+  const recalledQueue = useRef<{ kind: 'steering' | 'follow-up'; sessionKey: string } | null>(null);
+  const draftRevision = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
   const draftRef = useRef(draft);
@@ -76,6 +79,15 @@ export function Composer(): ReactNode {
 
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
+  const target = snapshotTarget(state.snapshot);
+  const sessionKey = target
+    ? `${target.runtime}:${target.sessionId}`
+    : `${state.snapshot.runtime}:`;
+  const retainingQueue = Boolean(state.snapshot.recoveryTarget && !state.snapshot.state?.sessionId);
+  const viewedSession = useRef(sessionKey);
+  viewedSession.current = sessionKey;
+  const sessionTransitioning = useRef(state.sessionTransitioning);
+  sessionTransitioning.current = state.sessionTransitioning;
   const shellMode = draft.startsWith('!');
   const shellDisabled = shellMode && !capabilities.directBash;
 
@@ -89,6 +101,7 @@ export function Composer(): ReactNode {
     ) => {
       const previousText = draftRef.current;
       if (text === previousText) return;
+      draftRevision.current += 1;
       const previousSelection = selection.current;
       const previousUserEdit = lastUserEdit.current;
       const continuesUserEdit =
@@ -124,6 +137,7 @@ export function Composer(): ReactNode {
   useEffect(() => {
     const previousText = draftRef.current;
     if (draft === previousText) return;
+    draftRevision.current += 1;
     undoStack.current.push({
       text: previousText,
       selectionStart: selection.current.start,
@@ -157,6 +171,7 @@ export function Composer(): ReactNode {
         selectionStart: element?.selectionStart ?? selection.current.start,
         selectionEnd: element?.selectionEnd ?? selection.current.end,
       });
+      draftRevision.current += 1;
       draftRef.current = next.text;
       selection.current = { start: next.selectionStart, end: next.selectionEnd };
       pendingSelection.current = { start: next.selectionStart, end: next.selectionEnd };
@@ -237,7 +252,7 @@ export function Composer(): ReactNode {
           return;
         }
         setDraft('');
-        lastSubmitted.current = text;
+        submittedBySession.current.set(sessionKey, text);
         void actions.runShell(intent.command, intent.excludeFromContext);
         return;
       }
@@ -248,41 +263,30 @@ export function Composer(): ReactNode {
       // command the desktop app owns before deciding whether to prompt/steer.
       if (mode === 'primary' && completion.runInvocation(trimmed)) {
         setDraft('');
-        lastSubmitted.current = trimmed;
+        submittedBySession.current.set(sessionKey, trimmed);
         return;
       }
 
-      if (mode === 'followUp' || (running && !capabilities.steering)) {
-        if (!capabilities.followUps) {
-          actions.notice('This runtime does not support queued follow-ups.');
-          return;
+      if (running || retainingQueue) {
+        setDraft('');
+        submittedBySession.current.set(sessionKey, trimmed);
+        const recalled = recalledQueue.current;
+        recalledQueue.current = null;
+        const retainedKind =
+          retainingQueue && recalled?.sessionKey === sessionKey ? recalled.kind : null;
+        if (retainedKind === 'follow-up' || (!retainedKind && mode === 'followUp')) {
+          void actions.followUp(trimmed);
+        } else {
+          void actions.steer(trimmed);
         }
-        setDraft('');
-        lastSubmitted.current = trimmed;
-        void actions.followUp(trimmed);
-        return;
-      }
-
-      if (running) {
-        setDraft('');
-        lastSubmitted.current = trimmed;
-        void actions.steer(trimmed);
         return;
       }
 
       setDraft('');
-      lastSubmitted.current = trimmed;
+      submittedBySession.current.set(sessionKey, trimmed);
       void actions.submit(trimmed);
     },
-    [
-      actions,
-      capabilities.directBash,
-      capabilities.followUps,
-      capabilities.steering,
-      completion,
-      running,
-      setDraft,
-    ],
+    [actions, capabilities.directBash, completion, retainingQueue, running, sessionKey, setDraft],
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -355,11 +359,37 @@ export function Composer(): ReactNode {
       return;
     }
     if (event.key === 'ArrowUp' && draft.length === 0) {
-      const recalled = state.queue.followUp.at(-1) ?? lastSubmitted.current;
-      if (recalled) {
-        event.preventDefault();
-        applyText(recalled, recalled.length);
-      }
+      event.preventDefault();
+      if (recallInFlight.current) return;
+      recallInFlight.current = true;
+      const revision = draftRevision.current;
+      void actions
+        .popQueued()
+        .then(async (item) => {
+          // A claim stays main-owned until this exact response is accepted or
+          // restored. Revision comparison is identity-independent: typing the
+          // same text as the queued item still counts as a newer draft.
+          const canApply =
+            viewedSession.current === sessionKey &&
+            !sessionTransitioning.current &&
+            draftRevision.current === revision;
+          if (item) {
+            if (!canApply) {
+              await item.resolve('restore');
+              return;
+            }
+            applyText(item.text, item.text.length);
+            recalledQueue.current = { kind: item.kind, sessionKey };
+            await item.resolve('accept');
+            return;
+          }
+          if (!canApply) return;
+          const recalled = submittedBySession.current.get(sessionKey);
+          if (recalled) applyText(recalled, recalled.length);
+        })
+        .finally(() => {
+          recallInFlight.current = false;
+        });
       return;
     }
     if (event.key.toLowerCase() === 'c' && event.ctrlKey && !hasTextSelection()) {
@@ -426,7 +456,7 @@ export function Composer(): ReactNode {
             aria-label="composer"
             rows={1}
             value={draft}
-            placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
+            placeholder={placeholder(running)}
             spellCheck={false}
             onChange={(event) => {
               const inputType =
@@ -482,25 +512,13 @@ export function Composer(): ReactNode {
             </button>
           ) : null}
           {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
-          {running && !capabilities.steering ? (
-            <span className="composer-hint" title="This runtime cannot steer an active run.">
-              steering unavailable
-            </span>
-          ) : null}
-          {!capabilities.followUps ? (
-            <span className="composer-hint" title="This runtime cannot queue follow-ups.">
-              follow-ups unavailable
-            </span>
-          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function placeholder(running: boolean, steering: boolean, followUps: boolean): string {
+function placeholder(running: boolean): string {
   if (!running) return 'Ask, or !command for shell · Enter to send · Shift+Enter for newline';
-  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up';
-  if (followUps) return 'Enter queues a follow-up';
-  return 'Run in progress';
+  return 'Enter queues priority guidance · Alt+Enter queues a follow-up';
 }

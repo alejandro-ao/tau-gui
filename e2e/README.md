@@ -69,10 +69,10 @@ it costs nothing and cannot depend on provider availability.
 | Spec                    | Flow                                                              |
 | ----------------------- | ----------------------------------------------------------------- |
 | `startup.spec.ts`       | window, runtime connection, sidebar session/model, status cwd     |
-| `prompting.spec.ts`     | streaming text and finalization, thinking block                   |
+| `prompting.spec.ts`     | streaming, finalization, thinking, coalesced keyboard undo        |
 | `tools.spec.ts`         | read/edit/bash blocks, success state, Ctrl+O + per-block expand   |
 | `cancel.spec.ts`        | Esc aborts the slow run, composer stays usable                    |
-| `steering.spec.ts`      | Enter steers, Alt+Enter queues a follow-up, settles once          |
+| `steering.spec.ts`      | main-owned priority/follow-up queues, lossless Up recall          |
 | `errors.spec.ts`        | error block rendering, composer still usable                      |
 | `models.spec.ts`        | model picker from the status row and the palette, status updates  |
 | `sessions.spec.ts`      | `/new` clears in-place; recent-session picker                     |
