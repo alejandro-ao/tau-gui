@@ -113,7 +113,7 @@
   flex: 0 0 260px;
   min-width: 160px;
   max-width: min(420px, 45vw);
-  background: color-mix(in srgb, var(--panel) 62%, transparent);
+  background: color-mix(in srgb, var(--panel) 42%, transparent);
   border-right: 1px solid var(--border);
   overflow: hidden;
   font-size: var(--font-size-sm);
@@ -164,7 +164,7 @@
 
 .sessions-rail-new:hover,
 .sessions-rail-new:focus-visible {
-  background: var(--panel-alt);
+  background: color-mix(in srgb, var(--panel-alt) 70%, transparent);
   border-color: var(--border);
   color: var(--accent);
 }
@@ -212,7 +212,7 @@
 
 .sessions-rail li:hover,
 .sessions-rail li[data-active='true'] {
-  background: var(--panel-alt);
+  background: color-mix(in srgb, var(--panel-alt) 58%, transparent);
 }
 
 .sessions-rail-item {
@@ -231,7 +231,7 @@
 }
 
 .sessions-rail-item:hover {
-  background: var(--panel-alt);
+  background: color-mix(in srgb, var(--panel-alt) 58%, transparent);
 }
 
 .sessions-rail-item[data-active='true'] {
