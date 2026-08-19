@@ -205,7 +205,11 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
       // Assistant text is assembled from deltas, and tool results are already
       // represented by their tool block.
       if (event.message.role === 'assistant' || event.message.role === 'toolResult') return state;
-      return { ...state, blocks: [...state.blocks, ...blocksFromMessage(event.message, now)] };
+      const next = {
+        ...state,
+        blocks: [...state.blocks, ...blocksFromMessage(event.message, now)],
+      };
+      return event.message.role === 'user' ? dequeueMessage(next, event.message.text) : next;
     }
 
     case 'message_delta': {
@@ -356,6 +360,29 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
     default:
       return state;
   }
+}
+
+function dequeueMessage(state: AppState, text: string): AppState {
+  const steeringIndex = state.queue.steering.indexOf(text);
+  if (steeringIndex !== -1) {
+    return {
+      ...state,
+      queue: {
+        ...state.queue,
+        steering: state.queue.steering.filter((_, index) => index !== steeringIndex),
+      },
+    };
+  }
+
+  const followUpIndex = state.queue.followUp.indexOf(text);
+  if (followUpIndex === -1) return state;
+  return {
+    ...state,
+    queue: {
+      ...state.queue,
+      followUp: state.queue.followUp.filter((_, index) => index !== followUpIndex),
+    },
+  };
 }
 
 /** Number of surviving blocks before `index`, used to splice in place. */

@@ -28,16 +28,23 @@ test('Enter steers the active run and Alt+Enter queues a follow-up', async () =>
   await typeDraft(page, 'steer me');
   await composer(page).press('Enter');
   await expect(
-    page.getByTestId('prompt-slot').locator('.chip[data-kind="steering"]'),
+    page.getByTestId('prompt-slot').locator('.queued-message[data-kind="steering"]'),
   ).toContainText('steer me');
 
   // Alt+Enter queues a follow-up for after the current run.
   await typeDraft(page, 'follow me');
   await composer(page).press('Alt+Enter');
   await expect(
-    page.getByTestId('prompt-slot').locator('.chip[data-kind="follow-up"]'),
+    page.getByTestId('prompt-slot').locator('.queued-message[data-kind="follow-up"]'),
   ).toContainText('follow me');
 
+  await expect(page.locator('.block-user', { hasText: 'steer me' })).toBeVisible();
+  await expect(
+    page.getByTestId('prompt-slot').locator('.queued-message[data-kind="steering"]'),
+  ).toHaveCount(0);
+
+  await expect(page.locator('.block-user', { hasText: 'follow me' })).toBeVisible();
+  await expect(page.getByTestId('prompt-slot').locator('.queued-message')).toHaveCount(0);
   await waitForSettled(page);
 
   const text = await transcript(page).innerText();
@@ -45,7 +52,7 @@ test('Enter steers the active run and Alt+Enter queues a follow-up', async () =>
   expect(text).toContain('Acknowledged: follow me');
 
   // Everything drained and the run settled exactly once.
-  await expect(page.getByTestId('prompt-slot').locator('.chip')).toHaveCount(0);
+  await expect(page.getByTestId('prompt-slot').locator('.queued-message')).toHaveCount(0);
   await expect(page.locator('.block-user')).toHaveCount(3);
   await expect(page.getByLabel('composer')).toHaveValue('');
 

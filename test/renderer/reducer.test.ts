@@ -498,6 +498,28 @@ describe('lifecycle bookkeeping', () => {
     expect(state.queue).toEqual({ steering: ['a'], followUp: ['b'] });
   });
 
+  it('removes one queued item when it enters the agent thread', () => {
+    const state = replay([
+      { type: 'queue_update', steering: ['repeat', 'repeat'], followUp: ['later'] },
+      {
+        type: 'message_start',
+        message: { role: 'user', text: 'repeat', images: [], timestamp: 1 },
+      },
+    ]);
+    expect(state.queue).toEqual({ steering: ['repeat'], followUp: ['later'] });
+
+    const afterFollowUp = replay(
+      [
+        {
+          type: 'message_start',
+          message: { role: 'user', text: 'later', images: [], timestamp: 2 },
+        },
+      ],
+      state,
+    );
+    expect(afterFollowUp.queue).toEqual({ steering: ['repeat'], followUp: [] });
+  });
+
   it('adds status blocks for compaction and retries', () => {
     const state = replay([
       { type: 'compaction_start', reason: 'overflow' },

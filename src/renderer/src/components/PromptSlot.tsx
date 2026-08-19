@@ -26,11 +26,15 @@ export function PromptSlot(): ReactNode {
       ) : (
         <span className="faint">{status === 'idle' ? 'idle' : status}</span>
       )}
-      {queued.map((entry, index) => (
-        <span key={`${entry.kind}-${index}`} className="chip" data-kind={entry.kind}>
-          {entry.kind}: {entry.text}
-        </span>
-      ))}
+      {queued.length > 0 ? (
+        <div className="queued-messages" aria-label="Queued messages">
+          {queued.map((entry, index) => (
+            <div key={`${entry.kind}-${index}`} className="queued-message" data-kind={entry.kind}>
+              {entry.kind}: {entry.text}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
