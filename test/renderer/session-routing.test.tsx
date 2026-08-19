@@ -59,6 +59,76 @@ describe('session hydration routing', () => {
     expect(bridge.calls.filter((call) => call.action === 'runtime.start')).toHaveLength(1);
   });
 
+  it('drops a tool event queued while another session is being selected', async () => {
+    const first = agent('first-session');
+    const second = agent('second-session');
+    const bridge = installFakeBridge({ agent: first });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
+    let actions: Actions | null = null;
+
+    function Capture(): ReactNode {
+      actions = useStore().actions;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+        <Transcript />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+
+    let resolveSwitch: (() => void) | null = null;
+    bridge.setResult(
+      'session.switch',
+      new Promise<void>((resolve) => {
+        resolveSwitch = resolve;
+      }),
+    );
+    bridge.setResult('runtime.snapshot', { ...bridge.snapshot, state: second });
+    bridge.setResult('agent.messages', [assistant('second session answer')]);
+    const ref: SessionRef = {
+      id: second.sessionId,
+      name: second.sessionName,
+      messageCount: 1,
+      path: null,
+      cwd: '/work/project',
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    };
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+
+    let navigation: Promise<void> = Promise.resolve();
+    await act(async () => {
+      navigation = storeActions.resumeSession(ref);
+      bridge.emit({
+        type: 'agent',
+        sessionId: first.sessionId,
+        runtime: 'tau',
+        event: {
+          type: 'tool_start',
+          toolCallId: 'cross-session-call',
+          toolName: 'read',
+          args: { path: 'must-not-leak.ts' },
+        },
+      });
+      await Promise.resolve();
+    });
+
+    expect(view.container.textContent).not.toContain('must-not-leak.ts');
+    await act(async () => {
+      resolveSwitch?.();
+      await navigation;
+    });
+
+    expect(view.container.textContent).toContain('second session answer');
+    expect(view.container.textContent).not.toContain('must-not-leak.ts');
+  });
+
   it('discards transcript reads that resolve after another session is selected', async () => {
     const first = agent('first-session');
     const second = agent('second-session');

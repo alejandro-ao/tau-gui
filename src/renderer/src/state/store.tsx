@@ -77,14 +77,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   // session has become active.
   const refreshEpoch = useRef(0);
   const navigationEpoch = useRef(0);
+  const navigating = useRef(false);
   const invalidateRefresh = useCallback(() => {
     refreshEpoch.current += 1;
     navigationEpoch.current += 1;
   }, []);
   const beginNavigation = useCallback(() => {
     invalidateRefresh();
+    navigating.current = true;
     return navigationEpoch.current;
   }, [invalidateRefresh]);
+  const finishNavigation = useCallback((navigation: number) => {
+    if (navigation === navigationEpoch.current) navigating.current = false;
+  }, []);
 
   const notice = useCallback((message: string) => {
     dispatch({ type: 'diagnostic', message });
@@ -133,6 +138,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     const unsubscribe = subscribe((event) => {
       switch (event.type) {
         case 'agent':
+          // Selection changes immediately from the user's perspective, before
+          // the main process has finished activating and hydrating the target.
+          // Drop stream events during that gap; authoritative hydration below
+          // reconstructs any target-session events emitted while switching.
+          if (navigating.current) break;
           dispatch({
             type: 'event',
             event: event.event,
@@ -320,56 +330,72 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       newSession: async () => {
         const navigation = beginNavigation();
-        await run(async () => {
-          await invoke('session.new');
-          if (navigation !== navigationEpoch.current) return;
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
-      },
-      switchSession: async (ref) => {
-        const navigation = beginNavigation();
-        await run(async () => {
-          await invoke('session.switch', { ref });
-          if (navigation !== navigationEpoch.current) return;
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
-      },
-      resumeSession: async (ref) => {
-        const navigation = beginNavigation();
-        // Tau resumes by indexed session id; Pi resumes by session path.
-        const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
-        if (ref.runtime !== stateRef.current.settings.agentRuntime) {
-          const settings = await attempt('settings.update', { agentRuntime: ref.runtime }, notice);
-          if (!settings) return;
-          dispatch({ type: 'settings', settings });
-        }
-        const status = stateRef.current.snapshot.status;
-        const started =
-          status === 'idle' ||
-          status === 'running' ||
-          status === 'compacting' ||
-          status === 'retrying';
-        if (started) {
+        try {
           await run(async () => {
-            await invoke('session.switch', { ref: target });
+            await invoke('session.new');
             if (navigation !== navigationEpoch.current) return;
             dispatch({ type: 'clearTranscript' });
             await refresh();
           });
-          return;
+        } finally {
+          finishNavigation(navigation);
         }
-        await run(async () => {
-          const snapshot = await invoke('runtime.start', {
-            cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
-            sessionRef: target,
+      },
+      switchSession: async (ref) => {
+        const navigation = beginNavigation();
+        try {
+          await run(async () => {
+            await invoke('session.switch', { ref });
+            if (navigation !== navigationEpoch.current) return;
+            dispatch({ type: 'clearTranscript' });
+            await refresh();
           });
-          if (navigation !== navigationEpoch.current) return;
-          dispatch({ type: 'snapshot', snapshot });
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
+        } finally {
+          finishNavigation(navigation);
+        }
+      },
+      resumeSession: async (ref) => {
+        const navigation = beginNavigation();
+        try {
+          // Tau resumes by indexed session id; Pi resumes by session path.
+          const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
+          if (ref.runtime !== stateRef.current.settings.agentRuntime) {
+            const settings = await attempt(
+              'settings.update',
+              { agentRuntime: ref.runtime },
+              notice,
+            );
+            if (!settings) return;
+            dispatch({ type: 'settings', settings });
+          }
+          const status = stateRef.current.snapshot.status;
+          const started =
+            status === 'idle' ||
+            status === 'running' ||
+            status === 'compacting' ||
+            status === 'retrying';
+          if (started) {
+            await run(async () => {
+              await invoke('session.switch', { ref: target });
+              if (navigation !== navigationEpoch.current) return;
+              dispatch({ type: 'clearTranscript' });
+              await refresh();
+            });
+            return;
+          }
+          await run(async () => {
+            const snapshot = await invoke('runtime.start', {
+              cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
+              sessionRef: target,
+            });
+            if (navigation !== navigationEpoch.current) return;
+            dispatch({ type: 'snapshot', snapshot });
+            dispatch({ type: 'clearTranscript' });
+            await refresh();
+          });
+        } finally {
+          finishNavigation(navigation);
+        }
       },
       nameSession: async (name) => {
         await attempt('session.name', { name }, notice);
@@ -487,7 +513,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       notice,
       refresh,
     };
-  }, [beginNavigation, invalidateRefresh, notice, refresh]);
+  }, [beginNavigation, finishNavigation, invalidateRefresh, notice, refresh]);
 
   const value = useMemo<Store>(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
