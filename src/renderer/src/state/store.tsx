@@ -72,6 +72,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Invalidates in-flight transcript hydration whenever navigation starts.
+  // RPC reads are asynchronous and may otherwise resolve after another
+  // session has become active.
+  const refreshEpoch = useRef(0);
+  const navigationEpoch = useRef(0);
+  const invalidateRefresh = useCallback(() => {
+    refreshEpoch.current += 1;
+    navigationEpoch.current += 1;
+  }, []);
+  const beginNavigation = useCallback(() => {
+    invalidateRefresh();
+    return navigationEpoch.current;
+  }, [invalidateRefresh]);
 
   const notice = useCallback((message: string) => {
     dispatch({ type: 'diagnostic', message });
@@ -82,24 +95,39 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   }, []);
 
   /** Reloads everything that describes the current session from the runtime. */
-  const refresh = useCallback(async () => {
-    const snapshot = await attempt('runtime.snapshot', undefined, notice);
-    if (snapshot) dispatch({ type: 'snapshot', snapshot });
-    if (!snapshot || snapshot.status === 'stopped' || snapshot.status === 'failed') return;
+  const refresh = useCallback(
+    async (expected?: { runtime: RuntimeKind; sessionId: string }) => {
+      // A settle event can have been queued by the previously selected
+      // session. Scoped reconciliation must not supersede hydration already
+      // running for the newly selected session.
+      const epoch = expected ? refreshEpoch.current : ++refreshEpoch.current;
+      const snapshot = await attempt('runtime.snapshot', undefined, notice);
+      if (epoch !== refreshEpoch.current) return;
+      if (
+        expected &&
+        (snapshot?.runtime !== expected.runtime || snapshot.state?.sessionId !== expected.sessionId)
+      ) {
+        return;
+      }
+      if (snapshot) dispatch({ type: 'snapshot', snapshot });
+      if (!snapshot || snapshot.status === 'stopped' || snapshot.status === 'failed') return;
 
-    const [messages, stats, models, levels, commands] = await Promise.all([
-      attempt('agent.messages', undefined, notice),
-      attempt('agent.stats', undefined, notice),
-      attempt('models.list', undefined, notice),
-      attempt('thinking.list', undefined, notice),
-      attempt('commands.list', undefined, notice),
-    ]);
-    if (messages) dispatch({ type: 'hydrate', messages, now: Date.now() });
-    if (stats) dispatch({ type: 'stats', stats });
-    if (models) dispatch({ type: 'models', models });
-    if (levels) dispatch({ type: 'thinkingLevels', levels });
-    if (commands) dispatch({ type: 'commands', commands });
-  }, [notice]);
+      const [messages, stats, models, levels, commands] = await Promise.all([
+        attempt('agent.messages', undefined, notice),
+        attempt('agent.stats', undefined, notice),
+        attempt('models.list', undefined, notice),
+        attempt('thinking.list', undefined, notice),
+        attempt('commands.list', undefined, notice),
+      ]);
+      if (epoch !== refreshEpoch.current) return;
+      if (messages) dispatch({ type: 'hydrate', messages, now: Date.now() });
+      if (stats) dispatch({ type: 'stats', stats });
+      if (models) dispatch({ type: 'models', models });
+      if (levels) dispatch({ type: 'thinkingLevels', levels });
+      if (commands) dispatch({ type: 'commands', commands });
+    },
+    [notice],
+  );
 
   useEffect(() => {
     const unsubscribe = subscribe((event) => {
@@ -113,9 +141,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             now: Date.now(),
           });
           if (event.event.type === 'agent_settled') {
-            void attempt('agent.stats', undefined, notice).then((stats) => {
-              if (stats) dispatch({ type: 'stats', stats });
-            });
+            // Reconcile from authoritative messages after the stream. A tool
+            // end can cross an in-flight hydration response on Electron's
+            // separate event/response channels; final hydration guarantees no
+            // tool remains falsely running.
+            void refresh({ runtime: event.runtime, sessionId: event.sessionId });
           }
           break;
         case 'status':
@@ -136,7 +166,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       }
     });
     return unsubscribe;
-  }, [notice]);
+  }, [refresh]);
 
   // Bootstrap: load settings, then connect to the configured runtime.
   useEffect(() => {
@@ -204,6 +234,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
 
     return {
       start: async (cwd, sessionRef) => {
+        invalidateRefresh();
         await run(async () => {
           const snapshot = await invoke('runtime.start', {
             cwd: cwd ?? null,
@@ -215,6 +246,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         });
       },
       stop: async () => {
+        invalidateRefresh();
         await run(async () => {
           const snapshot = await invoke('runtime.stop');
           dispatch({ type: 'snapshot', snapshot });
@@ -282,20 +314,25 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         dispatch({ type: 'snapshot', snapshot });
       },
       newSession: async () => {
+        const navigation = beginNavigation();
         await run(async () => {
           await invoke('session.new');
+          if (navigation !== navigationEpoch.current) return;
           dispatch({ type: 'clearTranscript' });
           await refresh();
         });
       },
       switchSession: async (ref) => {
+        const navigation = beginNavigation();
         await run(async () => {
           await invoke('session.switch', { ref });
+          if (navigation !== navigationEpoch.current) return;
           dispatch({ type: 'clearTranscript' });
           await refresh();
         });
       },
       resumeSession: async (ref) => {
+        const navigation = beginNavigation();
         // Tau resumes by indexed session id; Pi resumes by session path.
         const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
         if (ref.runtime !== stateRef.current.settings.agentRuntime) {
@@ -312,6 +349,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         if (started) {
           await run(async () => {
             await invoke('session.switch', { ref: target });
+            if (navigation !== navigationEpoch.current) return;
             dispatch({ type: 'clearTranscript' });
             await refresh();
           });
@@ -322,6 +360,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
             sessionRef: target,
           });
+          if (navigation !== navigationEpoch.current) return;
           dispatch({ type: 'snapshot', snapshot });
           dispatch({ type: 'clearTranscript' });
           await refresh();
@@ -331,6 +370,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         await attempt('session.name', { name }, notice);
       },
       fork: async (entryId) => {
+        invalidateRefresh();
         const text = await attempt('session.fork', { entryId }, notice);
         if (text !== null) {
           dispatch({ type: 'clearTranscript' });
@@ -374,6 +414,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       openDirectory: async () => {
+        invalidateRefresh();
         const cwd = await attempt('fs.pickDirectory', undefined, notice);
         if (!cwd) return;
         const settings = await attempt('settings.update', { cwd }, notice);
@@ -392,6 +433,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       switchRuntime: async (kind) => {
         if (kind === stateRef.current.settings.agentRuntime) return;
+        invalidateRefresh();
         const settings = await attempt('settings.update', { agentRuntime: kind }, notice);
         if (!settings) return;
         dispatch({ type: 'settings', settings });
@@ -404,6 +446,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         });
       },
       restart: async () => {
+        invalidateRefresh();
         await run(async () => {
           const snapshot = await invoke('runtime.start', {
             cwd: stateRef.current.settings.cwd ?? null,
@@ -439,7 +482,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       notice,
       refresh,
     };
-  }, [notice, refresh]);
+  }, [beginNavigation, invalidateRefresh, notice, refresh]);
 
   const value = useMemo<Store>(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

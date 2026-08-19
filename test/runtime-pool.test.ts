@@ -46,14 +46,10 @@ afterEach(async () => {
 });
 
 describe('RuntimePool', () => {
-  it('switches an idle process in place without restarting the runtime', async () => {
+  it('keeps an idle session bound to its own runtime process', async () => {
     const settings = makeSettings();
-    const statuses: string[] = [];
-    pool = new RuntimePool(settings, (event) => {
-      if (event.type === 'status') statuses.push(event.snapshot.status);
-    });
+    pool = new RuntimePool(settings, () => undefined);
     await pool.start();
-    statuses.length = 0;
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
@@ -66,9 +62,12 @@ describe('RuntimePool', () => {
     await pool.activateSession('other-session');
 
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
-    expect(statuses).not.toContain('starting');
     const internals = pool as unknown as { managers: Set<unknown> };
-    expect(internals.managers.size).toBe(1);
+    expect(internals.managers.size).toBe(2);
+
+    await pool.activateSession('fake-session-1');
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+    expect(internals.managers.size).toBe(2);
   });
 
   it('keeps one session running while another session is selected', async () => {
@@ -128,6 +127,9 @@ describe('RuntimePool', () => {
 
     await pool.activateSession(first!);
     expect(pool.snapshot().state?.sessionId).toBe(first);
+    expect((await pool.active.getMessages()).some((message) => message.role === 'assistant')).toBe(
+      true,
+    );
     expect(internals.managers.size).toBe(2);
   });
 });

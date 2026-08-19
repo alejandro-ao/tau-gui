@@ -12,6 +12,8 @@ import { RuntimeManager } from './runtime-manager.js';
 export class RuntimePool {
   private readonly managers = new Set<RuntimeManager>();
   private readonly sessions = new Map<string, RuntimeManager>();
+  /** Stable ownership assigned at activation; never inferred from transient startup state. */
+  private readonly owners = new Map<string, RuntimeManager>();
   private current: RuntimeManager | null = null;
 
   constructor(
@@ -47,6 +49,7 @@ export class RuntimePool {
     try {
       const snapshot = await manager.start(options);
       this.index(manager);
+      this.claimSnapshot(manager);
       return snapshot;
     } catch (error) {
       this.managers.delete(manager);
@@ -64,7 +67,22 @@ export class RuntimePool {
       sessionKey(kind, recent?.id ?? ref),
       recent?.path && sessionKey(kind, recent.path),
     ].filter((key): key is string => Boolean(key));
-    const existing = keys.map((key) => this.sessions.get(key)).find(Boolean);
+    const owned = keys.map((key) => this.owners.get(key)).find(Boolean);
+    const indexed = keys.map((key) => this.sessions.get(key)).find(Boolean);
+    const candidates = [...this.managers].filter((manager) => {
+      if (manager.kind !== kind) return false;
+      const state = manager.snapshot().state;
+      return (
+        state?.sessionId === (recent?.id ?? ref) ||
+        (recent?.path !== null && recent?.path !== undefined && state?.sessionFile === recent.path)
+      );
+    });
+    // Prefer a background candidate when returning from another process. A
+    // process being launched for the current selection can briefly expose the
+    // runtime's default session id, which may equal the requested background
+    // id even though that process does not own its transcript.
+    const discovered = candidates.find((manager) => manager !== this.current) ?? candidates[0];
+    const existing = owned ?? indexed ?? discovered;
     if (existing) {
       this.current = existing;
       const snapshot = existing.snapshot();
@@ -73,20 +91,10 @@ export class RuntimePool {
       return snapshot;
     }
 
-    // An idle process can switch sessions in place. Spawning one process per
-    // click adds visible startup latency; reserve that for a session whose
-    // current process must stay alive because it is still working.
-    const reusable = this.current;
-    if (reusable?.kind === kind && reusable.snapshot().status === 'idle') {
-      await reusable.active.switchSession(ref);
-      await reusable.refreshState();
-      this.index(reusable);
-      return reusable.snapshot();
-    }
-
     const previous = this.current;
     const manager = this.createManager();
     this.current = manager;
+    for (const key of keys) this.owners.set(key, manager);
     try {
       let snapshot = await manager.start({ cwd: cwd ?? recent?.cwd ?? null, sessionRef: ref });
       // Tau normally resumes from its launch argument. This fallback also
@@ -97,8 +105,10 @@ export class RuntimePool {
         snapshot = manager.snapshot();
       }
       this.index(manager);
+      this.claimSnapshot(manager);
       return snapshot;
     } catch (error) {
+      this.removeOwnership(manager);
       this.managers.delete(manager);
       this.current = previous;
       if (previous) this.broadcast({ type: 'status', snapshot: previous.snapshot() });
@@ -111,6 +121,7 @@ export class RuntimePool {
     const manager = this.current;
     const snapshot = await manager.stop();
     this.removeIndexes(manager);
+    this.removeOwnership(manager);
     this.managers.delete(manager);
     this.current = null;
     return snapshot;
@@ -120,14 +131,19 @@ export class RuntimePool {
     const managers = [...this.managers];
     this.current = null;
     this.sessions.clear();
+    this.owners.clear();
     this.managers.clear();
     await Promise.allSettled(managers.map((manager) => manager.stop()));
   }
 
   async refreshState(touch = false): Promise<AgentState | null> {
     if (!this.current) return null;
-    const state = await this.current.refreshState(touch);
-    this.index(this.current);
+    const manager = this.current;
+    const state = await manager.refreshState(touch);
+    if (manager !== this.current) return state;
+    this.removeOwnership(manager);
+    this.index(manager);
+    this.claimSnapshot(manager);
     return state;
   }
 
@@ -138,7 +154,6 @@ export class RuntimePool {
   }
 
   private handleEvent(manager: RuntimeManager, event: BridgeEvent): void {
-    if (event.type === 'settings') this.index(manager);
     if (event.type === 'status') {
       this.broadcastActivity(
         manager,
@@ -169,6 +184,12 @@ export class RuntimePool {
     });
   }
 
+  /**
+   * Updates routing only at explicit lifecycle boundaries. RuntimeManager emits
+   * settings while starting and may still describe its temporary default
+   * session; indexing those events can let a new process steal another live
+   * session's route before its requested session has been applied.
+   */
   private index(manager: RuntimeManager): void {
     const snapshot = manager.snapshot();
     const state = snapshot.state;
@@ -187,13 +208,30 @@ export class RuntimePool {
     }
   }
 
+  private claimSnapshot(manager: RuntimeManager): void {
+    const snapshot = manager.snapshot();
+    const state = snapshot.state;
+    if (!state?.sessionId) return;
+    this.claimKey(sessionKey(snapshot.runtime, state.sessionId), manager);
+    if (state.sessionFile) this.claimKey(sessionKey(snapshot.runtime, state.sessionFile), manager);
+  }
+
+  private claimKey(key: string, manager: RuntimeManager): void {
+    if (!this.owners.has(key) || this.owners.get(key) === manager) this.owners.set(key, manager);
+  }
+
   private removeIndexes(manager: RuntimeManager): void {
     for (const [key, value] of this.sessions) if (value === manager) this.sessions.delete(key);
+  }
+
+  private removeOwnership(manager: RuntimeManager): void {
+    for (const [key, value] of this.owners) if (value === manager) this.owners.delete(key);
   }
 
   private async remove(manager: RuntimeManager): Promise<void> {
     await manager.stop();
     this.removeIndexes(manager);
+    this.removeOwnership(manager);
     this.managers.delete(manager);
     if (this.current === manager) this.current = null;
   }
