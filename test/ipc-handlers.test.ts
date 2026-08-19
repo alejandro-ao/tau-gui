@@ -6,11 +6,11 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn() }));
+const electronMocks = vi.hoisted(() => ({ writeText: vi.fn(), showOpenDialog: vi.fn() }));
 
 vi.mock('electron', () => ({
   clipboard: { writeText: electronMocks.writeText },
-  dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
+  dialog: { showSaveDialog: vi.fn(), showOpenDialog: electronMocks.showOpenDialog },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
 }));
@@ -82,6 +82,23 @@ describe('clipboard handler', () => {
     await handleRequest(context, { action: 'ui.copyText', payload: { text: 'copy me' } });
 
     expect(electronMocks.writeText).toHaveBeenCalledWith('copy me');
+  });
+});
+
+describe('directory chooser handler', () => {
+  it('uses the native directory-only dialog and returns its selected path', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/work/chosen'],
+    });
+    const { context } = makeContext();
+
+    await expect(handleRequest(context, { action: 'fs.pickDirectory' })).resolves.toBe(
+      '/work/chosen',
+    );
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: ['openDirectory', 'createDirectory'] }),
+    );
   });
 });
 

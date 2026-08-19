@@ -67,7 +67,7 @@ describe('composer draft persistence', () => {
     await click(query(view.container, '[data-modal-name="session"] [role="option"]'));
     await view.flush();
 
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: '/work/project/.tau/nine.jsonl' }]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-9' }]);
     expect(composer(view).value).toBe('keep this draft');
   });
 });

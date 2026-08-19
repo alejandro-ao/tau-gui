@@ -28,17 +28,22 @@ beforeEach(() => {
 });
 
 describe('SessionsRail', () => {
-  it('stays available for starting a session when there is no history', async () => {
-    const { bridge, view } = await render({ settings: { recentSessions: [] } });
+  it('chooses and persists a directory before starting from the plus action', async () => {
+    const { bridge, view } = await render({
+      settings: { recentSessions: [], workingDirectories: [] },
+      results: { 'fs.pickDirectory': '/work/chosen' },
+    });
     const rail = view.container.querySelector('[data-testid="sessions-rail"]');
-    expect(rail?.textContent).toContain('sessions · 0');
+    expect(rail?.textContent).toContain('projects · 0 / sessions · 0');
     const newSession = rail?.querySelector<HTMLButtonElement>('.sessions-rail-new');
     if (!newSession) throw new Error('new session button missing');
-    expect(newSession.textContent?.trim()).toBe('');
     expect(newSession.querySelector('svg')).not.toBeNull();
     await click(newSession);
     await settle(view);
-    expect(bridge.payloads('session.new')).toEqual([undefined]);
+    expect(bridge.payloads('fs.pickDirectory')).toEqual([undefined]);
+    expect(bridge.payloads('settings.rememberWorkingDirectory')).toEqual([{ cwd: '/work/chosen' }]);
+    expect(bridge.payloads('runtime.start')).toContainEqual({ cwd: '/work/chosen' });
+    expect(bridge.payloads('session.new')).toEqual([]);
   });
 
   it('can be resized with its accessible separator', async () => {
@@ -52,7 +57,7 @@ describe('SessionsRail', () => {
     expect(separator.getAttribute('aria-valuenow')).toBe('276');
   });
 
-  it('lists only sessions recorded in the current directory', async () => {
+  it('groups sessions beneath collapsible known working directories', async () => {
     const { view } = await render({
       settings: {
         recentSessions: [
@@ -64,10 +69,20 @@ describe('SessionsRail', () => {
       },
     });
     const rail = view.container.querySelector('[data-testid="sessions-rail"]');
-    expect(rail?.textContent).toContain('local work');
-    expect(rail?.textContent).not.toContain('other project');
+    const groups = [...(rail?.querySelectorAll('.sessions-directory') ?? [])];
+    expect(groups).toHaveLength(2);
+    expect(groups[0]?.textContent).toContain('project');
+    expect(groups[0]?.textContent).toContain('local work');
+    expect(groups[0]?.textContent).not.toContain('other project');
+    expect(groups[1]?.textContent).toContain('dir');
+    expect(groups[1]?.textContent).toContain('other project');
     expect(rail?.textContent).not.toContain('unknown-cwd');
     expect(rail?.textContent).not.toContain('empty session');
+    const toggle = groups[0]?.querySelector<HTMLButtonElement>('.sessions-directory-toggle');
+    if (!toggle) throw new Error('directory toggle missing');
+    await click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(groups[0]?.textContent).not.toContain('local work');
   });
 
   it('uses the first user message when a session has no name', async () => {

@@ -150,8 +150,15 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     unavailable: null,
     run: (invocation) => {
       const sessionId = commandArgs(invocation);
-      if (sessionId) void actions.switchSession(sessionId);
-      else actions.openModal('session');
+      if (!sessionId) {
+        actions.openModal('session');
+        return;
+      }
+      const session = state.settings.recentSessions.find(
+        (candidate) => candidate.id === sessionId || candidate.path === sessionId,
+      );
+      if (session) void actions.resumeSession(session);
+      else void actions.switchSession(sessionId);
     },
   });
   add({
@@ -545,7 +552,6 @@ export function buildPaletteExtras(state: AppState, actions: Actions): AppComman
   }
 
   for (const session of state.settings.recentSessions) {
-    const ref = session.path ?? session.id;
     extras.push({
       id: `session.recent.${session.id}`,
       title: `session: ${session.name ?? session.id}`,
@@ -554,7 +560,7 @@ export function buildPaletteExtras(state: AppState, actions: Actions): AppComman
       origin: 'backend',
       slash: null,
       unavailable: null,
-      run: () => void actions.switchSession(ref),
+      run: () => void actions.resumeSession(session),
     });
   }
 

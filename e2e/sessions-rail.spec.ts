@@ -51,11 +51,12 @@ test.describe('sessions rail', () => {
 
     const rail = page.getByTestId('sessions-rail');
     await expect(rail).toBeVisible();
-    // The seeded directory session is listed; the empty live session and the
-    // session from another directory are not.
+    // Sessions from both seeded working directories are grouped; the empty
+    // live session remains hidden.
     await expect(rail).toContainText('earlier work');
+    await expect(rail).toContainText('elsewhere');
+    await expect(rail.locator('.sessions-directory')).toHaveCount(2);
     await expect(rail).not.toContainText('fake-session');
-    await expect(rail).not.toContainText('elsewhere');
 
     // Clicking the older session resumes it through the runtime. The fake
     // reports no messages for switched sessions, so it is then hidden as empty.
@@ -139,7 +140,8 @@ test.describe('sessions rail', () => {
 
     // Opening an empty session must not swap the session under the live agent:
     // the rest of that turn would be written into the new transcript.
-    await page.getByRole('button', { name: 'new session' }).click();
+    await page.getByLabel('composer').fill('/new');
+    await page.getByLabel('composer').press('Enter');
     await expect(transcript(page)).not.toContainText('src/index.ts');
     await expect(page.locator('.block-tool')).toHaveCount(0);
     await expect.poll(() => runtimePids(handle.marker).length).toBe(2);

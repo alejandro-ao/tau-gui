@@ -9,6 +9,7 @@ import {
 } from '../../shared/scoped-models.js';
 
 const MAX_RECENT_SESSIONS = 30;
+const MAX_WORKING_DIRECTORIES = 100;
 
 /**
  * GUI-owned settings, persisted independently from Tau/Pi TUI configuration.
@@ -35,6 +36,17 @@ export class SettingsStore {
       ...patch,
       runtime: { ...this.settings.runtime, ...(patch.runtime ?? {}) },
       scopedModels: { ...this.settings.scopedModels, ...(patch.scopedModels ?? {}) },
+    };
+    this.write();
+    return this.settings;
+  }
+
+  /** Persists a chooser-selected directory without replacing the whole settings object. */
+  rememberWorkingDirectory(cwd: string): AppSettings {
+    this.settings = {
+      ...this.settings,
+      cwd,
+      workingDirectories: prependDirectory(this.settings.workingDirectories, cwd),
     };
     this.write();
     return this.settings;
@@ -69,6 +81,9 @@ export class SettingsStore {
           );
     this.settings = {
       ...this.settings,
+      workingDirectories: ref.cwd
+        ? prependDirectory(this.settings.workingDirectories, ref.cwd)
+        : this.settings.workingDirectories,
       recentSessions: recentSessions.slice(0, MAX_RECENT_SESSIONS),
     };
     this.write();
@@ -115,6 +130,24 @@ export function mergeSettings(value: unknown): AppSettings {
     guard(wire[key]) ? (wire[key] as T) : fallback;
   const isString = (input: unknown): boolean => typeof input === 'string';
 
+  const recentSessions = Array.isArray(wire['recentSessions'])
+    ? wire['recentSessions'].filter(isSessionRef).slice(0, MAX_RECENT_SESSIONS)
+    : [];
+  const cwd = isString(wire['cwd']) ? (wire['cwd'] as string) : null;
+  const persistedDirectories = Array.isArray(wire['workingDirectories'])
+    ? wire['workingDirectories'].filter(
+        (item): item is string => typeof item === 'string' && item.length > 0,
+      )
+    : [];
+  const workingDirectories = [
+    ...persistedDirectories,
+    cwd,
+    ...recentSessions.map((item) => item.cwd),
+  ]
+    .filter((item): item is string => Boolean(item))
+    .filter((item, index, all) => all.indexOf(item) === index)
+    .slice(0, MAX_WORKING_DIRECTORIES);
+
   return {
     agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
     theme: pick(
@@ -129,7 +162,8 @@ export function mergeSettings(value: unknown): AppSettings {
     ),
     turnNotification: wire['turnNotification'] === 'off' ? 'off' : 'desktop',
     showThinking: wire['showThinking'] !== false,
-    cwd: isString(wire['cwd']) ? (wire['cwd'] as string) : null,
+    cwd,
+    workingDirectories,
     projectTrust: pick(
       'projectTrust',
       (input) => input === 'approve-once' || input === 'decline-once',
@@ -140,10 +174,15 @@ export function mergeSettings(value: unknown): AppSettings {
       pi: mergeRuntime(runtime['pi'], DEFAULT_SETTINGS.runtime.pi),
     },
     scopedModels: mergeScopedModels(wire['scopedModels']),
-    recentSessions: Array.isArray(wire['recentSessions'])
-      ? wire['recentSessions'].filter(isSessionRef).slice(0, MAX_RECENT_SESSIONS)
-      : [],
+    recentSessions,
   };
+}
+
+function prependDirectory(directories: string[], cwd: string): string[] {
+  return [cwd, ...directories.filter((directory) => directory !== cwd)].slice(
+    0,
+    MAX_WORKING_DIRECTORIES,
+  );
 }
 
 function mergeScopedModels(value: unknown): Record<RuntimeKind, string[]> {
@@ -184,6 +223,7 @@ function isSessionRef(value: unknown): value is SessionRef {
   return (
     typeof wire['id'] === 'string' &&
     (wire['runtime'] === 'tau' || wire['runtime'] === 'pi') &&
+    (wire['cwd'] === undefined || wire['cwd'] === null || typeof wire['cwd'] === 'string') &&
     (wire['firstMessage'] === undefined ||
       wire['firstMessage'] === null ||
       typeof wire['firstMessage'] === 'string') &&

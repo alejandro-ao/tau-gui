@@ -21,6 +21,24 @@ describe('IPC request validation', () => {
     ).toBe(true);
   });
 
+  it('strictly validates working-directory persistence requests', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.rememberWorkingDirectory',
+        payload: { cwd: '/work/project' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.rememberWorkingDirectory',
+        payload: { cwd: '', extra: true },
+      }).success,
+    ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'settings.rememberWorkingDirectory' }).success).toBe(
+      false,
+    );
+  });
+
   it('never lets the renderer choose the probed binary', () => {
     expect(requestSchema.safeParse({ action: 'runtime.probe' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'runtime.probe', payload: {} }).success).toBe(true);

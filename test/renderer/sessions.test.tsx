@@ -54,8 +54,8 @@ describe('session and context flows', () => {
     expect(composer(view).value).toBe('');
   });
 
-  it('focuses the composer after opening a new session', async () => {
-    const { view } = await renderApp({});
+  it('focuses the composer after choosing a directory for a new session', async () => {
+    const { view } = await renderApp({ results: { 'fs.pickDirectory': '/work/chosen' } });
     mounted = view;
     const button = query<HTMLButtonElement>(view.container, '.sessions-rail-new');
     button.focus();

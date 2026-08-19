@@ -68,6 +68,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const results: Partial<Record<IpcAction, unknown>> = {
     'settings.get': settings,
     'settings.update': settings,
+    'settings.rememberWorkingDirectory': settings,
     'runtime.snapshot': snapshot,
     'runtime.start': snapshot,
     'runtime.stop': snapshot,
