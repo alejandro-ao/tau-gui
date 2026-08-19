@@ -1,11 +1,25 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { launchApp, submitPrompt, transcript, waitForSettled, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
 
+async function fullyInsideTranscript(message: Locator, viewport: Locator): Promise<boolean> {
+  const [messageBox, viewportBox] = await Promise.all([
+    message.boundingBox(),
+    viewport.boundingBox(),
+  ]);
+  if (!messageBox || !viewportBox) return false;
+  return (
+    messageBox.y >= viewportBox.y - 1 &&
+    messageBox.y + messageBox.height <= viewportBox.y + viewportBox.height + 1
+  );
+}
+
 test.beforeEach(async () => {
   // A per-chunk delay keeps the streaming phase observable without flakiness.
-  handle = await launchApp({ env: { FAKE_RUNTIME_DELAY_MS: '40' } });
+  handle = await launchApp({
+    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_ASSISTANT_DELAY_MS: '30000' },
+  });
 });
 
 test.afterEach(async () => {
@@ -40,21 +54,23 @@ test('a newly sent message stays visible above the composer in a long thread', a
     Reflect.set(element, 'scrollTop', 0);
   });
 
-  await submitPrompt(page, 'keep this newest message visible');
+  const assistantCount = await page.locator('.block-assistant').count();
+  await submitPrompt(page, 'delay assistant and keep this newest message visible');
   const newest = page
     .locator('.block-user')
-    .filter({ hasText: 'keep this newest message visible' });
-  await expect(newest).toBeVisible();
+    .filter({ hasText: 'delay assistant and keep this newest message visible' });
+
+  // The fake runtime pauses before message_start: this assertion can only be
+  // satisfied by the send render, not by a later assistant chunk re-pinning.
+  await expect(newest).toBeVisible({ timeout: 1000 });
+  expect(await page.locator('.block-assistant').count()).toBe(assistantCount);
   await expect
-    .poll(async () => {
-      const [messageBox, transcriptBox] = await Promise.all([
-        newest.boundingBox(),
-        transcript(page).boundingBox(),
-      ]);
-      if (!messageBox || !transcriptBox) return false;
-      return messageBox.y + messageBox.height <= transcriptBox.y + transcriptBox.height + 1;
-    })
+    .poll(() => fullyInsideTranscript(newest, transcript(page)), { timeout: 1000 })
     .toBe(true);
+  await page.waitForTimeout(100);
+  expect(await fullyInsideTranscript(newest, transcript(page))).toBe(true);
+  expect(await page.locator('.block-assistant').count()).toBe(assistantCount);
+  await expect(page.getByRole('button', { name: 'Go to bottom' })).toHaveCount(0);
 });
 
 test('a thinking run keeps reasoning on the activity rail, not in the answer', async () => {
