@@ -30,6 +30,8 @@ Tracks issue #1. Update this file whenever behavior changes.
 ## Phase 2 — Tau visual parity ✅
 
 - Role-based transcript styling with vertical role bars.
+- One answer per turn: reasoning and pre-tool narration stay on the activity
+  rail, which collapses into a duration summary before the answer.
 - Tool grouping, progress, previews, patch/diff rendering, expansion
   (global `Ctrl+O` plus per-block).
 - Sidebar and compact status row.

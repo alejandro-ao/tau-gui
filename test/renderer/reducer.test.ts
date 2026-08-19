@@ -276,7 +276,7 @@ describe('tools', () => {
     ]);
   });
 
-  it('does not treat assistant progress before a tool as the final answer', () => {
+  it('keeps narration written before a tool on the activity rail', () => {
     const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
     const progress: TranscriptBlock = {
       kind: 'assistant',
@@ -291,10 +291,116 @@ describe('tools', () => {
     ]).blocks[0];
     if (!tool) throw new Error('expected tool');
 
-    expect(groupBlocks([user, progress, tool]).map((group) => group.kind)).toEqual([
-      'user-tools',
+    const groups = groupBlocks([user, progress, tool]);
+    expect(groups.map((group) => group.kind)).toEqual(['user-tools']);
+    expect(groups[0]?.kind === 'user-tools' && groups[0].activity.map((entry) => entry.id)).toEqual(
+      ['a', tool.id],
+    );
+  });
+});
+
+describe('answer selection', () => {
+  const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
+
+  const thinking = (id: string, text: string, timestamp: number): TranscriptBlock => ({
+    kind: 'thinking',
+    id,
+    text,
+    streaming: false,
+    timestamp,
+  });
+
+  const message = (id: string, text: string, timestamp: number): TranscriptBlock => ({
+    kind: 'assistant',
+    id,
+    text,
+    streaming: false,
+    aborted: false,
+    timestamp,
+  });
+
+  const tool = (id: string): TranscriptBlock => {
+    const block = replay([
+      { type: 'tool_start', toolCallId: id, toolName: 'read', args: { path: `${id}.ts` } },
+      {
+        type: 'tool_end',
+        toolCallId: id,
+        toolName: 'read',
+        text: 'body',
+        details: {},
+        isError: false,
+      },
+    ]).blocks[0];
+    if (!block) throw new Error('expected tool');
+    return block;
+  };
+
+  it('renders only the closing assistant message as the answer', () => {
+    // A reasoning model narrates every step: thinking and narration repeat
+    // between tool calls and must never look like separate answers.
+    const first = tool('c1');
+    const second = tool('c2');
+    const groups = groupBlocks([
+      user,
+      thinking('t1', 'Planning the work.', 1),
+      message('n1', 'Exploring the repository.', 2),
+      first,
+      thinking('t2', 'Reviewing what came back.', 3),
+      message('n2', 'Now checking the tests.', 4),
+      second,
+      message('answer', 'Everything passes.', 5),
+    ]);
+
+    expect(groups.map((group) => group.kind)).toEqual(['single', 'tools', 'single']);
+    const feed = groups[1];
+    expect(feed?.kind === 'tools' && feed.activity.map((entry) => entry.id)).toEqual([
+      't1',
+      'n1',
+      first.id,
+      't2',
+      'n2',
+      second.id,
+    ]);
+    expect(groups[2]).toMatchObject({ kind: 'single', block: { id: 'answer' } });
+  });
+
+  it('collapses a reasoning turn that never called a tool', () => {
+    const groups = groupBlocks([
+      user,
+      thinking('t1', 'Weighing the options.', 1),
+      message('a', 'Answer.', 2),
+    ]);
+
+    expect(groups.map((group) => group.kind)).toEqual(['single', 'tools', 'single']);
+    const feed = groups[1];
+    expect(feed?.kind === 'tools' && feed.blocks).toHaveLength(0);
+    expect(feed?.kind === 'tools' && feed.activity.map((entry) => entry.id)).toEqual(['t1']);
+    expect(feed?.kind === 'tools' && feed.id).toBe('t1');
+  });
+
+  it('leaves a plain answer standalone and keeps a streaming answer out of the rail', () => {
+    expect(groupBlocks([user, message('a', 'Answer.', 1)]).map((group) => group.kind)).toEqual([
+      'single',
       'single',
     ]);
+
+    const streaming = groupBlocks([
+      user,
+      thinking('t1', 'Still reasoning.', 1),
+      { ...message('a', 'Partial', 2), streaming: true } as TranscriptBlock,
+    ]);
+    expect(streaming.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    expect(streaming[1]).toMatchObject({ block: { id: 'a', streaming: true } });
+  });
+
+  it('does not fold consecutive answers with no tool call between them', () => {
+    // An aborted attempt followed by a retry is durable history, not narration.
+    const groups = groupBlocks([
+      user,
+      { ...message('a1', 'Interrupted.', 1), aborted: true } as TranscriptBlock,
+      message('a2', 'Second attempt.', 2),
+    ]);
+    expect(groups.map((group) => group.kind)).toEqual(['single', 'single', 'single']);
   });
 });
 

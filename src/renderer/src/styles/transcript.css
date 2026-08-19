@@ -295,13 +295,19 @@
   white-space: nowrap;
 }
 
-.tool-run-thinking {
+.tool-run-thinking,
+.tool-run-note {
   margin: var(--space-1) 0;
   color: var(--text-faint);
   font-size: var(--font-size-sm);
   font-style: normal;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+/* Narration the model wrote before calling a tool: model output, not reasoning. */
+.tool-run-note {
+  color: var(--text-dim);
 }
 
 /* Tool blocks */

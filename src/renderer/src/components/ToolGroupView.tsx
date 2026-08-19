@@ -1,13 +1,20 @@
 import type { ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
-import type { ThinkingBlock, ToolBlock, ToolState } from '../state/types.js';
+import type { AssistantBlock, ThinkingBlock, ToolBlock, ToolState } from '../state/types.js';
 import { ToolBlockView } from './ToolBlockView.js';
 import { toolIntent, toolPaths } from './format.js';
 
-export type ActivityBlock = ToolBlock | ThinkingBlock;
+/**
+ * Reasoning, intermediate narration, and tool calls share the rail. An
+ * assistant block reaches the feed only when a later tool call proved it was
+ * not the answer.
+ */
+export type ActivityBlock = ToolBlock | ThinkingBlock | AssistantBlock;
 
 type ActivityRow =
-  { kind: 'thinking'; block: ThinkingBlock } | { kind: 'tools'; blocks: ToolBlock[] };
+  | { kind: 'thinking'; block: ThinkingBlock }
+  | { kind: 'note'; block: AssistantBlock }
+  | { kind: 'tools'; blocks: ToolBlock[] };
 
 const FILE_TOOLS = new Set(['read', 'edit', 'write']);
 
@@ -34,17 +41,16 @@ export function ToolGroupView({
   turnEndedAt?: number;
   nested?: boolean;
 }): ReactNode {
-  const first = blocks[0];
   const state = aggregateState(blocks);
   const running = state === 'running';
-  const firstToolStartedAt = Math.min(...blocks.map((block) => block.startedAt));
-  const startedAt = turnStartedAt ?? firstToolStartedAt;
+  const startedAt = turnStartedAt ?? spanStart(activity);
   const liveSeconds = useElapsedSeconds(
     Number.isFinite(startedAt) ? startedAt : Date.now(),
     running,
   );
 
-  if (!first) return null;
+  // A turn can reason without calling a tool, but an empty rail renders nothing.
+  if (activity.length === 0) return null;
 
   const feed = (
     <ActivityFeed
@@ -67,12 +73,11 @@ export function ToolGroupView({
     );
   }
 
+  const endedAt = turnEndedAt ?? spanEnd(activity);
   const elapsedSeconds = running
     ? liveSeconds
-    : turnEndedAt === undefined
-      ? settledSeconds(blocks, firstToolStartedAt)
-      : Math.max(0, Math.floor((turnEndedAt - startedAt) / 1000));
-  const label = `Worked for ${formatDuration(elapsedSeconds)} · ${blocks.length} ${blocks.length === 1 ? 'tool call' : 'tool calls'}`;
+    : Math.max(0, Math.floor((endedAt - startedAt) / 1000));
+  const label = summaryLabel(elapsedSeconds, blocks, activity);
 
   return (
     <article
@@ -103,9 +108,12 @@ function ActivityFeed({
   return (
     <div className="tool-run-items">
       {activityRows(activity).map((row) => {
-        if (row.kind === 'thinking') {
+        if (row.kind === 'thinking' || row.kind === 'note') {
           return (
-            <p className="tool-run-thinking" key={row.block.id}>
+            <p
+              className={row.kind === 'note' ? 'tool-run-note' : 'tool-run-thinking'}
+              key={row.block.id}
+            >
               {row.block.text}
               {row.block.streaming ? <span className="streaming-caret"> ▌</span> : null}
             </p>
@@ -198,6 +206,10 @@ function activityRows(activity: ActivityBlock[]): ActivityRow[] {
       rows.push({ kind: 'thinking', block });
       continue;
     }
+    if (block.kind === 'assistant') {
+      rows.push({ kind: 'note', block });
+      continue;
+    }
     const previous = rows.at(-1);
     if (
       previous?.kind === 'tools' &&
@@ -239,9 +251,34 @@ function aggregateState(blocks: ToolBlock[]): ToolState {
   return 'success';
 }
 
-function settledSeconds(blocks: ToolBlock[], startedAt: number): number {
-  const endedAt = Math.max(...blocks.map((block) => block.endedAt ?? block.startedAt));
-  return Math.max(0, Math.floor((endedAt - startedAt) / 1000));
+/** Earliest and latest moment covered by the rail, tools included. */
+function spanStart(activity: ActivityBlock[]): number {
+  return Math.min(
+    ...activity.map((block) => (block.kind === 'tool' ? block.startedAt : block.timestamp)),
+  );
+}
+
+function spanEnd(activity: ActivityBlock[]): number {
+  return Math.max(
+    ...activity.map((block) =>
+      block.kind === 'tool' ? (block.endedAt ?? block.startedAt) : block.timestamp,
+    ),
+  );
+}
+
+/** Names what the turn actually did, so a tool-less turn is not called work. */
+function summaryLabel(
+  elapsedSeconds: number,
+  blocks: ToolBlock[],
+  activity: ActivityBlock[],
+): string {
+  const duration = formatDuration(elapsedSeconds);
+  if (blocks.length > 0) {
+    return `Worked for ${duration} · ${blocks.length} ${blocks.length === 1 ? 'tool call' : 'tool calls'}`;
+  }
+  return activity.some((block) => block.kind === 'thinking')
+    ? `Thought for ${duration}`
+    : `Worked for ${duration}`;
 }
 
 function formatDuration(seconds: number): string {
