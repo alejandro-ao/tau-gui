@@ -1,24 +1,18 @@
 // @vitest-environment jsdom
-import { act } from 'react';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { SessionRef } from '../../src/shared/domain.js';
 import { formatRelativeTime } from '../../src/renderer/src/components/format.js';
-import { click, press, renderApp, settle, type RenderedApp } from './ui.js';
+import { click, renderApp, settle, type RenderedApp } from './ui.js';
 
-const session = (patch: Partial<SessionRef>): SessionRef => {
-  const id = patch.id ?? 'sess-1';
-  return {
-    id,
-    name: null,
-    firstMessage: `Message for ${id}`,
-    messageCount: 1,
-    path: null,
-    cwd: '/work/project',
-    runtime: 'tau',
-    lastSeen: Date.now(),
-    ...patch,
-  };
-};
+const session = (patch: Partial<SessionRef>): SessionRef => ({
+  id: 'sess-1',
+  name: null,
+  path: null,
+  cwd: '/work/project',
+  runtime: 'tau',
+  lastSeen: Date.now(),
+  ...patch,
+});
 
 const render = (options: Parameters<typeof renderApp>[0]): Promise<RenderedApp> =>
   renderApp(options);
@@ -28,28 +22,9 @@ beforeEach(() => {
 });
 
 describe('SessionsRail', () => {
-  it('stays available for starting a session when there is no history', async () => {
-    const { bridge, view } = await render({ settings: { recentSessions: [] } });
-    const rail = view.container.querySelector('[data-testid="sessions-rail"]');
-    expect(rail?.textContent).toContain('sessions · 0');
-    const newSession = rail?.querySelector<HTMLButtonElement>('.sessions-rail-new');
-    if (!newSession) throw new Error('new session button missing');
-    expect(newSession.textContent?.trim()).toBe('');
-    expect(newSession.querySelector('svg')).not.toBeNull();
-    await click(newSession);
-    await settle(view);
-    expect(bridge.payloads('session.new')).toEqual([undefined]);
-  });
-
-  it('can be resized with its accessible separator', async () => {
+  it('is hidden when the directory has no recent sessions', async () => {
     const { view } = await render({ settings: { recentSessions: [] } });
-    const rail = view.container.querySelector<HTMLElement>('[data-testid="sessions-rail"]');
-    const separator = rail?.querySelector<HTMLElement>('[role="separator"]');
-    if (!rail || !separator) throw new Error('resizable sessions rail missing');
-    expect(rail.style.flexBasis).toBe('260px');
-    await press(separator, 'ArrowRight');
-    expect(rail.style.flexBasis).toBe('276px');
-    expect(separator.getAttribute('aria-valuenow')).toBe('276');
+    expect(view.container.querySelector('[data-testid="sessions-rail"]')).toBeNull();
   });
 
   it('lists only sessions recorded in the current directory', async () => {
@@ -59,7 +34,6 @@ describe('SessionsRail', () => {
           session({ id: 'here-1', name: 'local work' }),
           session({ id: 'elsewhere', cwd: '/other/dir', name: 'other project' }),
           session({ id: 'unknown-cwd', cwd: null }),
-          session({ id: 'empty', name: 'empty session', messageCount: 0 }),
         ],
       },
     });
@@ -67,24 +41,6 @@ describe('SessionsRail', () => {
     expect(rail?.textContent).toContain('local work');
     expect(rail?.textContent).not.toContain('other project');
     expect(rail?.textContent).not.toContain('unknown-cwd');
-    expect(rail?.textContent).not.toContain('empty session');
-  });
-
-  it('uses the first user message when a session has no name', async () => {
-    const { view } = await render({
-      settings: {
-        recentSessions: [
-          session({
-            id: 'opaque-session-id',
-            firstMessage: 'Investigate   why the sidebar is slow and fix it',
-            messageCount: 2,
-          }),
-        ],
-      },
-    });
-    const item = view.container.querySelector('.sessions-rail-item');
-    expect(item?.textContent).toContain('Investigate why the sidebar is slow and fix it');
-    expect(item?.textContent).not.toContain('opaque-sess');
   });
 
   it('marks the active session and shows a runtime badge for foreign runtimes', async () => {
@@ -110,87 +66,8 @@ describe('SessionsRail', () => {
     });
     const active = view.container.querySelector('.sessions-rail-item[data-active="true"]');
     expect(active?.textContent).toContain('here-1');
-    expect(active?.closest('li')?.dataset['active']).toBe('true');
     const items = [...view.container.querySelectorAll('.sessions-rail-item')];
-    expect(items[1]?.querySelector('.sessions-rail-runtime')?.textContent).toBe('pi');
-    expect(items[1]?.querySelector('.sessions-rail-time')).not.toBeNull();
-  });
-
-  it('shows background work and unseen-response indicators', async () => {
-    const { bridge, view } = await render({
-      settings: {
-        recentSessions: [session({ id: 'current' }), session({ id: 'background' })],
-      },
-    });
-
-    await act(async () => {
-      bridge.emit({
-        type: 'sessionActivity',
-        activity: {
-          sessionId: 'background',
-          runtime: 'tau',
-          status: 'running',
-          responseReady: null,
-        },
-      });
-      await Promise.resolve();
-    });
-    const background = [...view.container.querySelectorAll('.sessions-rail-item')][1];
-    const end = background?.querySelector('.sessions-rail-end');
-    expect(end?.querySelector('[aria-label="assistant working"]')).not.toBeNull();
-    expect(end?.querySelector('.sessions-rail-time')).toBeNull();
-
-    await act(async () => {
-      bridge.emit({
-        type: 'sessionActivity',
-        activity: {
-          sessionId: 'background',
-          runtime: 'tau',
-          status: 'idle',
-          responseReady: true,
-        },
-      });
-      await Promise.resolve();
-    });
-    expect(background?.querySelector('[aria-label="assistant working"]')).toBeNull();
-    expect(end?.querySelector('[aria-label="response ready"]')).not.toBeNull();
-    expect(end?.querySelector('.sessions-rail-time')).toBeNull();
-  });
-
-  it('marks a clicked session active while it is opening', async () => {
-    let finishSwitch: (() => void) | undefined;
-    const switching = new Promise<null>((resolve) => {
-      finishSwitch = () => resolve(null);
-    });
-    const { view } = await render({
-      status: 'idle',
-      agent: {
-        model: null,
-        thinkingLevel: 'medium',
-        isStreaming: false,
-        isCompacting: false,
-        sessionFile: null,
-        sessionId: 'current',
-        sessionName: null,
-        autoCompactionEnabled: true,
-        messageCount: 0,
-        pendingMessageCount: 0,
-      },
-      settings: {
-        recentSessions: [session({ id: 'current' }), session({ id: 'next' })],
-      },
-      results: { 'session.switch': switching },
-    });
-    const next = [...view.container.querySelectorAll<HTMLButtonElement>('.sessions-rail-item')][1];
-    if (!next) throw new Error('next session missing');
-
-    await click(next);
-
-    expect(next.dataset['active']).toBe('true');
-    expect(next.dataset['pending']).toBe('true');
-    expect(next.getAttribute('aria-busy')).toBe('true');
-    finishSwitch?.();
-    await settle(view);
+    expect(items[1]?.textContent).toContain('pi ·');
   });
 
   it('resumes a session in the running runtime by id', async () => {

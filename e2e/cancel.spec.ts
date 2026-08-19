@@ -23,13 +23,13 @@ test('Esc aborts the running turn and the composer stays usable', async () => {
   await submitPrompt(page, 'slow run please');
 
   await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
-  await expect(page.getByRole('button', { name: 'abort run' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'esc abort' })).toBeVisible();
 
   await composer(page).press('Escape');
 
   await waitForSettled(page);
   await expect(page.locator('.block-assistant .block-label')).toContainText('aborted');
-  await expect(page.getByRole('button', { name: 'abort run' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'esc abort' })).toHaveCount(0);
 
   // The composer keeps working straight after an abort.
   await typeDraft(page, 'after abort');

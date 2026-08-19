@@ -57,9 +57,7 @@ export function Transcript(): ReactNode {
         ) : null}
         <div style={{ height: vwin.topPad }} aria-hidden="true" />
 
-        {state.sessionTransitioning ? (
-          <ConversationSkeleton />
-        ) : groups.length === 0 ? (
+        {groups.length === 0 ? (
           <p className="transcript-empty">No messages yet. Type a prompt to start the session.</p>
         ) : null}
 
@@ -119,39 +117,10 @@ export function Transcript(): ReactNode {
       </div>
 
       {hasNewOutput ? (
-        <button
-          type="button"
-          className="ghost-button new-output"
-          aria-label="Go to bottom"
-          title="Go to bottom"
-          onClick={scrollToBottom}
-        >
-          <span aria-hidden="true">↓</span>
+        <button type="button" className="ghost-button new-output" onClick={scrollToBottom}>
+          new output ↓
         </button>
       ) : null}
-    </div>
-  );
-}
-
-function ConversationSkeleton(): ReactNode {
-  return (
-    <div className="conversation-skeleton" role="status" aria-label="Loading conversation">
-      <div className="skeleton-message skeleton-message-user" aria-hidden="true">
-        <span className="skeleton-line skeleton-line-medium" />
-        <span className="skeleton-line skeleton-line-short" />
-      </div>
-      <div className="skeleton-message skeleton-message-assistant" aria-hidden="true">
-        <span className="skeleton-line skeleton-line-long" />
-        <span className="skeleton-line skeleton-line-medium" />
-        <span className="skeleton-line skeleton-line-short" />
-      </div>
-      <div className="skeleton-message skeleton-message-user" aria-hidden="true">
-        <span className="skeleton-line skeleton-line-medium" />
-      </div>
-      <div className="skeleton-message skeleton-message-assistant" aria-hidden="true">
-        <span className="skeleton-line skeleton-line-long" />
-        <span className="skeleton-line skeleton-line-medium" />
-      </div>
     </div>
   );
 }

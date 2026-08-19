@@ -1,6 +1,5 @@
 import { useMemo, type ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
-import { buildCommands } from './commands.js';
 import { Picker, type PickerItem } from './Picker.js';
 
 /**
@@ -11,7 +10,6 @@ import { Picker, type PickerItem } from './Picker.js';
  */
 export function CommandsModal(): ReactNode {
   const { state, actions } = useStore();
-  const commands = useMemo(() => buildCommands(state, actions), [state, actions]);
 
   const items = useMemo<PickerItem[]>(
     () =>
@@ -35,16 +33,7 @@ export function CommandsModal(): ReactNode {
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
         actions.openModal(null);
-        const command = commands.find((candidate) => candidate.slash === `/${item.id}`);
-        if (!command || command.unavailable) {
-          actions.notice(
-            command?.unavailable
-              ? `${command.title} is unavailable: ${command.unavailable}`
-              : `/${item.id} cannot be executed because the runtime RPC only lists it.`,
-          );
-          return;
-        }
-        command.run(`/${item.id}`);
+        void actions.submit(`/${item.id}`);
       }}
     />
   );

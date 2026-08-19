@@ -6,10 +6,9 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn() }));
-
+// `src/main/ipc.ts` imports Electron for dialogs and notifications; the handler
+// paths exercised here never touch them.
 vi.mock('electron', () => ({
-  clipboard: { writeText: electronMocks.writeText },
   dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
@@ -58,21 +57,11 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
 
   const context = {
     settings: { current: settings } as Context['settings'],
-    manager: { active, runtimeFor: () => active } as unknown as Context['manager'],
+    manager: { active } as unknown as Context['manager'],
     window: () => null,
   } as Context;
   return { context, calls };
 }
-
-describe('clipboard handler', () => {
-  it('writes renderer text with Electron clipboard access', async () => {
-    const { context } = makeContext();
-
-    await handleRequest(context, { action: 'ui.copyText', payload: { text: 'copy me' } });
-
-    expect(electronMocks.writeText).toHaveBeenCalledWith('copy me');
-  });
-});
 
 describe('runtime.probe handler', () => {
   it('always probes the binary from settings, ignoring renderer input', async () => {

@@ -18,8 +18,6 @@ export interface Completion {
   move: (delta: number) => void;
   /** `run` executes a slash command, `insert` only completes the draft text. */
   accept: (mode: 'run' | 'insert', item?: CompletionItem) => void;
-  /** Execute a complete slash invocation, including arguments, when registered locally. */
-  runInvocation: (text: string) => boolean;
   dismiss: () => void;
 }
 
@@ -182,33 +180,12 @@ export function useCompletion(
         return;
       }
       applyText('', 0);
-      command.run(command.slash ?? undefined);
+      command.run();
     },
     [actions, applyText, commands, cursor, draft, index, items, kind],
   );
 
-  const runInvocation = useCallback(
-    (text: string): boolean => {
-      const slash = text.trim().split(/\s+/, 1)[0]?.toLowerCase();
-      if (!slash?.startsWith('/') || slash.startsWith('/skill:')) return false;
-      // Tau expands custom prompt templates inside its prompt RPC. They take
-      // precedence over same-named GUI commands, matching CodingSession.
-      if (state.resources.prompts.some((prompt) => `/${prompt.name.toLowerCase()}` === slash)) {
-        return false;
-      }
-      const command = commands.find((candidate) => candidate.slash === slash);
-      if (!command) return false;
-      if (command.unavailable) {
-        actions.notice(`${command.title} is unavailable: ${command.unavailable}`);
-      } else {
-        command.run(text.trim());
-      }
-      return true;
-    },
-    [actions, commands, state.resources.prompts],
-  );
-
   const dismiss = useCallback(() => setDismissedFor(token), [token]);
 
-  return { kind, items, index, select, move, accept, runInvocation, dismiss };
+  return { kind, items, index, select, move, accept, dismiss };
 }

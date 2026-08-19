@@ -34,7 +34,6 @@ describe('command palette', () => {
     // Frontend-only commands and quick settings.
     expect(labels.some((label) => label.startsWith('/hotkeys'))).toBe(true);
     expect(labels.some((label) => label.startsWith('theme: tau-light'))).toBe(true);
-    expect(labels.some((label) => label.startsWith('theme: pure-black'))).toBe(true);
     expect(labels.some((label) => label.startsWith('sidebar: off'))).toBe(true);
   });
 
@@ -47,8 +46,7 @@ describe('command palette', () => {
     const hotkeys = rows.find((row) => row.textContent?.startsWith('/hotkeys'));
     expect(hotkeys?.textContent).toContain('frontend');
     const review = rows.find((row) => row.textContent?.startsWith('/review'));
-    expect(review?.getAttribute('data-unavailable')).toBe('true');
-    expect(review?.textContent).toContain('does not expose command execution over RPC');
+    expect(review?.textContent).toContain('backend');
   });
 
   it('refuses unavailable entries with the reason instead of failing silently', async () => {

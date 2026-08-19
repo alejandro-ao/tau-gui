@@ -8,20 +8,13 @@ import type {
   SessionStats,
 } from '../../src/shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../src/shared/domain.js';
-import type {
-  BridgeEvent,
-  IpcAction,
-  RuntimeSnapshot,
-  SessionTarget,
-} from '../../src/shared/ipc.js';
+import type { BridgeEvent, IpcAction, RuntimeSnapshot } from '../../src/shared/ipc.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 export interface InvokeCall {
   action: string;
   payload: Record<string, unknown> | undefined;
-  /** Transcript the renderer bound the call to, when it is session-scoped. */
-  session?: SessionTarget | undefined;
 }
 
 export interface FakeBridge {
@@ -87,12 +80,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   };
 
   const bridge = {
-    invoke: (
-      action: string,
-      payload?: Record<string, unknown>,
-      session?: SessionTarget,
-    ): Promise<unknown> => {
-      calls.push({ action, payload, session });
+    invoke: (action: string, payload?: Record<string, unknown>): Promise<unknown> => {
+      calls.push({ action, payload });
       const value = results[action as IpcAction];
       return Promise.resolve(value === undefined ? null : value);
     },

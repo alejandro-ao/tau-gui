@@ -80,7 +80,7 @@ const ROLE_SCRIPT: AgentEvent[] = [
     [
       'Roles render with their own vertical bar:',
       '',
-      '- unlabeled panels for user turns',
+      '- `you` for user turns',
       '- `assistant` for model output',
       '- `thinking` for reasoning',
       '',

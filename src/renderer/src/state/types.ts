@@ -9,7 +9,7 @@ import type {
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
-import type { RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
+import type { RuntimeSnapshot } from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
 
@@ -114,9 +114,7 @@ export type ModalKind =
   | 'details'
   | 'settings'
   | 'diagnostics'
-  | 'commands'
-  | 'skills'
-  | 'prompts';
+  | 'commands';
 
 export interface AppState {
   snapshot: RuntimeSnapshot;
@@ -140,37 +138,18 @@ export interface AppState {
    * switches, and runtime switches.
    */
   draft: string;
-  /** Incremented whenever a session opens so the composer can reclaim focus. */
-  composerFocusRequest: number;
   modal: ModalKind | null;
   windowFocused: boolean;
   busy: boolean;
-  /** True from the user's session selection until its transcript is hydrated. */
-  sessionTransitioning: boolean;
   lastCompletionPreview: string | null;
   /** Monotonic count of settled turns; keys completion notifications. */
   settledCount: number;
-  /** Runtime and unread-response state for active and background sessions. */
-  sessionActivity: Record<string, SessionActivity>;
 }
 
 export type Action =
-  | {
-      type: 'event';
-      event: AgentEvent;
-      now: number;
-      /** Present for streamed bridge events; omitted by local reducer replays. */
-      sessionId?: string;
-      runtime?: RuntimeSnapshot['runtime'];
-    }
+  | { type: 'event'; event: AgentEvent; now: number }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
-  | {
-      type: 'sessionNavigation';
-      active: boolean;
-      targetRuntime?: RuntimeSnapshot['runtime'];
-    }
   | { type: 'settings'; settings: AppSettings }
-  | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'diagnostic'; message: string }
   | { type: 'diagnostics'; messages: string[] }
   | { type: 'stats'; stats: SessionStats }
@@ -178,14 +157,7 @@ export type Action =
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
-  | {
-      type: 'hydrate';
-      messages: AgentMessage[];
-      now: number;
-      /** Transcript the messages were read from; omitted by local replays. */
-      sessionId?: string;
-      runtime?: RuntimeSnapshot['runtime'];
-    }
+  | { type: 'hydrate'; messages: AgentMessage[]; now: number }
   | { type: 'localMessage'; block: TranscriptBlock }
   | { type: 'updateBlock'; id: string; patch: Partial<TranscriptBlock> }
   | { type: 'clearTranscript' }

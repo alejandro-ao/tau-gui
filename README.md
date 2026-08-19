@@ -38,8 +38,6 @@ clean-machine release smoke tests still need credentials and hardware. See
 - Compact, name, branch, resume, and export sessions.
 - Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file
   completion, drag/drop paths, three themes, and native completion notifications.
-- Discover Tau custom prompts and skills from user/project `.tau` and `.agents`
-  directories; browse with `/prompts` or `/skills`, then invoke them from the composer.
 
 Optional protocol surfaces that one runtime lacks are shown disabled with the
 reason. Nothing is faked.

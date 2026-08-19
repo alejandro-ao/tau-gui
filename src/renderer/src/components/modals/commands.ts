@@ -1,7 +1,6 @@
 import {
   THINKING_LEVELS,
   type SidebarPosition,
-  type ThinkingLevel,
   type ThemeName,
 } from '../../../../shared/domain.js';
 import type { Actions } from '../../state/store.js';
@@ -22,8 +21,7 @@ export interface AppCommand {
   slash: string | null;
   /** Human-readable reason when the command cannot run. */
   unavailable: string | null;
-  /** Run the full composer invocation, including any arguments. */
-  run: (invocation?: string) => void;
+  run: () => void;
 }
 
 /**
@@ -32,43 +30,9 @@ export interface AppCommand {
  * can be advertised as available and then silently do nothing.
  */
 type CommandSpec = Omit<AppCommand, 'run' | 'unavailable'> &
-  (
-    | { run: (invocation?: string) => void; unavailable?: string | null }
-    | { run?: undefined; unavailable: string }
-  );
+  ({ run: () => void; unavailable?: string | null } | { run?: undefined; unavailable: string });
 
-/** Return everything after the slash-command name without losing internal spacing. */
-function commandArgs(invocation: string | undefined): string {
-  return (invocation ?? '').trim().replace(/^\/\S+\s*/, '');
-}
-
-function parseExport(
-  invocation: string | undefined,
-): { format: 'html'; destination?: string } | { error: string } {
-  const usage = 'Usage: /export [--format html] [destination]';
-  const parts = commandArgs(invocation).split(/\s+/).filter(Boolean);
-  let destination: string | undefined;
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index];
-    if (!part) continue;
-    if (part === '--format') {
-      const format = parts[++index];
-      if (!format) return { error: usage };
-      if (format !== 'html') return { error: 'JSONL export is not exposed by the runtime RPC.' };
-    } else if (part.startsWith('--format=')) {
-      if (part.slice('--format='.length) !== 'html') {
-        return { error: 'JSONL export is not exposed by the runtime RPC.' };
-      }
-    } else if (part.startsWith('-') || destination) {
-      return { error: usage };
-    } else {
-      destination = part;
-    }
-  }
-  return { format: 'html', destination };
-}
-
-const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast', 'pure-black'];
+const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast'];
 const SIDEBARS: SidebarPosition[] = ['right', 'left', 'off'];
 
 /**
@@ -134,11 +98,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'backend',
     slash: '/name',
     unavailable: null,
-    run: (invocation) => {
-      const name = commandArgs(invocation);
-      if (name) void actions.nameSession(name);
-      else actions.openModal('details');
-    },
+    run: () => actions.openModal('details'),
   });
   add({
     id: 'session.resume',
@@ -148,11 +108,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'frontend',
     slash: '/resume',
     unavailable: null,
-    run: (invocation) => {
-      const sessionId = commandArgs(invocation);
-      if (sessionId) void actions.switchSession(sessionId);
-      else actions.openModal('session');
-    },
+    run: () => actions.openModal('session'),
   });
   add({
     id: 'session.tree',
@@ -175,7 +131,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'backend',
     slash: '/compact',
     unavailable: null,
-    run: (invocation) => void actions.compact(commandArgs(invocation) || undefined),
+    run: () => void actions.compact(),
   });
   add({
     id: 'session.export',
@@ -185,11 +141,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'backend',
     slash: '/export',
     unavailable: null,
-    run: (invocation) => {
-      const parsed = parseExport(invocation);
-      if ('error' in parsed) actions.notice(parsed.error);
-      else void actions.exportHtml(parsed.destination);
-    },
+    run: () => void actions.exportHtml(),
   });
   add({
     id: 'session.clone',
@@ -224,22 +176,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'backend',
     slash: '/model',
     unavailable: null,
-    run: (invocation) => {
-      const requested = commandArgs(invocation);
-      if (!requested) {
-        actions.openModal('model');
-        return;
-      }
-      const model = state.models.find(
-        (candidate) =>
-          candidate.id === requested || `${candidate.provider}:${candidate.id}` === requested,
-      );
-      if (!model) {
-        actions.notice(`Unknown model: ${requested}`);
-        return;
-      }
-      void actions.setModel({ provider: model.provider, modelId: model.id });
-    },
+    run: () => actions.openModal('model'),
   });
   add({
     id: 'model.cycle',
@@ -271,13 +208,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'backend',
     slash: '/thinking',
     unavailable: null,
-    run: (invocation) => {
-      const level = commandArgs(invocation);
-      if (!level) actions.openModal('thinking');
-      else if (state.thinkingLevels.includes(level as ThinkingLevel)) {
-        void actions.setThinking(level as ThinkingLevel);
-      } else actions.notice(`Unknown thinking level: ${level}`);
-    },
+    run: () => actions.openModal('thinking'),
   });
 
   /* ----------------------------------------------------------------- view */
@@ -310,15 +241,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     origin: 'frontend',
     slash: '/theme',
     unavailable: null,
-    run: (invocation) => {
-      const theme = commandArgs(invocation);
-      if (!theme) actions.openModal('theme');
-      else if (THEMES.includes(theme as ThemeName)) {
-        void actions.updateSettings({ theme });
-      } else {
-        actions.notice(`Unknown theme: ${theme}\nAvailable themes: ${THEMES.join(', ')}`);
-      }
-    },
+    run: () => actions.openModal('theme'),
   });
   add({
     id: 'view.hotkeys',
@@ -398,24 +321,22 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'runtime.skills',
     title: '/skills',
-    description: 'Browse and insert a loaded skill',
+    description: 'Skills reported through command discovery',
     group: 'runtime',
     origin: 'backend',
     slash: '/skills',
-    unavailable:
-      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
-    run: () => actions.openModal('skills'),
+    unavailable: null,
+    run: () => actions.openModal('commands'),
   });
   add({
     id: 'runtime.prompts',
     title: '/prompts',
-    description: 'Choose a loaded prompt template',
+    description: 'Prompt templates reported through command discovery',
     group: 'runtime',
     origin: 'backend',
     slash: '/prompts',
-    unavailable:
-      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
-    run: () => actions.openModal('prompts'),
+    unavailable: null,
+    run: () => actions.openModal('commands'),
   });
   add({
     id: 'runtime.tools',
@@ -480,13 +401,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
 
   /* ------------------------------------------------- runtime-discovered */
 
-  const registeredSlashes = new Set(
-    commands.flatMap((command) => (command.slash ? [command.slash.slice(1)] : [])),
-  );
   for (const command of state.commands) {
-    // Tau reports built-ins from get_commands too. Keep the GUI implementation
-    // above rather than adding a duplicate that would incorrectly prompt the model.
-    if (registeredSlashes.has(command.name)) continue;
     add({
       id: `discovered.${command.name}`,
       title: `/${command.name}`,
@@ -494,7 +409,9 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       group: 'runtime',
       origin: command.source === 'runtime' ? 'backend' : 'frontend',
       slash: `/${command.name}`,
-      unavailable: 'the runtime lists this command but does not expose command execution over RPC',
+      unavailable: null,
+      // Slash commands are expanded by the runtime when sent as a prompt.
+      run: () => void actions.submit(`/${command.name}`),
     });
   }
 

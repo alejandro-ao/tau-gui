@@ -156,7 +156,6 @@ export function SettingsModal(): ReactNode {
           <option value="tau-dark">tau-dark</option>
           <option value="tau-light">tau-light</option>
           <option value="high-contrast">high-contrast</option>
-          <option value="pure-black">pure-black</option>
         </select>
 
         <label htmlFor="setting-sidebar">sidebar</label>

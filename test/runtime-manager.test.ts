@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent } from '../src/shared/ipc.js';
@@ -77,101 +77,6 @@ describe('RuntimeManager state machine', () => {
     expect(snapshot.cwd).toBe(process.cwd());
     expect(snapshot.state?.sessionId).toBe('fake-session-1');
     expect(fixture.broadcasts.some((event) => event.type === 'status')).toBe(true);
-  });
-
-  it('records the first user message for an unnamed session', async () => {
-    const fixture = makeManager();
-    active = fixture.manager;
-    await fixture.manager.start();
-
-    fixture.emit({
-      type: 'message_start',
-      message: {
-        role: 'user',
-        text: 'Investigate the sidebar',
-        images: [],
-        timestamp: Date.now(),
-      },
-    });
-
-    const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
-    expect(
-      settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0] : null,
-    ).toMatchObject({
-      firstMessage: 'Investigate the sidebar',
-      messageCount: 1,
-    });
-  });
-
-  it('queues a name when Tau has not indexed the empty session yet', async () => {
-    const fixture = makeManager();
-    active = fixture.manager;
-    await fixture.manager.start();
-    const nameSession = vi
-      .spyOn(fixture.manager.active, 'nameSession')
-      .mockRejectedValueOnce(new Error('Unknown session: fake-session-1'))
-      .mockResolvedValue(undefined);
-
-    await fixture.manager.nameSession('release prep');
-
-    expect(fixture.manager.snapshot().state?.sessionName).toBe('release prep');
-    const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
-    expect(
-      settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0]?.name : null,
-    ).toBe('release prep');
-
-    fixture.emit({ type: 'agent_settled' });
-    await vi.waitFor(() => expect(nameSession).toHaveBeenCalledTimes(2));
-    expect(nameSession).toHaveBeenLastCalledWith('release prep');
-  });
-
-  it('does not hide unrelated naming failures', async () => {
-    const fixture = makeManager();
-    active = fixture.manager;
-    await fixture.manager.start();
-    vi.spyOn(fixture.manager.active, 'nameSession').mockRejectedValue(
-      new Error('permission denied'),
-    );
-
-    await expect(fixture.manager.nameSession('release prep')).rejects.toThrow('permission denied');
-  });
-
-  it('publishes an auto-generated name before the first turn settles', async () => {
-    const fixture = makeManager();
-    active = fixture.manager;
-    await fixture.manager.start();
-    vi.useFakeTimers();
-    try {
-      const initial = fixture.manager.snapshot().state;
-      if (!initial) throw new Error('agent state missing');
-      fixture.manager.active.getState = vi.fn(() =>
-        Promise.resolve({
-          ...initial,
-          sessionName: 'Sidebar investigation',
-          messageCount: 1,
-        }),
-      );
-
-      fixture.emit({ type: 'agent_start' });
-      fixture.emit({
-        type: 'message_start',
-        message: {
-          role: 'user',
-          text: 'Investigate the sidebar',
-          images: [],
-          timestamp: Date.now(),
-        },
-      });
-      await vi.advanceTimersByTimeAsync(100);
-
-      const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
-      expect(
-        settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0]?.name : null,
-      ).toBe('Sidebar investigation');
-      expect(fixture.manager.snapshot().status).toBe('running');
-    } finally {
-      vi.useRealTimers();
-    }
   });
 
   it('stays running on agent_end and only settles on agent_settled', async () => {

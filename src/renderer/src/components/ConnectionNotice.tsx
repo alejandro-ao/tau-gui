@@ -14,9 +14,7 @@ export function ConnectionNotice(): ReactNode {
   const { state, actions } = useStore();
   const { status, detail, runtime } = state.snapshot;
   const title = TITLES[status];
-  // Session navigation has its own centered thread loader; this panel is only
-  // for runtime lifecycle states outside an in-app thread transition.
-  if (state.sessionTransitioning || !title) return null;
+  if (!title) return null;
 
   return (
     <section className="connection-notice" data-state={status} data-testid="connection-notice">

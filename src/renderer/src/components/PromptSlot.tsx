@@ -17,12 +17,13 @@ export function PromptSlot(): ReactNode {
 
   return (
     <div className="prompt-slot" data-testid="prompt-slot">
-      {state.sessionTransitioning ? null : running ? (
-        activityLabel(status) ? (
-          <span className="activity" role="status" aria-label={activityAriaLabel(status)}>
-            {activityLabel(status)}
+      {running ? (
+        <span className="activity">
+          <span className="activity-dot" aria-hidden="true">
+            ●
           </span>
-        ) : null
+          <span>{activityLabel(status)}</span>
+        </span>
       ) : (
         <span className="faint">{status === 'idle' ? 'idle' : status}</span>
       )}
@@ -35,24 +36,13 @@ export function PromptSlot(): ReactNode {
   );
 }
 
-function activityAriaLabel(status: string): string {
-  switch (status) {
-    case 'compacting':
-      return 'Compacting context';
-    case 'retrying':
-      return 'Retrying';
-    default:
-      return 'Model working';
-  }
-}
-
-function activityLabel(status: string): string | null {
+function activityLabel(status: string): string {
   switch (status) {
     case 'compacting':
       return 'compacting context…';
     case 'retrying':
       return 'retrying…';
     default:
-      return null;
+      return 'working…';
   }
 }

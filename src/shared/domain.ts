@@ -368,10 +368,6 @@ export interface ResourceCatalog {
 export interface SessionRef {
   id: string;
   name: string | null;
-  /** First user message, used as the fallback display label. */
-  firstMessage?: string | null;
-  /** Persisted so empty sessions can be omitted from recent-session UI. */
-  messageCount?: number;
   path: string | null;
   cwd: string | null;
   runtime: RuntimeKind;
@@ -381,7 +377,7 @@ export interface SessionRef {
 /* ---------------------------------------------------------------- settings */
 
 export type SidebarPosition = 'right' | 'left' | 'off';
-export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast' | 'pure-black';
+export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast';
 export type TurnNotification = 'desktop' | 'off';
 
 export interface RuntimeSettings {

@@ -18,12 +18,10 @@ test('a prompt streams assistant text and then finalizes', async () => {
 
   await expect(page.locator('.block-user')).toContainText('hello there');
 
-  // Streaming phase: caret marker plus CLI-style running spinner.
+  // Streaming phase: caret marker plus running status.
   await expect(page.locator('.streaming-caret')).toBeVisible();
   await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
-  const spinner = page.getByTestId('composer').getByRole('status', { name: 'Model working' });
-  await expect(spinner).toBeVisible();
-  await expect(page.locator('.prompt-slot .activity-spinner')).toHaveCount(0);
+  await expect(page.getByTestId('prompt-slot')).toContainText('working…');
 
   await waitForSettled(page);
   await expect(page.locator('.streaming-caret')).toHaveCount(0);

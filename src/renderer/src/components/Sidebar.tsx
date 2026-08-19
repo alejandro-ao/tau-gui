@@ -20,7 +20,7 @@ const PICKERS = [
  */
 export function Sidebar({ id }: { id?: string }): ReactNode {
   const { state, actions } = useStore();
-  const { snapshot, agent, stats, commands, resources } = state;
+  const { snapshot, agent, stats, commands } = state;
   const running = isRunning(state);
   const context = stats?.contextUsage ?? null;
   const contextPercent = context ? Math.min(100, Math.max(0, context.percent)) : 0;
@@ -91,29 +91,12 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
         </section>
       ) : null}
 
-      {resources.skills.length > 0 ? (
-        <Disclosure
-          title="skills"
-          count={resources.skills.length}
-          items={resources.skills.map((skill) => ({
-            label: skill.name,
-            title: `${skill.description ?? 'No description'} · ${skill.origin}`,
-            dimmed: skill.disableModelInvocation,
-          }))}
-        />
-      ) : null}
-
-      {resources.prompts.length > 0 ? (
-        <Disclosure
-          title="prompts"
-          count={resources.prompts.length}
-          items={resources.prompts.map((prompt) => ({
-            label: `/${prompt.name}`,
-            title: `${prompt.description ?? 'No description'} · ${prompt.origin}`,
-          }))}
-        />
-      ) : null}
-
+      {/*
+        Resource sections (tools, skills, prompts, extensions, context files)
+        render only when the runtime reports them. The current RPC surface
+        exposes commands only; skills get the dimmed treatment once the
+        protocol reports which of them the agent may call automatically.
+      */}
       {commands.length > 0 ? (
         <Disclosure
           title="commands"

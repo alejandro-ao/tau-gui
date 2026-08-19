@@ -32,7 +32,6 @@ describe('mergeSettings', () => {
     expect(merged.runtime.pi.extraArgs).toEqual(['--verbose']);
     expect(merged.runtime.tau.binary).toBe('tau');
     expect(merged.recentSessions).toHaveLength(1);
-    expect(mergeSettings({ theme: 'pure-black' }).theme).toBe('pure-black');
   });
 });
 
