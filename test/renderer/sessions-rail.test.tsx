@@ -44,10 +44,10 @@ describe('SessionsRail', () => {
     const rail = view.container.querySelector<HTMLElement>('[data-testid="sessions-rail"]');
     const separator = rail?.querySelector<HTMLElement>('[role="separator"]');
     if (!rail || !separator) throw new Error('resizable sessions rail missing');
-    expect(rail.style.flexBasis).toBe('200px');
+    expect(rail.style.flexBasis).toBe('260px');
     await press(separator, 'ArrowRight');
-    expect(rail.style.flexBasis).toBe('216px');
-    expect(separator.getAttribute('aria-valuenow')).toBe('216');
+    expect(rail.style.flexBasis).toBe('276px');
+    expect(separator.getAttribute('aria-valuenow')).toBe('276');
   });
 
   it('lists only sessions recorded in the current directory', async () => {

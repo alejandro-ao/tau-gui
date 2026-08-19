@@ -8,7 +8,7 @@ import { formatRelativeTime } from './format.js';
  */
 export function SessionsRail(): ReactNode {
   const { state, actions } = useStore();
-  const [width, setWidth] = useState(200);
+  const [width, setWidth] = useState(260);
   const [resizing, setResizing] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const cwd = state.snapshot.cwd ?? state.settings.cwd;
