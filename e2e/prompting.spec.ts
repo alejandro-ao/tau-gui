@@ -31,6 +31,32 @@ test('a prompt streams assistant text and then finalizes', async () => {
   await expect(page.getByLabel('composer')).toHaveValue('');
 });
 
+test('a newly sent message stays visible above the composer in a long thread', async () => {
+  const { page } = handle;
+  await submitPrompt(page, 'fill the transcript '.repeat(200));
+  await waitForSettled(page);
+
+  await transcript(page).evaluate((element) => {
+    Reflect.set(element, 'scrollTop', 0);
+  });
+
+  await submitPrompt(page, 'keep this newest message visible');
+  const newest = page
+    .locator('.block-user')
+    .filter({ hasText: 'keep this newest message visible' });
+  await expect(newest).toBeVisible();
+  await expect
+    .poll(async () => {
+      const [messageBox, transcriptBox] = await Promise.all([
+        newest.boundingBox(),
+        transcript(page).boundingBox(),
+      ]);
+      if (!messageBox || !transcriptBox) return false;
+      return messageBox.y + messageBox.height <= transcriptBox.y + transcriptBox.height + 1;
+    })
+    .toBe(true);
+});
+
 test('a thinking run keeps reasoning on the activity rail, not in the answer', async () => {
   const { page } = handle;
   await submitPrompt(page, 'show thinking please');

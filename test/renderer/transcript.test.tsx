@@ -130,7 +130,7 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
   });
 
   it('jumps to the bottom when the user sends a message while scrolled up', async () => {
@@ -147,7 +147,7 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
 
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
     expect(view.container.querySelector('.new-output')).toBeNull();
   });
 
@@ -164,11 +164,11 @@ describe('transcript scroll anchoring', () => {
       });
       await Promise.resolve();
     });
-    expect(viewport.scrollTop).toBe(5_000);
+    expect(viewport.scrollTop).toBe(4_600);
 
-    // The jump aimed at the estimated bottom; the freshly mounted tail blocks
-    // measure taller, and only now does the jump's own scroll event arrive.
-    setGeometry(viewport, { scrollTop: 5_000, clientHeight: 400, scrollHeight: 8_000 });
+    // Browsers clamp scrollTop to scrollHeight - clientHeight. The freshly
+    // mounted tail then measures taller before the jump's scroll event arrives.
+    setGeometry(viewport, { scrollTop: 4_600, clientHeight: 400, scrollHeight: 8_000 });
     await scroll(viewport);
 
     // Still pinned: further output follows the tail, no affordance appears.
@@ -177,7 +177,7 @@ describe('transcript scroll anchoring', () => {
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
-    expect(viewport.scrollTop).toBe(8_000);
+    expect(viewport.scrollTop).toBe(7_600);
   });
 
   it('keeps following the tail while already at the bottom', async () => {

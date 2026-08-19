@@ -27,7 +27,10 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
   /** Scrolls to the tail, tagging the target only when the position actually
       changes — a no-op pin must not leave a stale tag for a later user scroll. */
   const pin = useCallback((element: HTMLElement): void => {
-    const target = element.scrollHeight;
+    // scrollTop is clamped to this maximum by the browser. Tagging scrollHeight
+    // itself makes the resulting scroll event look user-originated once tail
+    // measurements grow, which can strand a newly sent message under the composer.
+    const target = Math.max(0, element.scrollHeight - element.clientHeight);
     if (element.scrollTop === target) return;
     element.scrollTop = target;
     expectedScroll.current = target;
