@@ -26,6 +26,17 @@ test.afterEach(async () => {
   await handle.close();
 });
 
+test('one undo removes a contiguous keyboard insertion', async () => {
+  const { page } = handle;
+  const composer = page.getByLabel('composer');
+
+  await composer.pressSequentially('hello');
+  await expect(composer).toHaveValue('hello');
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+
+  await expect(composer).toHaveValue('');
+});
+
 test('a prompt streams assistant text and then finalizes', async () => {
   const { page } = handle;
   await submitPrompt(page, 'hello there');
