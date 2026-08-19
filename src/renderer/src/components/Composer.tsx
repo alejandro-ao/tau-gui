@@ -263,8 +263,16 @@ export function Composer(): ReactNode {
         />
         <div className="composer-side">
           {running ? (
-            <button type="button" className="ghost-button" onClick={() => void actions.abort()}>
-              esc abort
+            <button
+              type="button"
+              className="composer-abort"
+              aria-label="abort run"
+              title="Abort run (Esc)"
+              onClick={() => void actions.abort()}
+            >
+              <svg viewBox="0 0 20 20" aria-hidden="true">
+                <rect x="6" y="6" width="8" height="8" rx="1" />
+              </svg>
             </button>
           ) : null}
           {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
@@ -286,7 +294,7 @@ export function Composer(): ReactNode {
 
 function placeholder(running: boolean, steering: boolean, followUps: boolean): string {
   if (!running) return 'Ask, or !command for shell · Enter to send · Shift+Enter for newline';
-  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up · Esc aborts';
-  if (followUps) return 'Enter queues a follow-up · Esc aborts';
-  return 'Run in progress · Esc aborts';
+  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up';
+  if (followUps) return 'Enter queues a follow-up';
+  return 'Run in progress';
 }

@@ -61,6 +61,33 @@
   white-space: nowrap;
 }
 
+.composer-abort {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.composer-abort svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+}
+
+.composer-abort:hover,
+.composer-abort:focus-visible {
+  background: var(--panel-alt);
+  border-color: var(--border);
+  color: var(--role-error);
+}
+
 /* ------------------------------------------------------- inline completion */
 
 .composer-shell {

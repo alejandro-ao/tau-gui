@@ -137,6 +137,19 @@ describe('Composer key handling', () => {
     expect(actions(bridge)).toEqual(['agent.abort']);
   });
 
+  it('renders an icon-only abort control while running', async () => {
+    const { bridge, view } = await renderComposer({ status: 'running' });
+    const abort = query<HTMLButtonElement>(view.container, '[aria-label="abort run"]');
+
+    expect(abort.textContent?.trim()).toBe('');
+    expect(abort.querySelector('svg')).not.toBeNull();
+    expect(
+      view.container.querySelector('.composer-input')?.getAttribute('placeholder'),
+    ).not.toContain('Esc');
+    act(() => abort.click());
+    expect(actions(bridge)).toEqual(['agent.abort']);
+  });
+
   it('routes ! and !! through the shell action', async () => {
     const { bridge, input } = await renderComposer({});
     await type(input, '!ls -la');
