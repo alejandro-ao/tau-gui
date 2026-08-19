@@ -91,11 +91,8 @@ export class RuntimePool {
     }
     const manager = this.ownerOf(target);
     if (manager) return { target: targetFor(manager), manager };
-    if (
-      (this.failedRestart?.target && sameTarget(target, this.failedRestart.target)) ||
-      this.queues.hasTarget(target)
-    ) {
-      return { target, manager: null };
+    if (this.failedRestart?.target && sameTarget(target, this.failedRestart.target)) {
+      return { target: this.failedRestart.target, manager: null };
     }
     throw new Error(`Session is no longer available: ${target.sessionId}`);
   }

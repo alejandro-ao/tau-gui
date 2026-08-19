@@ -311,6 +311,39 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
   });
 
+  it('does not let a prior queue snapshot authorize a normally detached session', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const context = { settings, manager: pool, window: () => null };
+
+    // Renderer refreshes create empty queue storage. That storage is state, not
+    // authority to keep routing after an ordinary stop removes the live owner.
+    expect(
+      await handleRequest(context, { action: 'queue.snapshot', session: target }),
+    ).toMatchObject({ runtime: 'tau', sessionId: target.sessionId, steering: [], followUp: [] });
+    await pool.stop();
+    expect(pool.snapshot().recoveryTarget).toBeUndefined();
+
+    const detachedRequests = [
+      { action: 'queue.snapshot', session: target },
+      { action: 'queue.pop', session: target },
+      {
+        action: 'queue.resolve',
+        payload: { id: 'prompt-from-detached-session', outcome: 'restore' },
+        session: target,
+      },
+      { action: 'agent.steer', payload: { text: 'must not enqueue' }, session: target },
+      { action: 'agent.followUp', payload: { text: 'must not enqueue' }, session: target },
+    ] as const;
+    for (const request of detachedRequests) {
+      await expect(handleRequest(context, request)).rejects.toThrow(
+        'Session is no longer available: fake-session-1',
+      );
+    }
+  });
+
   it('recovers a retained session queue after the first restart launch fails', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);
@@ -364,10 +397,16 @@ describe('RuntimePool', () => {
     // Claims retain their stable identity, restores stay in this session, and
     // an accepted edit can be safely enqueued for the same recovery target.
     const context = { settings, manager: pool, window: () => null };
+    await handleRequest(context, {
+      action: 'agent.steer',
+      payload: { text: 'steering after failed restart' },
+      session: target,
+    });
     const retained = (await handleRequest(context, {
       action: 'queue.snapshot',
       session: target,
     })) as PromptQueueSnapshot;
+    expect(retained.steering.map((item) => item.text)).toEqual(['steering after failed restart']);
     expect(retained.followUp.map((item) => item.text)).toEqual(['drains after retry']);
     const firstClaim = (await handleRequest(context, {
       action: 'queue.pop',

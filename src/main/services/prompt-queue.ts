@@ -46,11 +46,6 @@ export class PromptQueueService {
     return this.toItem(entry);
   }
 
-  /** Whether main already owns queue state for this exact transcript. */
-  hasTarget(target: SessionTarget): boolean {
-    return this.sessions.has(this.key(target));
-  }
-
   snapshot(target: SessionTarget): PromptQueueSnapshot {
     return this.toSnapshot(target, this.queue(target));
   }
