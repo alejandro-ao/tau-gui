@@ -23,6 +23,7 @@ export const INITIAL_STATE: AppState = {
   thinkingLevels: [],
   commands: [],
   resources: { skills: [], prompts: [], diagnostics: [] },
+  messages: [],
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -95,6 +96,7 @@ export function reducer(state: AppState, action: Action): AppState {
         },
         agent: null,
         stats: null,
+        messages: [],
         blocks: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
@@ -150,6 +152,7 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return {
         ...state,
+        messages: action.messages,
         blocks: hydrateBlocks(action.messages, action.now),
         streamingAssistantId: null,
         streamingThinkingId: null,
@@ -166,6 +169,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'clearTranscript':
       return {
         ...state,
+        messages: [],
         blocks: [],
         streamingAssistantId: null,
         streamingThinkingId: null,

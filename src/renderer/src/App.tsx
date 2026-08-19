@@ -1,9 +1,10 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Composer } from './components/Composer.js';
 import { ConnectionNotice } from './components/ConnectionNotice.js';
 import { ModalHost } from './components/modals/ModalHost.js';
 import { PromptSlot } from './components/PromptSlot.js';
 import { SessionsRail } from './components/SessionsRail.js';
+import { SessionUsage } from './components/SessionUsage.js';
 import { Sidebar } from './components/Sidebar.js';
 import { StatusRow } from './components/StatusRow.js';
 import { Transcript } from './components/Transcript.js';
@@ -16,6 +17,9 @@ export function App(): ReactNode {
   const { state, actions } = useStore();
   const narrow = useNarrowViewport(900);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [mainView, setMainView] = useState<'conversation' | 'usage'>('conversation');
+  const conversationTab = useRef<HTMLButtonElement>(null);
+  const usageTab = useRef<HTMLButtonElement>(null);
 
   const position = state.settings.sidebarPosition;
   const showThinking = state.settings.showThinking;
@@ -56,7 +60,52 @@ export function App(): ReactNode {
       {narrow ? null : <SessionsRail />}
       <main className="main">
         <ConnectionNotice />
-        <Transcript />
+        <nav className="main-tabs" role="tablist" aria-label="Session views">
+          <button
+            ref={conversationTab}
+            type="button"
+            role="tab"
+            id="tab-conversation"
+            aria-controls="panel-conversation"
+            aria-selected={mainView === 'conversation'}
+            tabIndex={mainView === 'conversation' ? 0 : -1}
+            onClick={() => setMainView('conversation')}
+            onKeyDown={(event) => selectAdjacentTab(event, 'conversation', setMainView, usageTab)}
+          >
+            Conversation
+          </button>
+          <button
+            ref={usageTab}
+            type="button"
+            role="tab"
+            id="tab-session-usage"
+            aria-controls="panel-session-usage"
+            aria-selected={mainView === 'usage'}
+            tabIndex={mainView === 'usage' ? 0 : -1}
+            onClick={() => setMainView('usage')}
+            onKeyDown={(event) => selectAdjacentTab(event, 'usage', setMainView, conversationTab)}
+          >
+            Session usage
+          </button>
+        </nav>
+        <div
+          className="main-panel"
+          id="panel-conversation"
+          role="tabpanel"
+          aria-labelledby="tab-conversation"
+          hidden={mainView !== 'conversation'}
+        >
+          <Transcript />
+        </div>
+        <div
+          className="main-panel"
+          id="panel-session-usage"
+          role="tabpanel"
+          aria-labelledby="tab-session-usage"
+          hidden={mainView !== 'usage'}
+        >
+          <SessionUsage />
+        </div>
         <PromptSlot />
         <Composer />
         <StatusRow />
@@ -79,4 +128,16 @@ export function App(): ReactNode {
       <ModalHost />
     </div>
   );
+}
+
+function selectAdjacentTab(
+  event: KeyboardEvent<HTMLButtonElement>,
+  current: 'conversation' | 'usage',
+  select: (view: 'conversation' | 'usage') => void,
+  target: { current: HTMLButtonElement | null },
+): void {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  select(current === 'conversation' ? 'usage' : 'conversation');
+  target.current?.focus();
 }

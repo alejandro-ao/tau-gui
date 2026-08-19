@@ -128,6 +128,8 @@ export interface AppState {
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
   resources: ResourceCatalog;
+  /** Authoritative normalized RPC messages used for transcript-level analytics. */
+  messages: AgentMessage[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;

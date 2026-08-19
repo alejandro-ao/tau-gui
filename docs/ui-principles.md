@@ -1,6 +1,6 @@
 # UI principles
 
-- Preserve Tau's transcript-first design: no conventional permanent header or shortcut footer.
+- Preserve Tau's transcript-first design: no conventional shortcut footer; keep the compact main-view tab header limited to **Conversation** and **Session usage**.
 - Keep the multiline composer at the bottom and the session sidebar on the right by default.
 - Use vertical role bars rather than boxed chat bubbles.
 - Use Tau's dark, light, and high-contrast palettes, plus a true-black theme with subtly differentiated user turns.
@@ -13,4 +13,5 @@
 - Keep exact commands, arguments, output, and patches available through expansion.
 - Optimize for keyboard use without sacrificing mouse selection, scrolling, links, and native clipboard behavior.
 - Virtualize long transcripts without changing runtime context or durable history.
+- Derive session analytics only from normalized RPC messages and stats. Label missing provider data and unsupported export event markers honestly; never inspect session JSONL in the renderer.
 - Treat `agent_settled`, not `agent_end`, as the transition to idle.
