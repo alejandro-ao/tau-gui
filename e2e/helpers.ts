@@ -95,6 +95,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
 
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
+    // A concurrently running `electron-vite dev` exports these. Inheriting them
+    // would load the renderer from that dev server instead of `out/`, so the
+    // suite would silently test another checkout.
+    if (key === 'ELECTRON_RENDERER_URL' || key === 'NODE_ENV_ELECTRON_VITE') continue;
     if (typeof value === 'string') env[key] = value;
   }
   env['TAU_GUI_USER_DATA_DIR'] = userDataDir;

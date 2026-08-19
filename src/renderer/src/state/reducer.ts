@@ -518,13 +518,17 @@ export function blocksFromMessage(
 
 type ToolTranscriptBlock = Extract<TranscriptBlock, { kind: 'tool' }>;
 type ThinkingTranscriptBlock = Extract<TranscriptBlock, { kind: 'thinking' }>;
-type ActivityTranscriptBlock = ToolTranscriptBlock | ThinkingTranscriptBlock;
+type AssistantTranscriptBlock = Extract<TranscriptBlock, { kind: 'assistant' }>;
+type ActivityTranscriptBlock =
+  ToolTranscriptBlock | ThinkingTranscriptBlock | AssistantTranscriptBlock;
 type UserTranscriptBlock = Extract<TranscriptBlock, { kind: 'user' }>;
 
 export type BlockGroup =
   | { kind: 'single'; block: TranscriptBlock }
   | {
       kind: 'tools';
+      /** Stable id of the feed, derived from its first activity block. */
+      id: string;
       blocks: ToolTranscriptBlock[];
       activity: ActivityTranscriptBlock[];
       settled: boolean;
@@ -540,9 +544,13 @@ export type BlockGroup =
     };
 
 /**
- * Treats tools and reasoning as one turn activity feed. While work is active it
- * sits directly below the prompt. Once the final answer arrives, the same feed
- * becomes a collapsed summary immediately before that answer.
+ * Groups the transcript into turns.
+ *
+ * A turn is everything between two user prompts. Reasoning, intermediate
+ * narration, and tool calls form one activity feed; only the assistant message
+ * that closes the turn is rendered as the answer. While work is active the feed
+ * sits directly below the prompt. Once the answer arrives, the same feed becomes
+ * a collapsed summary immediately before it.
  */
 export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
@@ -552,85 +560,78 @@ export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
     const block = blocks[index];
     if (!block) break;
 
-    if (block.kind === 'user') {
-      let end = index + 1;
-      while (end < blocks.length && blocks[end]?.kind !== 'user') end += 1;
-      const rest = blocks.slice(index + 1, end);
-      const tools = rest.filter((entry): entry is ToolTranscriptBlock => entry.kind === 'tool');
-      const activity = rest.filter(
-        (entry): entry is ActivityTranscriptBlock =>
-          entry.kind === 'tool' || entry.kind === 'thinking',
-      );
-      if (tools.length === 0) {
-        groups.push({ kind: 'single', block });
-        for (const entry of rest) groups.push({ kind: 'single', block: entry });
-        index = end;
-        continue;
-      }
-
-      const lastToolIndex = rest.findLastIndex((entry) => entry.kind === 'tool');
-      const finalAnswerIndex = rest.findIndex(
-        (entry, restIndex) =>
-          restIndex > lastToolIndex && entry.kind === 'assistant' && !entry.streaming,
-      );
-
-      if (finalAnswerIndex === -1) {
-        groups.push({
-          kind: 'user-tools',
-          user: block,
-          blocks: tools,
-          activity,
-          startedAt: block.timestamp,
-        });
-        for (const entry of rest) {
-          if (entry.kind !== 'tool' && entry.kind !== 'thinking') {
-            groups.push({ kind: 'single', block: entry });
-          }
-        }
-      } else {
-        groups.push({ kind: 'single', block });
-        let summaryAdded = false;
-        for (let restIndex = 0; restIndex < rest.length; restIndex += 1) {
-          const entry = rest[restIndex];
-          if (!entry) continue;
-          if (restIndex === finalAnswerIndex) {
-            groups.push({
-              kind: 'tools',
-              blocks: tools,
-              activity,
-              settled: true,
-              startedAt: block.timestamp,
-              endedAt: entry.timestamp,
-            });
-            summaryAdded = true;
-          }
-          if (entry.kind !== 'tool' && entry.kind !== 'thinking') {
-            groups.push({ kind: 'single', block: entry });
-          }
-        }
-        if (tools.length > 0 && !summaryAdded) {
-          groups.push({ kind: 'tools', blocks: tools, activity, settled: false });
-        }
-      }
-      index = end;
-      continue;
-    }
-
-    if (block.kind === 'tool') {
-      const tools: ToolTranscriptBlock[] = [block];
-      index += 1;
-      while (blocks[index]?.kind === 'tool') {
-        tools.push(blocks[index] as ToolTranscriptBlock);
-        index += 1;
-      }
-      groups.push({ kind: 'tools', blocks: tools, activity: tools, settled: false });
-      continue;
-    }
-
-    groups.push({ kind: 'single', block });
-    index += 1;
+    // Headless turn bodies exist too: hydrated tails, post-compaction
+    // continuations, and steering echoes can precede any rendered prompt.
+    const leading = block.kind === 'user' ? block : null;
+    let end = index + (leading ? 1 : 0);
+    while (end < blocks.length && blocks[end]?.kind !== 'user') end += 1;
+    groups.push(...turnGroups(leading, blocks.slice(leading ? index + 1 : index, end)));
+    index = end;
   }
 
+  return groups;
+}
+
+/** Renders one turn body as an activity feed plus the blocks that stand alone. */
+function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): BlockGroup[] {
+  const groups: BlockGroup[] = [];
+  const lastTool = body.findLastIndex((entry) => entry.kind === 'tool');
+  const lastAssistant = body.findLastIndex((entry) => entry.kind === 'assistant');
+  // Reasoning models narrate between tool calls, so an assistant message is
+  // only the answer once no tool call follows it.
+  const answerAt = lastAssistant > lastTool ? lastAssistant : -1;
+  // Reasoning always belongs to the rail; narration joins it only when a later
+  // tool call proved it was intermediate work rather than the answer.
+  const isActivity = (entry: TranscriptBlock, entryIndex: number): boolean =>
+    entry.kind === 'tool' ||
+    entry.kind === 'thinking' ||
+    (entry.kind === 'assistant' && entryIndex < lastTool);
+  const activity = body.filter((entry, entryIndex): entry is ActivityTranscriptBlock =>
+    isActivity(entry, entryIndex),
+  );
+  const standalone = (entry: TranscriptBlock, entryIndex: number): boolean =>
+    !isActivity(entry, entryIndex);
+
+  if (activity.length === 0) {
+    if (user) groups.push({ kind: 'single', block: user });
+    for (const entry of body) groups.push({ kind: 'single', block: entry });
+    return groups;
+  }
+
+  const feed = {
+    id: activity[0]?.id ?? '',
+    blocks: activity.filter((entry): entry is ToolTranscriptBlock => entry.kind === 'tool'),
+    activity,
+  };
+  const answer = answerAt === -1 ? null : body[answerAt];
+  // A streaming answer is still being written, so the feed stays live below it.
+  const settled = answer?.kind === 'assistant' && !answer.streaming;
+
+  if (!settled) {
+    groups.push(
+      user
+        ? { kind: 'user-tools', user, ...feed, startedAt: user.timestamp }
+        : { kind: 'tools', ...feed, settled: false },
+    );
+    body.forEach((entry, entryIndex) => {
+      if (standalone(entry, entryIndex)) groups.push({ kind: 'single', block: entry });
+    });
+    return groups;
+  }
+
+  if (user) groups.push({ kind: 'single', block: user });
+  body.forEach((entry, entryIndex) => {
+    if (entryIndex === answerAt) {
+      groups.push({
+        kind: 'tools',
+        ...feed,
+        settled: true,
+        startedAt: user?.timestamp,
+        endedAt: entry.timestamp,
+      });
+    }
+    if (standalone(entry, entryIndex)) groups.push({ kind: 'single', block: entry });
+  });
   return groups;
 }
 

@@ -253,7 +253,8 @@ test.describe('visual regression', () => {
     await shot(handle, 'long-output-collapsed.png');
 
     await handle.page.locator('.tool-run-header').last().click();
-    await handle.page.locator('.block-tool .block-header').first().click();
+    // Rows inside the feed are compact: their own button carries the expansion.
+    await handle.page.locator('.tool-run-item').first().click();
     await expect(handle.page.locator('.tool-output')).toBeVisible();
     await handle.page.waitForTimeout(250);
     await shot(handle, 'long-output-expanded.png');

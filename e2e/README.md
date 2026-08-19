@@ -12,8 +12,8 @@ Playwright drives the **built** app (`out/main/index.js`) through
   `test/fake/fake-runtime.mjs` with `cwd` set to a temporary project directory,
   so no provider credentials are ever needed.
 - Prompt keywords select the fake runtime's deterministic scripts: default,
-  `tool`, `thinking`, `error`, `compact`, `slow`. `FAKE_RUNTIME_DELAY_MS` paces
-  the stream when a test needs to observe a running turn.
+  `tool`, `thinking`, `reason`, `error`, `compact`, `slow`. `FAKE_RUNTIME_DELAY_MS`
+  paces the stream when a test needs to observe a running turn.
 - Each launch appends a unique `--e2e-marker <id>` to the runtime arguments, so
   `killRuntime()` can find and SIGKILL exactly that launch's child process for
   the crash/restart test.
