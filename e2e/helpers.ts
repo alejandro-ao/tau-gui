@@ -72,6 +72,7 @@ function seedSettings(
     scopedModels: { tau: [], pi: [] },
     recentSessions: [],
     ...overrides,
+    workingDirectories: overrides.workingDirectories ?? [projectDir],
   };
   mkdirSync(userDataDir, { recursive: true });
   writeFileSync(join(userDataDir, 'settings.json'), `${JSON.stringify(settings, null, 2)}\n`);

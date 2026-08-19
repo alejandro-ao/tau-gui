@@ -105,9 +105,11 @@ Tracks issue #1. Update this file whenever behavior changes.
   otherwise it falls back to the runtime's own `cycle_model`, so stale or empty
   scopes cannot trap the user.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
-- Session details, usage/cache/context sidebar with cost or `$N/A`. The cache
-  hit figure is derived from reported token counts, so it is shown as an
-  estimate (`~`).
+- Session details plus a focused sidebar with activity counts, usage/cache, and
+  discovered context files. The cache hit figure is derived from reported token
+  counts, so it is shown as an estimate (`~`). Context lists existing
+  `AGENTS.md` metadata from fixed user/project `.tau` and `.agents` locations;
+  discovery stays in the main process and project paths require explicit trust.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the

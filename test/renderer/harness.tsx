@@ -68,8 +68,10 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const results: Partial<Record<IpcAction, unknown>> = {
     'settings.get': settings,
     'settings.update': settings,
+    'settings.rememberWorkingDirectory': settings,
     'runtime.snapshot': snapshot,
     'runtime.start': snapshot,
+    'runtime.openSession': snapshot,
     'runtime.stop': snapshot,
     'agent.messages': [],
     'agent.stats': options.stats ?? null,
@@ -77,6 +79,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'thinking.list': [],
     'commands.list': [],
     'resources.list': { skills: [], prompts: [], diagnostics: [] },
+    'context.list': [],
     'agent.prompt': null,
     'agent.steer': null,
     'agent.followUp': null,

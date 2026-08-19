@@ -42,7 +42,10 @@ export interface Actions {
   toggleScopedModel: (ref: ModelRef) => Promise<void>;
   setThinking: (level: ThinkingLevel) => Promise<void>;
   cycleThinking: () => Promise<void>;
+  /** Creates a session in the active session's directory without prompting. */
   newSession: () => Promise<void>;
+  /** Chooses, persists, and opens a directory with a fresh session. */
+  newSessionFromDirectoryPicker: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
   /** Resumes a recent session, switching runtime or restarting if needed. */
   resumeSession: (ref: SessionRef) => Promise<void>;
@@ -143,14 +146,16 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       const target: SessionTarget | undefined = snapshot.state?.sessionId
         ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
         : undefined;
-      const [messages, stats, models, levels, commands, resources] = await Promise.all([
-        attempt('agent.messages', undefined, notice, target),
-        attempt('agent.stats', undefined, notice, target),
-        attempt('models.list', undefined, notice, target),
-        attempt('thinking.list', undefined, notice, target),
-        attempt('commands.list', undefined, notice, target),
-        attempt('resources.list', undefined, notice),
-      ]);
+      const [messages, stats, models, levels, commands, resources, contextFiles] =
+        await Promise.all([
+          attempt('agent.messages', undefined, notice, target),
+          attempt('agent.stats', undefined, notice, target),
+          attempt('models.list', undefined, notice, target),
+          attempt('thinking.list', undefined, notice, target),
+          attempt('commands.list', undefined, notice, target),
+          attempt('resources.list', undefined, notice),
+          attempt('context.list', undefined, notice),
+        ]);
       if (epoch !== refreshEpoch.current) return;
       if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
       if (stats) dispatch({ type: 'stats', stats });
@@ -158,6 +163,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (levels) dispatch({ type: 'thinkingLevels', levels });
       if (commands) dispatch({ type: 'commands', commands });
       if (resources) dispatch({ type: 'resources', resources });
+      if (contextFiles) dispatch({ type: 'contextFiles', files: contextFiles });
     },
     [notice],
   );
@@ -299,6 +305,20 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (failure) notice(failure);
     };
 
+    const chooseDirectoryAndStart = async (): Promise<void> => {
+      const cwd = await attempt('fs.pickDirectory', undefined, notice);
+      if (!cwd) return;
+      const settings = await attempt('settings.rememberWorkingDirectory', { cwd }, notice);
+      if (!settings) return;
+      dispatch({ type: 'settings', settings });
+      const navigation = beginNavigation(stateRef.current.snapshot.runtime);
+      try {
+        await navigate(navigation, () => invoke('runtime.openSession', { cwd }));
+      } finally {
+        finishNavigation(navigation);
+      }
+    };
+
     return {
       start: async (cwd, sessionRef) => {
         invalidateRefresh();
@@ -437,6 +457,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           finishNavigation(navigation);
         }
       },
+      newSessionFromDirectoryPicker: chooseDirectoryAndStart,
       switchSession: async (ref) => {
         const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
@@ -534,19 +555,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           });
         }
       },
-      openDirectory: async () => {
-        invalidateRefresh();
-        const cwd = await attempt('fs.pickDirectory', undefined, notice);
-        if (!cwd) return;
-        const settings = await attempt('settings.update', { cwd }, notice);
-        if (settings) dispatch({ type: 'settings', settings });
-        await run(async () => {
-          const snapshot = await invoke('runtime.start', { cwd });
-          dispatch({ type: 'snapshot', snapshot });
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
-      },
+      openDirectory: chooseDirectoryAndStart,
       probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);

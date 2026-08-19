@@ -31,7 +31,7 @@ export function App(): ReactNode {
         cycleModel: () => void actions.cycleModel(),
         cycleThinking: () => void actions.cycleThinking(),
         toggleThinking: () => void actions.updateSettings({ showThinking: !showThinking }),
-        newSession: () => void actions.newSession(),
+        newSession: () => void actions.newSessionFromDirectoryPicker(),
         restart: () => void actions.restart(),
       }),
       [actions, showThinking, state.modal, toggleSidebar],
