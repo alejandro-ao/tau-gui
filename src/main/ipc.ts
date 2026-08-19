@@ -151,10 +151,9 @@ export async function handleRequest(
         return { skills: [], prompts: [], diagnostics: [] };
       }
       const catalog = await discoverTauResources(snapshot.cwd, {
-        // Only an explicit main-process trust choice authorizes project reads.
-        // "default" may lead the runtime to prompt, but it is not a positive
-        // decision available to this discovery service.
-        includeProject: settings.current.projectTrust === 'approve-once',
+        // Bind discovery to the active process's launch-time trust. Mutable
+        // settings may change without restarting that process.
+        includeProject: manager.effectiveProjectTrust === 'approve-once',
       });
       return resourceCatalogSchema.parse(catalog);
     }
@@ -162,7 +161,7 @@ export async function handleRequest(
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
       const files = await discoverContextFiles(snapshot.cwd, {
-        includeProject: settings.current.projectTrust === 'approve-once',
+        includeProject: manager.effectiveProjectTrust === 'approve-once',
       });
       return contextFilesSchema.parse(files);
     }
