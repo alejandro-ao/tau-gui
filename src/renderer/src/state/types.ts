@@ -5,6 +5,7 @@ import type {
   AppSettings,
   CommandInfo,
   Model,
+  ResourceCatalog,
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
@@ -113,7 +114,9 @@ export type ModalKind =
   | 'details'
   | 'settings'
   | 'diagnostics'
-  | 'commands';
+  | 'commands'
+  | 'skills'
+  | 'prompts';
 
 export interface AppState {
   snapshot: RuntimeSnapshot;
@@ -123,6 +126,7 @@ export interface AppState {
   models: Model[];
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
+  resources: ResourceCatalog;
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -173,6 +177,7 @@ export type Action =
   | { type: 'models'; models: Model[] }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
+  | { type: 'resources'; resources: ResourceCatalog }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

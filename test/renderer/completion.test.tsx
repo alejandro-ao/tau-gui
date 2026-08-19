@@ -97,6 +97,67 @@ describe('slash command completion', () => {
     expect(actionsOf(bridge)).not.toContain('agent.prompt');
   });
 
+  it('completes skills and sends explicit invocations to Tau', async () => {
+    const { view, bridge } = await renderApp({
+      results: {
+        'resources.list': {
+          skills: [
+            {
+              name: 'security-review',
+              description: 'Review for security issues',
+              origin: '~/.agents/skills',
+              disableModelInvocation: false,
+            },
+          ],
+          prompts: [],
+          diagnostics: [],
+        },
+      },
+    });
+    mounted = view;
+    const input = composer(view);
+    await type(input, '/skill:sec');
+    expect(options(query(view.container, '[data-testid="completion-slash"]'))[0]).toContain(
+      '/skill:security-review',
+    );
+    await press(input, 'Enter');
+    expect(input.value).toBe('/skill:security-review ');
+    await type(input, '/skill:security-review check auth');
+    await press(input, 'Enter');
+    expect(bridge.payloads('agent.prompt')).toEqual([
+      { text: '/skill:security-review check auth' },
+    ]);
+  });
+
+  it('completes custom prompts and lets them override same-named GUI commands', async () => {
+    const { view, bridge } = await renderApp({
+      results: {
+        'resources.list': {
+          skills: [],
+          prompts: [
+            {
+              name: 'model',
+              description: 'Custom model audit',
+              origin: './.tau/prompts',
+            },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    mounted = view;
+    const input = composer(view);
+    await type(input, '/mod');
+    const labels = texts(view.container, '.completion-label');
+    expect(labels.filter((label) => label === '/model')).toHaveLength(1);
+    await press(input, 'Enter');
+    expect(input.value).toBe('/model ');
+    await type(input, '/model audit providers');
+    await press(input, 'Enter');
+    expect(bridge.payloads('agent.prompt')).toEqual([{ text: '/model audit providers' }]);
+    expect(view.container.querySelector('[data-modal-name="model"]')).toBeNull();
+  });
+
   it('sends unknown slash input as a normal prompt', async () => {
     const { view, input, bridge } = await open();
     await type(input, '/definitely-not-a-command');

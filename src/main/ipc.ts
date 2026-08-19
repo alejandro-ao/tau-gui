@@ -3,6 +3,7 @@ import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
+import { discoverTauResources } from './services/resources.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 
@@ -140,6 +141,15 @@ export async function handleRequest(
 
     case 'commands.list':
       return runtime().listCommands();
+    case 'resources.list': {
+      const snapshot = manager.snapshot();
+      if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
+        return { skills: [], prompts: [], diagnostics: [] };
+      }
+      return discoverTauResources(snapshot.cwd, {
+        includeProject: settings.current.projectTrust !== 'decline-once',
+      });
+    }
 
     case 'fs.complete': {
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();

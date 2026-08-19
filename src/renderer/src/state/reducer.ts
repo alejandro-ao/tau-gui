@@ -22,6 +22,7 @@ export const INITIAL_STATE: AppState = {
   models: [],
   thinkingLevels: [],
   commands: [],
+  resources: { skills: [], prompts: [], diagnostics: [] },
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -135,6 +136,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, thinkingLevels: action.levels };
     case 'commands':
       return { ...state, commands: action.commands };
+    case 'resources':
+      return { ...state, resources: action.resources };
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.

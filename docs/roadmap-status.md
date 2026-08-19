@@ -49,11 +49,18 @@ Tracks issue #1. Update this file whenever behavior changes.
   prompting because RPC `prompt` does not execute TUI commands. Arguments work for
   `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
   Runtime-reported built-ins are deduplicated against GUI handlers.
+- Tau skills and prompt templates are discovered from the same user/project
+  `.tau` and `.agents` directories with the same precedence and reserved-name
+  rules as Tau. `/skills` and `/prompts` open searchable pickers, slash completion
+  includes `/skill:<name>` and custom prompts, and selected invocations are sent
+  through Tau's prompt RPC for authoritative expansion. Only metadata crosses IPC;
+  resource contents remain in Tau/main-process filesystem access. Project resources
+  are omitted when launch-time project trust is declined.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/scoped-models`, `/skills`, `/prompts`, `/clone`, and extension
-  commands that RPC can list but not execute) are listed as unavailable with the
-  reason instead of being sent incorrectly to the model. `/clone` stays unavailable even on Pi,
-  where the runtime supports it, because the desktop app has no clone flow yet.
+  `/logout`, `/scoped-models`, `/clone`, and extension commands that RPC can list
+  but not execute) are listed as unavailable with the reason instead of being sent
+  incorrectly to the model. `/clone` stays unavailable even on Pi, where the runtime
+  supports it, because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,

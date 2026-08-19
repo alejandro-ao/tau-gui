@@ -16,6 +16,7 @@ import type {
   EntrySnapshot,
   Model,
   ModelCycleResult,
+  ResourceCatalog,
   RuntimeCapabilities,
   RuntimeStatus,
   SessionStats,
@@ -140,6 +141,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
+  z.object({ action: z.literal('resources.list') }),
 
   z.object({
     action: z.literal('fs.complete'),
@@ -234,6 +236,7 @@ export interface IpcResultMap {
   'shell.run': BashResult;
   'shell.abort': null;
   'commands.list': CommandInfo[];
+  'resources.list': ResourceCatalog;
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
   'fs.relativize': string[];

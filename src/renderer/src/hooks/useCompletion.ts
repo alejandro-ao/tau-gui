@@ -47,23 +47,42 @@ export function useCompletion(
 
   const slashItems = useMemo<CompletionItem[]>(() => {
     if (slash === null) return [];
-    const candidates = commands.filter(
-      (command): command is AppCommand & { slash: string } => command.slash !== null,
-    );
-    const matches = fuzzyFilter(
-      candidates,
+    const promptSlashes = new Set(state.resources.prompts.map((prompt) => `/${prompt.name}`));
+    const resourceItems: CompletionItem[] = [
+      ...state.resources.skills.map((skill) => ({
+        id: `skill:${skill.name}`,
+        label: `/skill:${skill.name}`,
+        detail: skill.description,
+        badge: skill.disableModelInvocation ? 'user only' : 'skill',
+        insert: `/skill:${skill.name}`,
+      })),
+      ...state.resources.prompts.map((prompt) => ({
+        id: `prompt:${prompt.name}`,
+        label: `/${prompt.name}`,
+        detail: prompt.description,
+        badge: 'prompt',
+        insert: `/${prompt.name}`,
+      })),
+    ];
+    const commandItems: CompletionItem[] = commands
+      .filter(
+        (command): command is AppCommand & { slash: string } =>
+          command.slash !== null && !promptSlashes.has(command.slash),
+      )
+      .map((command) => ({
+        id: command.id,
+        label: command.slash,
+        detail: command.description,
+        badge: command.unavailable ? 'unavailable' : command.origin,
+        reason: command.unavailable,
+        insert: command.slash,
+      }));
+    return fuzzyFilter(
+      [...resourceItems, ...commandItems],
       slash.slice(1),
-      (command) => `${command.slash} ${command.description}`,
-    );
-    return matches.slice(0, MAX_ITEMS).map((command) => ({
-      id: command.id,
-      label: command.slash,
-      detail: command.description,
-      badge: command.unavailable ? 'unavailable' : command.origin,
-      reason: command.unavailable,
-      insert: command.slash,
-    }));
-  }, [commands, slash]);
+      (item) => `${item.label} ${item.detail ?? ''}`,
+    ).slice(0, MAX_ITEMS);
+  }, [commands, slash, state.resources]);
 
   const pathItems = useMemo<CompletionItem[]>(
     () =>
@@ -144,7 +163,13 @@ export function useCompletion(
         return;
       }
       const command = commands.find((candidate) => candidate.id === chosen.id);
-      if (!command) return;
+      // Skills and custom prompts are expansion directives, not GUI commands.
+      // Completion inserts them so the user can add arguments before submitting.
+      if (!command) {
+        const insertion = `${chosen.insert} `;
+        applyText(insertion, insertion.length);
+        return;
+      }
       if (mode === 'insert' || command.unavailable) {
         if (command.unavailable) {
           actions.notice(`${command.title} is unavailable: ${command.unavailable}`);
@@ -164,6 +189,11 @@ export function useCompletion(
     (text: string): boolean => {
       const slash = text.trim().split(/\s+/, 1)[0]?.toLowerCase();
       if (!slash?.startsWith('/') || slash.startsWith('/skill:')) return false;
+      // Tau expands custom prompt templates inside its prompt RPC. They take
+      // precedence over same-named GUI commands, matching CodingSession.
+      if (state.resources.prompts.some((prompt) => `/${prompt.name.toLowerCase()}` === slash)) {
+        return false;
+      }
       const command = commands.find((candidate) => candidate.slash === slash);
       if (!command) return false;
       if (command.unavailable) {
@@ -173,7 +203,7 @@ export function useCompletion(
       }
       return true;
     },
-    [actions, commands],
+    [actions, commands, state.resources.prompts],
   );
 
   const dismiss = useCallback(() => setDismissedFor(token), [token]);

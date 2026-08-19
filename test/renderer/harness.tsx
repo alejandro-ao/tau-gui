@@ -71,6 +71,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'models.list': [],
     'thinking.list': [],
     'commands.list': [],
+    'resources.list': { skills: [], prompts: [], diagnostics: [] },
     'agent.prompt': null,
     'agent.steer': null,
     'agent.followUp': null,

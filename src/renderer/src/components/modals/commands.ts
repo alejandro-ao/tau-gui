@@ -402,7 +402,9 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/skills',
-    unavailable: 'the runtime RPC does not expose the loaded skill catalog',
+    unavailable:
+      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
+    run: () => actions.openModal('skills'),
   });
   add({
     id: 'runtime.prompts',
@@ -411,7 +413,9 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/prompts',
-    unavailable: 'the runtime RPC does not expose the loaded prompt template catalog',
+    unavailable:
+      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
+    run: () => actions.openModal('prompts'),
   });
   add({
     id: 'runtime.tools',

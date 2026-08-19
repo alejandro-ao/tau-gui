@@ -345,6 +345,26 @@ export interface CommandInfo {
   source: 'runtime' | 'frontend';
 }
 
+/** Metadata only: resource contents stay in the main process/runtime. */
+export interface SkillInfo {
+  name: string;
+  description: string | null;
+  origin: string;
+  disableModelInvocation: boolean;
+}
+
+export interface PromptTemplateInfo {
+  name: string;
+  description: string | null;
+  origin: string;
+}
+
+export interface ResourceCatalog {
+  skills: SkillInfo[];
+  prompts: PromptTemplateInfo[];
+  diagnostics: string[];
+}
+
 export interface SessionRef {
   id: string;
   name: string | null;
