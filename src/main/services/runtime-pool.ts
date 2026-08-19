@@ -2,6 +2,7 @@ import type { AgentState } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
+import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
 import { RuntimeManager } from './runtime-manager.js';
 
 /**
@@ -18,11 +19,16 @@ export class RuntimePool {
   private starting: Promise<RuntimeSnapshot> | null = null;
   /** Serializes lifecycle transitions so rapid clicks cannot launch duplicate owners. */
   private transitions: Promise<void> = Promise.resolve();
+  private readonly queues: PromptQueueService;
 
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
-  ) {}
+  ) {
+    this.queues = new PromptQueueService(broadcast, (message) =>
+      broadcast({ type: 'diagnostic', message }),
+    );
+  }
 
   get active(): JsonlAgentRuntime {
     if (!this.current) throw new Error('Runtime is not started');
@@ -41,6 +47,24 @@ export class RuntimePool {
    */
   runtimeFor(target?: SessionTarget | null): JsonlAgentRuntime {
     return this.managerFor(target).active;
+  }
+
+  enqueuePrompt(kind: PromptQueueKind, text: string, target?: SessionTarget | null): void {
+    const manager = this.managerFor(target);
+    this.queues.enqueue(targetFor(manager), kind, text);
+    // The turn may settle between the renderer observing `running` and this
+    // request reaching main. Treat the now-idle process as the settle boundary.
+    if (!isBusy(manager)) void this.schedule(manager);
+  }
+
+  popPrompt(target?: SessionTarget | null): ReturnType<PromptQueueService['pop']> {
+    const manager = this.managerFor(target);
+    return this.queues.pop(targetFor(manager));
+  }
+
+  queueSnapshot(target?: SessionTarget | null): ReturnType<PromptQueueService['snapshot']> {
+    const manager = this.managerFor(target);
+    return this.queues.snapshot(targetFor(manager));
   }
 
   private managerFor(target?: SessionTarget | null): RuntimeManager {
@@ -95,7 +119,7 @@ export class RuntimePool {
   }
 
   private async startFresh(
-    options: { cwd?: string | null },
+    options: { cwd?: string | null; sessionRef?: string | null },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
     if (replaceCurrent && this.current) await this.remove(this.current);
@@ -105,11 +129,23 @@ export class RuntimePool {
       const snapshot = await manager.start(options);
       this.index(manager);
       this.claimSnapshot(manager);
+      void this.schedule(manager);
       return snapshot;
     } catch (error) {
       this.managers.delete(manager);
       throw error;
     }
+  }
+
+  /** Restarts the viewed transcript and lets its retained queue resume draining. */
+  async restart(): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(async () => {
+      const snapshot = this.current?.snapshot();
+      const state = snapshot?.state;
+      const sessionRef =
+        snapshot?.runtime === 'pi' ? (state?.sessionFile ?? state?.sessionId) : state?.sessionId;
+      return this.startFresh({ cwd: snapshot?.cwd ?? null, sessionRef: sessionRef ?? null });
+    });
   }
 
   /** Selects an existing process or launches a new process for the session. */
@@ -193,6 +229,7 @@ export class RuntimePool {
       }
       this.index(manager);
       this.claimSnapshot(manager);
+      void this.schedule(manager);
       return snapshot;
     } catch (error) {
       // A failed resume may happen after the subprocess has started. Always
@@ -265,11 +302,18 @@ export class RuntimePool {
     }
     if (event.type === 'agent' && event.event.type === 'agent_settled') {
       this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
+      void this.schedule(manager);
     }
     // Settings are application-global. Every other transcript event is shown
     // only while that transcript is selected. Session activity is separately
     // broadcast above so the rail can monitor background runtimes.
     if (event.type === 'settings' || manager === this.current) this.broadcast(event);
+  }
+
+  private async schedule(manager: RuntimeManager): Promise<void> {
+    const snapshot = manager.snapshot();
+    if (!manager.isStarted || snapshot.status !== 'idle' || !snapshot.state?.sessionId) return;
+    await this.queues.dispatchNext(targetFor(manager), (text) => manager.active.prompt({ text }));
   }
 
   private broadcastActivity(
@@ -337,6 +381,13 @@ export class RuntimePool {
     this.managers.delete(manager);
     if (this.current === manager) this.current = null;
   }
+}
+
+function targetFor(manager: RuntimeManager): SessionTarget {
+  const snapshot = manager.snapshot();
+  const sessionId = snapshot.state?.sessionId;
+  if (!sessionId) throw new Error('Runtime session is not ready');
+  return { runtime: snapshot.runtime, sessionId };
 }
 
 function sessionKey(kind: string, ref: string): string {

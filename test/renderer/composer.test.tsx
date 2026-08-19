@@ -119,7 +119,7 @@ describe('Composer key handling', () => {
     ]);
   });
 
-  it('falls back to follow-ups when steering is unsupported', async () => {
+  it('keeps app-owned priority guidance when native steering is unsupported', async () => {
     const { bridge, input } = await renderComposer({
       status: 'running',
       capabilities: { steering: false, followUps: true, directBash: true },
@@ -127,7 +127,7 @@ describe('Composer key handling', () => {
     await type(input, 'do this next');
     await press(input, 'Enter');
 
-    expect(actions(bridge)).toEqual(['agent.followUp']);
+    expect(actions(bridge)).toEqual(['agent.steer']);
   });
 
   it('aborts with Escape while running', async () => {
@@ -182,7 +182,26 @@ describe('Composer key handling', () => {
     expect(actions(bridge)).not.toContain('shell.run');
   });
 
-  it('recalls the last submitted prompt with Up on an empty editor', async () => {
+  it('atomically pops queued text for editing and only requeues it after Enter', async () => {
+    const { bridge, input } = await renderComposer({ status: 'running' });
+    bridge.setHandler('queue.pop', () => ({
+      id: 'prompt-7',
+      kind: 'follow-up',
+      text: 'queued draft',
+    }));
+
+    await press(input, 'ArrowUp');
+    expect(input.value).toBe('queued draft');
+    expect(actions(bridge)).toEqual(['queue.pop']);
+
+    await type(input, 'edited draft');
+    expect(actions(bridge)).toEqual(['queue.pop']);
+    await press(input, 'Enter');
+    expect(actions(bridge)).toEqual(['queue.pop', 'agent.steer']);
+    expect(bridge.payloads('agent.steer')).toEqual([{ text: 'edited draft' }]);
+  });
+
+  it('recalls the last submitted prompt with Up on an empty editor when the queue is empty', async () => {
     const { input } = await renderComposer({});
     await type(input, 'first prompt');
     await press(input, 'Enter');

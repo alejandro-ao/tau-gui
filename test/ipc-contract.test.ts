@@ -16,6 +16,9 @@ describe('IPC request validation', () => {
     ).toBe(true);
     expect(requestSchema.safeParse({ action: 'agent.entries' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
+    expect(requestSchema.safeParse({ action: 'queue.snapshot' }).success).toBe(true);
+    expect(requestSchema.safeParse({ action: 'queue.pop' }).success).toBe(true);
+    expect(requestSchema.safeParse({ action: 'runtime.restart' }).success).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
     ).toBe(true);
@@ -116,6 +119,9 @@ describe('IPC request validation', () => {
         .success,
     ).toBe(false);
     expect(requestSchema.safeParse({ action: 'ui.copyText' }).success).toBe(false);
+    expect(
+      requestSchema.safeParse({ action: 'queue.pop', payload: { id: 'forged' } }).success,
+    ).toBe(false);
   });
 
   it('rejects settings patches with unknown values', () => {

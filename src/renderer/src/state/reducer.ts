@@ -26,7 +26,7 @@ export const INITIAL_STATE: AppState = {
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
-  queue: { steering: [], followUp: [] },
+  queue: { runtime: 'tau', sessionId: '', steering: [], followUp: [] },
   diagnostics: [],
   expandAll: false,
   expanded: {},
@@ -72,6 +72,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
+    case 'queue':
+      if (
+        action.snapshot.sessionId !== state.snapshot.state?.sessionId ||
+        action.snapshot.runtime !== state.snapshot.runtime
+      ) {
+        return state;
+      }
+      return { ...state, queue: action.snapshot };
     case 'sessionNavigation':
       if (!action.active) {
         return {
@@ -98,7 +106,12 @@ export function reducer(state: AppState, action: Action): AppState {
         blocks: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
-        queue: { steering: [], followUp: [] },
+        queue: {
+          runtime: action.targetRuntime ?? state.snapshot.runtime,
+          sessionId: '',
+          steering: [],
+          followUp: [],
+        },
         expanded: {},
         composerFocusRequest: state.composerFocusRequest + 1,
       };
@@ -169,7 +182,7 @@ export function reducer(state: AppState, action: Action): AppState {
         blocks: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
-        queue: { steering: [], followUp: [] },
+        queue: { runtime: state.snapshot.runtime, sessionId: '', steering: [], followUp: [] },
         expanded: {},
         composerFocusRequest: state.composerFocusRequest + 1,
       };
@@ -205,11 +218,10 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
       // Assistant text is assembled from deltas, and tool results are already
       // represented by their tool block.
       if (event.message.role === 'assistant' || event.message.role === 'toolResult') return state;
-      const next = {
+      return {
         ...state,
         blocks: [...state.blocks, ...blocksFromMessage(event.message, now)],
       };
-      return event.message.role === 'user' ? dequeueMessage(next, event.message.text) : next;
     }
 
     case 'message_delta': {
@@ -300,7 +312,8 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
       });
 
     case 'queue_update':
-      return { ...state, queue: { steering: event.steering, followUp: event.followUp } };
+      // Native runtime queues are not authoritative for editable GUI prompts.
+      return state;
 
     case 'compaction_start':
       return appendStatus(state, `Compacting context (${event.reason})…`, 'info', now);
@@ -351,8 +364,6 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
         streamingAssistantId: null,
         streamingThinkingId: null,
         lastCompletionPreview: preview,
-        // Defensive: the runtime clears its queues when a turn settles.
-        queue: { steering: [], followUp: [] },
         settledCount: state.settledCount + 1,
       };
     }
@@ -360,29 +371,6 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
     default:
       return state;
   }
-}
-
-function dequeueMessage(state: AppState, text: string): AppState {
-  const steeringIndex = state.queue.steering.indexOf(text);
-  if (steeringIndex !== -1) {
-    return {
-      ...state,
-      queue: {
-        ...state.queue,
-        steering: state.queue.steering.filter((_, index) => index !== steeringIndex),
-      },
-    };
-  }
-
-  const followUpIndex = state.queue.followUp.indexOf(text);
-  if (followUpIndex === -1) return state;
-  return {
-    ...state,
-    queue: {
-      ...state.queue,
-      followUp: state.queue.followUp.filter((_, index) => index !== followUpIndex),
-    },
-  };
 }
 
 /** Number of surviving blocks before `index`, used to splice in place. */

@@ -44,6 +44,8 @@ export async function handleRequest(
       });
     case 'runtime.stop':
       return manager.stop();
+    case 'runtime.restart':
+      return manager.restart();
     case 'runtime.probe': {
       // The binary is always read from settings: the renderer cannot ask the
       // main process to execute an arbitrary path.
@@ -57,11 +59,15 @@ export async function handleRequest(
       await runtime().prompt({ text: request.payload.text });
       return null;
     case 'agent.steer':
-      await runtime().steer({ text: request.payload.text });
+      manager.enqueuePrompt('steering', request.payload.text, target);
       return null;
     case 'agent.followUp':
-      await runtime().followUp({ text: request.payload.text });
+      manager.enqueuePrompt('follow-up', request.payload.text, target);
       return null;
+    case 'queue.snapshot':
+      return manager.queueSnapshot(target);
+    case 'queue.pop':
+      return manager.popPrompt(target);
     case 'agent.abort':
       await runtime().abort();
       return null;

@@ -9,7 +9,7 @@ import type {
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
-import type { RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
+import type { PromptQueueSnapshot, RuntimeSnapshot, SessionActivity } from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
 
@@ -132,7 +132,7 @@ export interface AppState {
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
   streamingThinkingId: string | null;
-  queue: { steering: string[]; followUp: string[] };
+  queue: PromptQueueSnapshot;
   diagnostics: string[];
   expandAll: boolean;
   expanded: Record<string, boolean>;
@@ -165,6 +165,7 @@ export type Action =
       runtime?: RuntimeSnapshot['runtime'];
     }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
+  | { type: 'queue'; snapshot: PromptQueueSnapshot }
   | {
       type: 'sessionNavigation';
       active: boolean;

@@ -159,10 +159,13 @@ describe('app shell', () => {
 
     await act(async () => {
       bridge.emit({
-        type: 'agent',
-        sessionId: AGENT.sessionId,
-        runtime: 'tau',
-        event: { type: 'queue_update', steering: ['use vitest'], followUp: ['then lint'] },
+        type: 'queue',
+        snapshot: {
+          runtime: 'tau',
+          sessionId: AGENT.sessionId,
+          steering: [{ id: 'prompt-1', kind: 'steering', text: 'use vitest' }],
+          followUp: [{ id: 'prompt-2', kind: 'follow-up', text: 'then lint' }],
+        },
       });
       await Promise.resolve();
     });

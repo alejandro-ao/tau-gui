@@ -33,7 +33,8 @@ export function parseShellIntent(text: string): ShellIntent | null {
 export function Composer(): ReactNode {
   const { state, actions } = useStore();
   const draft = state.draft;
-  const lastSubmitted = useRef<string | null>(null);
+  const submittedBySession = useRef(new Map<string, string>());
+  const recallInFlight = useRef(false);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
   const pendingCursor = useRef<number | null>(null);
@@ -47,6 +48,9 @@ export function Composer(): ReactNode {
 
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
+  const sessionKey = `${state.snapshot.runtime}:${state.snapshot.state?.sessionId ?? ''}`;
+  const viewedSession = useRef(sessionKey);
+  viewedSession.current = sessionKey;
   const shellMode = draft.startsWith('!');
   const shellDisabled = shellMode && !capabilities.directBash;
 
@@ -138,7 +142,7 @@ export function Composer(): ReactNode {
           return;
         }
         setDraft('');
-        lastSubmitted.current = text;
+        submittedBySession.current.set(sessionKey, text);
         void actions.runShell(intent.command, intent.excludeFromContext);
         return;
       }
@@ -149,41 +153,23 @@ export function Composer(): ReactNode {
       // command the desktop app owns before deciding whether to prompt/steer.
       if (mode === 'primary' && completion.runInvocation(trimmed)) {
         setDraft('');
-        lastSubmitted.current = trimmed;
-        return;
-      }
-
-      if (mode === 'followUp' || (running && !capabilities.steering)) {
-        if (!capabilities.followUps) {
-          actions.notice('This runtime does not support queued follow-ups.');
-          return;
-        }
-        setDraft('');
-        lastSubmitted.current = trimmed;
-        void actions.followUp(trimmed);
+        submittedBySession.current.set(sessionKey, trimmed);
         return;
       }
 
       if (running) {
         setDraft('');
-        lastSubmitted.current = trimmed;
-        void actions.steer(trimmed);
+        submittedBySession.current.set(sessionKey, trimmed);
+        if (mode === 'followUp') void actions.followUp(trimmed);
+        else void actions.steer(trimmed);
         return;
       }
 
       setDraft('');
-      lastSubmitted.current = trimmed;
+      submittedBySession.current.set(sessionKey, trimmed);
       void actions.submit(trimmed);
     },
-    [
-      actions,
-      capabilities.directBash,
-      capabilities.followUps,
-      capabilities.steering,
-      completion,
-      running,
-      setDraft,
-    ],
+    [actions, capabilities.directBash, completion, running, sessionKey, setDraft],
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -234,11 +220,21 @@ export function Composer(): ReactNode {
       return;
     }
     if (event.key === 'ArrowUp' && draft.length === 0) {
-      const recalled = state.queue.followUp.at(-1) ?? lastSubmitted.current;
-      if (recalled) {
-        event.preventDefault();
-        applyText(recalled, recalled.length);
-      }
+      event.preventDefault();
+      if (recallInFlight.current) return;
+      recallInFlight.current = true;
+      void actions
+        .popQueued()
+        .then((item) => {
+          // Navigation may complete while IPC is in flight. Never place text
+          // popped from one session into another session's composer.
+          if (viewedSession.current !== sessionKey) return;
+          const recalled = item?.text ?? submittedBySession.current.get(sessionKey);
+          if (recalled) applyText(recalled, recalled.length);
+        })
+        .finally(() => {
+          recallInFlight.current = false;
+        });
       return;
     }
     if (event.key.toLowerCase() === 'c' && event.ctrlKey && !hasTextSelection()) {
@@ -305,7 +301,7 @@ export function Composer(): ReactNode {
             aria-label="composer"
             rows={1}
             value={draft}
-            placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
+            placeholder={placeholder(running)}
             spellCheck={false}
             onChange={(event) => {
               setCursor(event.target.selectionStart);
@@ -333,25 +329,13 @@ export function Composer(): ReactNode {
             </button>
           ) : null}
           {shellDisabled ? <span className="composer-hint">shell unavailable</span> : null}
-          {running && !capabilities.steering ? (
-            <span className="composer-hint" title="This runtime cannot steer an active run.">
-              steering unavailable
-            </span>
-          ) : null}
-          {!capabilities.followUps ? (
-            <span className="composer-hint" title="This runtime cannot queue follow-ups.">
-              follow-ups unavailable
-            </span>
-          ) : null}
         </div>
       </div>
     </div>
   );
 }
 
-function placeholder(running: boolean, steering: boolean, followUps: boolean): string {
+function placeholder(running: boolean): string {
   if (!running) return 'Ask, or !command for shell · Enter to send · Shift+Enter for newline';
-  if (steering) return 'Enter steers the active run · Alt+Enter queues a follow-up';
-  if (followUps) return 'Enter queues a follow-up';
-  return 'Run in progress';
+  return 'Enter queues priority guidance · Alt+Enter queues a follow-up';
 }

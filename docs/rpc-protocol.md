@@ -105,7 +105,7 @@ turn_end
 [auto_retry_start / … / auto_retry_end]
 agent_end {messages, willRetry}
 agent_settled
-queue_update {steering, followUp}      (steer/follow-up acceptance)
+queue_update {steering, followUp}      (native queue observation only)
 rpc_error {error}
 ```
 
@@ -115,7 +115,10 @@ carries a cumulative `partial`/`message` snapshot, so a dropped delta cannot
 corrupt the transcript.
 
 **`agent_settled`, not `agent_end`, means idle.** `agent_end` is also emitted
-before overflow compaction and the subsequent automatic retry.
+before overflow compaction and the subsequent automatic retry. GUI submissions
+made during a run are held in the app-owned main-process queue; after this idle
+boundary they are dispatched as fresh `prompt` requests. Native `queue_update`
+events are therefore not authoritative for editable GUI prompts.
 
 Tau never emits `bash_execution_update`, `extension_error`, `entry_appended`,
 `session_info_changed`, or `thinking_level_changed`. Pi emits the first two.

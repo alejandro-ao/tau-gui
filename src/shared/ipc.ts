@@ -95,6 +95,7 @@ export const requestSchema = z.discriminatedUnion('action', [
     }),
   }),
   z.object({ action: z.literal('runtime.stop') }),
+  z.object({ action: z.literal('runtime.restart') }),
   // The probe never accepts a renderer-supplied binary: only the runtime kind
   // may be selected, and the executable always comes from persisted settings.
   z.object({
@@ -106,6 +107,8 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
   z.object({ action: z.literal('agent.steer'), payload: z.object({ text: z.string().min(1) }) }),
   z.object({ action: z.literal('agent.followUp'), payload: z.object({ text: z.string().min(1) }) }),
+  z.object({ action: z.literal('queue.snapshot') }).strict(),
+  z.object({ action: z.literal('queue.pop') }).strict(),
   z.object({ action: z.literal('agent.abort') }),
   z.object({ action: z.literal('agent.state') }),
   z.object({ action: z.literal('agent.messages') }),
@@ -208,6 +211,18 @@ export interface FileCompletion {
   isDirectory: boolean;
 }
 
+export interface PromptQueueItem {
+  /** Stable application identity; duplicate text is intentionally allowed. */
+  id: string;
+  kind: 'steering' | 'follow-up';
+  text: string;
+}
+
+export interface PromptQueueSnapshot extends SessionTarget {
+  steering: PromptQueueItem[];
+  followUp: PromptQueueItem[];
+}
+
 /** Per-session run state used by the sessions rail, including background runtimes. */
 export interface SessionActivity {
   sessionId: string;
@@ -225,11 +240,14 @@ export interface IpcResultMap {
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
+  'runtime.restart': RuntimeSnapshot;
   'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
   'agent.prompt': null;
   'agent.steer': null;
   'agent.followUp': null;
+  'queue.snapshot': PromptQueueSnapshot;
+  'queue.pop': PromptQueueItem | null;
   'agent.abort': null;
   'agent.state': AgentState;
   'agent.messages': AgentMessage[];
@@ -277,6 +295,7 @@ export type BridgeEvent =
       event: AgentEvent;
     }
   | { type: 'status'; snapshot: RuntimeSnapshot }
+  | { type: 'queue'; snapshot: PromptQueueSnapshot }
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }

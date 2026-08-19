@@ -214,6 +214,57 @@ describe('RuntimePool', () => {
     expect(internals.managers.size).toBe(2);
   });
 
+  it('drains app-owned steering before follow-ups as fresh prompts after settles', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '20';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    await pool.active.prompt({ text: 'slow initial' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+    pool.enqueuePrompt('follow-up', 'follow second', target);
+    pool.enqueuePrompt('steering', 'priority first', target);
+
+    await waitFor(async () => {
+      const messages = await pool!.active.getMessages();
+      return (
+        pool!.snapshot().status === 'idle' &&
+        messages.filter((message) => message.role === 'user').length === 3
+      );
+    });
+    const messages = await pool.active.getMessages();
+    expect(
+      messages.filter((message) => message.role === 'user').map((message) => message.text),
+    ).toEqual(['slow initial', 'priority first', 'follow second']);
+  });
+
+  it('retains queued work across a runtime restart of the same session', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    await pool.active.prompt({ text: 'slow interrupted' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+    pool.enqueuePrompt('steering', 'survives restart', target);
+
+    await pool.restart();
+    await waitFor(async () =>
+      (await pool!.active.getMessages()).some(
+        (message) => message.role === 'user' && message.text === 'survives restart',
+      ),
+    );
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

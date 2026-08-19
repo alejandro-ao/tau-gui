@@ -72,7 +72,7 @@ it costs nothing and cannot depend on provider availability.
 | `prompting.spec.ts`  | streaming text and finalization, thinking block                   |
 | `tools.spec.ts`      | read/edit/bash blocks, success state, Ctrl+O + per-block expand   |
 | `cancel.spec.ts`     | Esc aborts the slow run, composer stays usable                    |
-| `steering.spec.ts`   | Enter steers, Alt+Enter queues a follow-up, settles once          |
+| `steering.spec.ts`   | app-owned queue, atomic Up-pop, edit + explicit requeue           |
 | `errors.spec.ts`     | error block rendering, composer still usable                      |
 | `models.spec.ts`     | model picker from the status row and the palette, status updates  |
 | `sessions.spec.ts`   | Ctrl+N and `/new` clear the transcript, recent-session picker     |

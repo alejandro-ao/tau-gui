@@ -15,7 +15,12 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
-import type { FileCompletion, RuntimeProbe, SessionTarget } from '../../../shared/ipc.js';
+import type {
+  FileCompletion,
+  PromptQueueItem,
+  RuntimeProbe,
+  SessionTarget,
+} from '../../../shared/ipc.js';
 import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
@@ -33,6 +38,7 @@ export interface Actions {
   submit: (text: string) => Promise<void>;
   steer: (text: string) => Promise<void>;
   followUp: (text: string) => Promise<void>;
+  popQueued: () => Promise<PromptQueueItem | null>;
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
   setModel: (ref: ModelRef) => Promise<void>;
@@ -143,13 +149,14 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       const target: SessionTarget | undefined = snapshot.state?.sessionId
         ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
         : undefined;
-      const [messages, stats, models, levels, commands, resources] = await Promise.all([
+      const [messages, stats, models, levels, commands, resources, queue] = await Promise.all([
         attempt('agent.messages', undefined, notice, target),
         attempt('agent.stats', undefined, notice, target),
         attempt('models.list', undefined, notice, target),
         attempt('thinking.list', undefined, notice, target),
         attempt('commands.list', undefined, notice, target),
         attempt('resources.list', undefined, notice),
+        attempt('queue.snapshot', undefined, notice, target),
       ]);
       if (epoch !== refreshEpoch.current) return;
       if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
@@ -158,6 +165,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (levels) dispatch({ type: 'thinkingLevels', levels });
       if (commands) dispatch({ type: 'commands', commands });
       if (resources) dispatch({ type: 'resources', resources });
+      if (queue) dispatch({ type: 'queue', snapshot: queue });
     },
     [notice],
   );
@@ -185,6 +193,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             // tool remains falsely running.
             void refresh({ runtime: event.runtime, sessionId: event.sessionId });
           }
+          break;
+        case 'queue':
+          dispatch({ type: 'queue', snapshot: event.snapshot });
           break;
         case 'status':
           // Status is transcript-scoped too. Keeping the previous manager's
@@ -333,6 +344,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       followUp: async (text) => {
         if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
         await attempt('agent.followUp', { text }, notice, viewed());
+      },
+      popQueued: async () => {
+        if (stateRef.current.sessionTransitioning) return null;
+        return attempt('queue.pop', undefined, notice, viewed());
       },
       abort: async () => {
         await attempt('agent.abort', undefined, notice, viewed());
@@ -569,9 +584,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       restart: async () => {
         invalidateRefresh();
         await run(async () => {
-          const snapshot = await invoke('runtime.start', {
-            cwd: stateRef.current.settings.cwd ?? null,
-          });
+          const snapshot = await invoke('runtime.restart');
           dispatch({ type: 'snapshot', snapshot });
           dispatch({ type: 'clearTranscript' });
           await refresh();

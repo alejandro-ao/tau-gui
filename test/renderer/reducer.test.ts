@@ -493,31 +493,31 @@ describe('answer selection', () => {
 });
 
 describe('lifecycle bookkeeping', () => {
-  it('records queue state', () => {
-    const state = replay([{ type: 'queue_update', steering: ['a'], followUp: ['b'] }]);
-    expect(state.queue).toEqual({ steering: ['a'], followUp: ['b'] });
-  });
-
-  it('removes one queued item when it enters the agent thread', () => {
-    const state = replay([
-      { type: 'queue_update', steering: ['repeat', 'repeat'], followUp: ['later'] },
-      {
-        type: 'message_start',
-        message: { role: 'user', text: 'repeat', images: [], timestamp: 1 },
+  it('ignores native queue updates and accepts scoped application snapshots', () => {
+    const viewed = {
+      ...INITIAL_STATE,
+      snapshot: {
+        ...INITIAL_STATE.snapshot,
+        state: { ...INITIAL_STATE.snapshot.state!, sessionId: 'session-1' },
       },
-    ]);
-    expect(state.queue).toEqual({ steering: ['repeat'], followUp: ['later'] });
+    };
+    const native = replay([{ type: 'queue_update', steering: ['native'], followUp: [] }], viewed);
+    expect(native.queue.steering).toEqual([]);
 
-    const afterFollowUp = replay(
-      [
-        {
-          type: 'message_start',
-          message: { role: 'user', text: 'later', images: [], timestamp: 2 },
-        },
+    const snapshot = {
+      runtime: 'tau' as const,
+      sessionId: 'session-1',
+      steering: [
+        { id: 'prompt-1', kind: 'steering' as const, text: 'repeat' },
+        { id: 'prompt-2', kind: 'steering' as const, text: 'repeat' },
       ],
-      state,
-    );
-    expect(afterFollowUp.queue).toEqual({ steering: ['repeat'], followUp: [] });
+      followUp: [{ id: 'prompt-3', kind: 'follow-up' as const, text: 'later' }],
+    };
+    const state = reducer(viewed, { type: 'queue', snapshot });
+    expect(state.queue).toEqual(snapshot);
+    expect(
+      reducer(viewed, { type: 'queue', snapshot: { ...snapshot, sessionId: 'background' } }),
+    ).toBe(viewed);
   });
 
   it('adds status blocks for compaction and retries', () => {
@@ -557,12 +557,17 @@ describe('lifecycle bookkeeping', () => {
     expect(again.settledCount).toBe(2);
   });
 
-  it('clears the queue when the turn settles', () => {
-    const state = replay([
-      { type: 'queue_update', steering: ['stop that'], followUp: ['then this'] },
-      { type: 'agent_settled' },
-    ]);
-    expect(state.queue).toEqual({ steering: [], followUp: [] });
+  it('does not let runtime settle events mutate the application queue', () => {
+    const queued: AppState = {
+      ...INITIAL_STATE,
+      queue: {
+        runtime: 'tau',
+        sessionId: 'session-1',
+        steering: [{ id: 'prompt-1', kind: 'steering', text: 'keep' }],
+        followUp: [],
+      },
+    };
+    expect(replay([{ type: 'agent_settled' }], queued).queue).toEqual(queued.queue);
   });
 
   it('treats running/compacting/retrying as active and idle as settled', () => {
@@ -586,10 +591,23 @@ describe('view state', () => {
   });
 
   it('clears transcript state without touching settings', () => {
-    const seeded = replay([{ type: 'queue_update', steering: ['x'], followUp: [] }]);
+    const seeded = {
+      ...INITIAL_STATE,
+      queue: {
+        runtime: 'tau' as const,
+        sessionId: 'session-1',
+        steering: [{ id: 'prompt-1', kind: 'steering' as const, text: 'x' }],
+        followUp: [],
+      },
+    };
     const cleared = reducer(seeded, { type: 'clearTranscript' });
     expect(cleared.blocks).toEqual([]);
-    expect(cleared.queue).toEqual({ steering: [], followUp: [] });
+    expect(cleared.queue).toEqual({
+      runtime: 'tau',
+      sessionId: '',
+      steering: [],
+      followUp: [],
+    });
     expect(cleared.settings).toBe(seeded.settings);
   });
 

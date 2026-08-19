@@ -52,7 +52,7 @@ describe('global shortcuts', () => {
 
     bridge.calls.length = 0;
     await press(window, 'r', { ctrlKey: true });
-    expect(actionsOf(bridge)).toContain('runtime.start');
+    expect(actionsOf(bridge)).toContain('runtime.restart');
     // Ctrl+O has no IPC surface; expansion.test.tsx covers its transcript effect.
     expect(query(view.container, '.app')).toBeTruthy();
   });
