@@ -9,6 +9,8 @@ const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: 'Esc', description: 'close the top modal, otherwise abort the active run' },
   { keys: 'Up (empty composer)', description: 'recall the latest queued follow-up' },
   { keys: 'Ctrl+C', description: 'clear the composer (never while text is selected)' },
+  { keys: 'Cmd/Ctrl+Z', description: 'undo composer editing' },
+  { keys: 'Cmd+Shift+Z / Ctrl+Y', description: 'redo composer editing' },
   { keys: 'Ctrl+K', description: 'command palette' },
   { keys: 'Ctrl+O', description: 'expand or collapse every block' },
   { keys: 'Ctrl+P', description: 'cycle model' },

@@ -22,6 +22,14 @@ interface ShellIntent {
   excludeFromContext: boolean;
 }
 
+interface EditSnapshot {
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+const MAX_EDIT_HISTORY = 100;
+
 /** `!cmd` runs and keeps output in context, `!!cmd` runs and excludes it. */
 export function parseShellIntent(text: string): ShellIntent | null {
   if (!text.startsWith('!')) return null;
@@ -36,8 +44,13 @@ export function Composer(): ReactNode {
   const lastSubmitted = useRef<string | null>(null);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
-  const pendingCursor = useRef<number | null>(null);
+  const draftRef = useRef(draft);
+  const selection = useRef({ start: 0, end: 0 });
+  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  const undoStack = useRef<EditSnapshot[]>([]);
+  const redoStack = useRef<EditSnapshot[]>([]);
   const [cursor, setCursor] = useState(0);
+  draftRef.current = draft;
 
   // Focus on initial session load and whenever a session action opens another
   // transcript. The request counter also handles reopening the active session.
@@ -51,7 +64,20 @@ export function Composer(): ReactNode {
   const shellDisabled = shellMode && !capabilities.directBash;
 
   const setDraft = useCallback(
-    (text: string) => {
+    (text: string, selectionStart = text.length, selectionEnd = selectionStart, restore = true) => {
+      const previousText = draftRef.current;
+      if (text === previousText) return;
+      undoStack.current.push({
+        text: previousText,
+        selectionStart: selection.current.start,
+        selectionEnd: selection.current.end,
+      });
+      if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+      redoStack.current = [];
+      draftRef.current = text;
+      selection.current = { start: selectionStart, end: selectionEnd };
+      if (restore) pendingSelection.current = { start: selectionStart, end: selectionEnd };
+      setCursor(selectionStart);
       actions.setDraft(text);
     },
     [actions],
@@ -60,21 +86,38 @@ export function Composer(): ReactNode {
   /** Replaces the draft and restores the caret once React has re-rendered. */
   const applyText = useCallback(
     (text: string, nextCursor: number) => {
-      pendingCursor.current = nextCursor;
-      setCursor(nextCursor);
-      setDraft(text);
+      setDraft(text, nextCursor);
     },
     [setDraft],
   );
 
+  const restoreEdit = useCallback(
+    (source: { current: EditSnapshot[] }, destination: { current: EditSnapshot[] }) => {
+      const next = source.current.pop();
+      if (!next) return;
+      const element = input.current;
+      destination.current.push({
+        text: draftRef.current,
+        selectionStart: element?.selectionStart ?? selection.current.start,
+        selectionEnd: element?.selectionEnd ?? selection.current.end,
+      });
+      draftRef.current = next.text;
+      selection.current = { start: next.selectionStart, end: next.selectionEnd };
+      pendingSelection.current = { start: next.selectionStart, end: next.selectionEnd };
+      setCursor(next.selectionStart);
+      actions.setDraft(next.text);
+    },
+    [actions],
+  );
+
   useEffect(() => {
-    const position = pendingCursor.current;
-    if (position === null) return;
-    pendingCursor.current = null;
+    const next = pendingSelection.current;
+    if (!next) return;
+    pendingSelection.current = null;
     const element = input.current;
     if (!element) return;
     element.focus();
-    element.setSelectionRange(position, position);
+    element.setSelectionRange(next.start, next.end);
   }, [draft]);
 
   // Keeps the highlight backdrop aligned with the textarea once it starts to
@@ -187,6 +230,19 @@ export function Composer(): ReactNode {
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const key = event.key.toLowerCase();
+    const commandModifier = (event.metaKey || event.ctrlKey) && !event.altKey;
+    if (commandModifier && key === 'z') {
+      event.preventDefault();
+      restoreEdit(event.shiftKey ? redoStack : undoStack, event.shiftKey ? undoStack : redoStack);
+      return;
+    }
+    if (event.ctrlKey && !event.metaKey && !event.altKey && key === 'y') {
+      event.preventDefault();
+      restoreEdit(redoStack, undoStack);
+      return;
+    }
+
     // Completion owns navigation keys while its popup is open.
     if (completion.kind) {
       if (event.key === 'ArrowDown') {
@@ -308,12 +364,34 @@ export function Composer(): ReactNode {
             placeholder={placeholder(running, capabilities.steering, capabilities.followUps)}
             spellCheck={false}
             onChange={(event) => {
-              setCursor(event.target.selectionStart);
-              setDraft(event.target.value);
+              setDraft(
+                event.target.value,
+                event.target.selectionStart,
+                event.target.selectionEnd,
+                false,
+              );
             }}
-            onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-            onClick={(event) => setCursor(event.currentTarget.selectionStart)}
-            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
+            onSelect={(event) => {
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
+            onClick={(event) => {
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
+            onKeyUp={(event) => {
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
             onKeyDown={onKeyDown}
             onScroll={(event) => syncScroll(event.currentTarget)}
           />

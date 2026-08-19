@@ -79,7 +79,8 @@ Tracks issue #1. Update this file whenever behavior changes.
 - `@` file completion through the constrained main-process service, debounced in
   the renderer, inserting quoted display paths at the cursor.
 - Composer drafts live in the store, so they survive modals, session switches,
-  and runtime switches.
+  and runtime switches. Local undo/redo history also covers programmatic clears
+  and prompt-history replacements.
 - `!`/`!!` direct shell mode with amber prompt styling.
 - Drag/drop path insertion with quoting.
 - Native completion notifications (only while the window is unfocused and

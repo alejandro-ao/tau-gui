@@ -192,6 +192,29 @@ describe('Composer key handling', () => {
     expect(input.value).toBe('first prompt');
   });
 
+  it('undoes and redoes an Up Arrow history replacement', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'first prompt');
+    await press(input, 'Enter');
+    await press(input, 'ArrowUp');
+    expect(input.value).toBe('first prompt');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('first prompt');
+  });
+
+  it('undoes deleted text with the platform modifier', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'accidental deletion');
+    await type(input, 'accidental ');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('accidental deletion');
+  });
+
   it('clears the editor with Ctrl+C when nothing is selected', async () => {
     const { bridge, input } = await renderComposer({});
     await type(input, 'scratch text');
@@ -199,5 +222,17 @@ describe('Composer key handling', () => {
 
     expect(input.value).toBe('');
     expect(actions(bridge)).toHaveLength(0);
+  });
+
+  it('undoes a cleared draft and redoes it with the macOS shortcuts', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'scratch text');
+    await press(input, 'c', { ctrlKey: true });
+
+    await press(input, 'z', { metaKey: true });
+    expect(input.value).toBe('scratch text');
+
+    await press(input, 'z', { metaKey: true, shiftKey: true });
+    expect(input.value).toBe('');
   });
 });
