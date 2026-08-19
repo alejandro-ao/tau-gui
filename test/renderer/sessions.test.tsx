@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { query, type Mounted } from './harness.js';
-import { click, composer, press, renderApp, type } from './ui.js';
+import { click, composer, press, renderApp, settle, type } from './ui.js';
 
 let mounted: Mounted | null = null;
 
@@ -52,6 +52,44 @@ describe('session and context flows', () => {
     await runSlash(view, '/new');
     expect(bridge.calls.map((call) => call.action)).toContain('session.new');
     expect(composer(view).value).toBe('');
+  });
+
+  it('focuses the composer after opening a new session', async () => {
+    const { view } = await renderApp({});
+    mounted = view;
+    const button = query<HTMLButtonElement>(view.container, '.sessions-rail-new');
+    button.focus();
+
+    await click(button);
+    await settle(view);
+
+    expect(document.activeElement).toBe(composer(view));
+  });
+
+  it('focuses the composer after opening an existing session', async () => {
+    const { view } = await renderApp({
+      settings: {
+        recentSessions: [
+          {
+            id: 'existing',
+            name: 'Existing session',
+            messageCount: 1,
+            path: '/work/project/.tau/existing.jsonl',
+            cwd: '/work/project',
+            runtime: 'tau',
+            lastSeen: Date.now(),
+          },
+        ],
+      },
+    });
+    mounted = view;
+    const button = query<HTMLButtonElement>(view.container, '.sessions-rail-item');
+    button.focus();
+
+    await click(button);
+    await settle(view);
+
+    expect(document.activeElement).toBe(composer(view));
   });
 
   it('lists bounded diagnostics with copy support', async () => {

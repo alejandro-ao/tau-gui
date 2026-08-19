@@ -136,6 +136,8 @@ export interface AppState {
    * switches, and runtime switches.
    */
   draft: string;
+  /** Incremented whenever a session opens so the composer can reclaim focus. */
+  composerFocusRequest: number;
   modal: ModalKind | null;
   windowFocused: boolean;
   busy: boolean;

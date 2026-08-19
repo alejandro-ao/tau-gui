@@ -30,6 +30,7 @@ export const INITIAL_STATE: AppState = {
   expandAll: false,
   expanded: {},
   draft: '',
+  composerFocusRequest: 0,
   modal: null,
   windowFocused: true,
   busy: false,
@@ -127,6 +128,7 @@ export function reducer(state: AppState, action: Action): AppState {
         streamingThinkingId: null,
         queue: { steering: [], followUp: [] },
         expanded: {},
+        composerFocusRequest: state.composerFocusRequest + 1,
       };
     case 'toggleExpandAll':
       return { ...state, expandAll: !state.expandAll, expanded: {} };

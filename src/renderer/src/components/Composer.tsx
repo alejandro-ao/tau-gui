@@ -35,6 +35,12 @@ export function Composer(): ReactNode {
   const pendingCursor = useRef<number | null>(null);
   const [cursor, setCursor] = useState(0);
 
+  // Focus on initial session load and whenever a session action opens another
+  // transcript. The request counter also handles reopening the active session.
+  useEffect(() => {
+    input.current?.focus();
+  }, [state.composerFocusRequest]);
+
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
   const shellMode = draft.startsWith('!');
