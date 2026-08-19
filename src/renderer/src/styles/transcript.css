@@ -152,7 +152,16 @@
 
 .message-actions {
   display: flex;
-  margin: calc(-1 * var(--space-2)) 0 0 calc(var(--bar-width) + var(--space-4));
+  margin: 0 0 0 calc(var(--bar-width) + var(--space-4));
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.message-block:hover .message-actions,
+.message-block:focus-within .message-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .copy-button {
