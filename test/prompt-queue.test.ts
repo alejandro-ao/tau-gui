@@ -57,6 +57,36 @@ describe('PromptQueueService', () => {
     expect(queue.pop(beta)?.text).toBe('beta-only');
   });
 
+  it('restores the exact claimed duplicate in enqueue order and session', () => {
+    const { queue } = setup();
+    const first = queue.enqueue(alpha, 'follow-up', 'duplicate');
+    const second = queue.enqueue(alpha, 'follow-up', 'duplicate');
+    queue.enqueue(beta, 'follow-up', 'duplicate');
+
+    expect(queue.pop(alpha)).toEqual(second);
+    expect(queue.resolveRecall(alpha, second.id, 'restore')).toBe(true);
+    expect(queue.snapshot(alpha).followUp).toEqual([first, second]);
+    expect(queue.snapshot(beta).followUp).toHaveLength(1);
+    expect(queue.pop(alpha)).toEqual(second);
+    expect(queue.resolveRecall(alpha, second.id, 'accept')).toBe(true);
+    expect(queue.snapshot(alpha).followUp).toEqual([first]);
+    expect(queue.resolveRecall(beta, second.id, 'restore')).toBe(false);
+  });
+
+  it('restores around concurrent dispatch and enqueue without changing FIFO/LIFO policy', async () => {
+    const { queue } = setup();
+    const first = queue.enqueue(alpha, 'steering', 'first');
+    const recalled = queue.enqueue(alpha, 'steering', 'recalled');
+    expect(queue.pop(alpha)).toEqual(recalled);
+    await queue.dispatchNext(alpha, () => Promise.resolve());
+    const newest = queue.enqueue(alpha, 'steering', 'newest');
+
+    queue.resolveRecall(alpha, recalled.id, 'restore');
+    expect(queue.snapshot(alpha).steering).toEqual([recalled, newest]);
+    expect(queue.pop(alpha)).toEqual(newest);
+    expect(first.id).not.toBe(recalled.id);
+  });
+
   it('atomically claims before dispatch so pop cannot retrieve an in-flight item', async () => {
     const { queue } = setup();
     queue.enqueue(alpha, 'follow-up', 'claimed');

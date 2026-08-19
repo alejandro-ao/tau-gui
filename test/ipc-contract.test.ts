@@ -18,6 +18,12 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'shell.abort' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'queue.snapshot' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'queue.pop' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'queue.resolve',
+        payload: { id: 'prompt-1', outcome: 'restore' },
+      }).success,
+    ).toBe(true);
     expect(requestSchema.safeParse({ action: 'runtime.restart' }).success).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
@@ -121,6 +127,12 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'ui.copyText' }).success).toBe(false);
     expect(
       requestSchema.safeParse({ action: 'queue.pop', payload: { id: 'forged' } }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'queue.resolve',
+        payload: { id: 'prompt-1', outcome: 'drop' },
+      }).success,
     ).toBe(false);
   });
 

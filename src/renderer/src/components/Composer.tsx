@@ -35,6 +35,7 @@ export function Composer(): ReactNode {
   const draft = state.draft;
   const submittedBySession = useRef(new Map<string, string>());
   const recallInFlight = useRef(false);
+  const draftRevision = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
   const pendingCursor = useRef<number | null>(null);
@@ -51,11 +52,14 @@ export function Composer(): ReactNode {
   const sessionKey = `${state.snapshot.runtime}:${state.snapshot.state?.sessionId ?? ''}`;
   const viewedSession = useRef(sessionKey);
   viewedSession.current = sessionKey;
+  const sessionTransitioning = useRef(state.sessionTransitioning);
+  sessionTransitioning.current = state.sessionTransitioning;
   const shellMode = draft.startsWith('!');
   const shellDisabled = shellMode && !capabilities.directBash;
 
   const setDraft = useCallback(
     (text: string) => {
+      draftRevision.current += 1;
       actions.setDraft(text);
     },
     [actions],
@@ -223,13 +227,28 @@ export function Composer(): ReactNode {
       event.preventDefault();
       if (recallInFlight.current) return;
       recallInFlight.current = true;
+      const revision = draftRevision.current;
       void actions
         .popQueued()
-        .then((item) => {
-          // Navigation may complete while IPC is in flight. Never place text
-          // popped from one session into another session's composer.
-          if (viewedSession.current !== sessionKey) return;
-          const recalled = item?.text ?? submittedBySession.current.get(sessionKey);
+        .then(async (item) => {
+          // A claim stays main-owned until this exact response is accepted or
+          // restored. Revision comparison is identity-independent: typing the
+          // same text as the queued item still counts as a newer draft.
+          const canApply =
+            viewedSession.current === sessionKey &&
+            !sessionTransitioning.current &&
+            draftRevision.current === revision;
+          if (item) {
+            if (!canApply) {
+              await item.resolve('restore');
+              return;
+            }
+            applyText(item.text, item.text.length);
+            await item.resolve('accept');
+            return;
+          }
+          if (!canApply) return;
+          const recalled = submittedBySession.current.get(sessionKey);
           if (recalled) applyText(recalled, recalled.length);
         })
         .finally(() => {

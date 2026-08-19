@@ -109,6 +109,13 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('agent.followUp'), payload: z.object({ text: z.string().min(1) }) }),
   z.object({ action: z.literal('queue.snapshot') }).strict(),
   z.object({ action: z.literal('queue.pop') }).strict(),
+  z.object({
+    action: z.literal('queue.resolve'),
+    payload: z.object({
+      id: z.string().min(1),
+      outcome: z.enum(['accept', 'restore']),
+    }),
+  }),
   z.object({ action: z.literal('agent.abort') }),
   z.object({ action: z.literal('agent.state') }),
   z.object({ action: z.literal('agent.messages') }),
@@ -248,6 +255,7 @@ export interface IpcResultMap {
   'agent.followUp': null;
   'queue.snapshot': PromptQueueSnapshot;
   'queue.pop': PromptQueueItem | null;
+  'queue.resolve': boolean;
   'agent.abort': null;
   'agent.state': AgentState;
   'agent.messages': AgentMessage[];

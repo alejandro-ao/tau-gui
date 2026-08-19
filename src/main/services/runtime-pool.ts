@@ -62,6 +62,19 @@ export class RuntimePool {
     return this.queues.pop(targetFor(manager));
   }
 
+  resolvePromptRecall(
+    id: string,
+    outcome: 'accept' | 'restore',
+    target?: SessionTarget | null,
+  ): boolean {
+    // Resolution is queue-owned and must outlive runtime navigation. An idle
+    // `new session` can replace the old transcript in its process while the
+    // renderer response is in flight, so an explicit target is authoritative
+    // even when no live RuntimeManager owns it anymore.
+    const resolvedTarget = target ?? targetFor(this.managerFor());
+    return this.queues.resolveRecall(resolvedTarget, id, outcome);
+  }
+
   queueSnapshot(target?: SessionTarget | null): ReturnType<PromptQueueService['snapshot']> {
     const manager = this.managerFor(target);
     return this.queues.snapshot(targetFor(manager));

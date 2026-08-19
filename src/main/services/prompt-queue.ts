@@ -7,9 +7,14 @@ import type {
 
 export type PromptQueueKind = PromptQueueItem['kind'];
 
+interface QueueEntry extends PromptQueueItem {
+  order: number;
+}
+
 interface SessionQueue {
-  steering: PromptQueueItem[];
-  followUp: PromptQueueItem[];
+  steering: QueueEntry[];
+  followUp: QueueEntry[];
+  recalled: Map<string, QueueEntry>;
   dispatching: boolean;
 }
 
@@ -21,6 +26,7 @@ interface SessionQueue {
 export class PromptQueueService {
   private readonly sessions = new Map<string, SessionQueue>();
   private nextId = 0;
+  private nextOrder = 0;
 
   constructor(
     private readonly broadcast: (event: BridgeEvent) => void,
@@ -29,22 +35,47 @@ export class PromptQueueService {
 
   enqueue(target: SessionTarget, kind: PromptQueueKind, text: string): PromptQueueItem {
     const queue = this.queue(target);
-    const item = { id: `prompt-${++this.nextId}`, kind, text } satisfies PromptQueueItem;
-    queue[kind === 'steering' ? 'steering' : 'followUp'].push(item);
+    const entry = {
+      id: `prompt-${++this.nextId}`,
+      kind,
+      text,
+      order: ++this.nextOrder,
+    } satisfies QueueEntry;
+    queue[kind === 'steering' ? 'steering' : 'followUp'].push(entry);
     this.emit(target, queue);
-    return item;
+    return this.toItem(entry);
   }
 
   snapshot(target: SessionTarget): PromptQueueSnapshot {
     return this.toSnapshot(target, this.queue(target));
   }
 
-  /** Pops newest follow-up first, otherwise newest steering cue. */
+  /**
+   * Claims the newest follow-up first, otherwise newest steering cue. The item
+   * remains main-owned until the renderer explicitly accepts or restores it.
+   */
   pop(target: SessionTarget): PromptQueueItem | null {
     const queue = this.queue(target);
-    const item = queue.followUp.pop() ?? queue.steering.pop() ?? null;
-    if (item) this.emit(target, queue);
-    return item;
+    const entry = queue.followUp.pop() ?? queue.steering.pop() ?? null;
+    if (!entry) return null;
+    queue.recalled.set(entry.id, entry);
+    this.emit(target, queue);
+    return this.toItem(entry);
+  }
+
+  /** Resolves one recall claim without relying on text, which may be duplicated. */
+  resolveRecall(target: SessionTarget, id: string, outcome: 'accept' | 'restore'): boolean {
+    const queue = this.queue(target);
+    const entry = queue.recalled.get(id);
+    if (!entry) return false;
+    queue.recalled.delete(id);
+    if (outcome === 'restore') {
+      const entries = queue[entry.kind === 'steering' ? 'steering' : 'followUp'];
+      const index = entries.findIndex((candidate) => candidate.order > entry.order);
+      entries.splice(index < 0 ? entries.length : index, 0, entry);
+      this.emit(target, queue);
+    }
+    return true;
   }
 
   /**
@@ -77,7 +108,7 @@ export class PromptQueueService {
     const key = `${target.runtime}:${target.sessionId}`;
     let queue = this.sessions.get(key);
     if (!queue) {
-      queue = { steering: [], followUp: [], dispatching: false };
+      queue = { steering: [], followUp: [], recalled: new Map(), dispatching: false };
       this.sessions.set(key, queue);
     }
     return queue;
@@ -90,8 +121,12 @@ export class PromptQueueService {
   private toSnapshot(target: SessionTarget, queue: SessionQueue): PromptQueueSnapshot {
     return {
       ...target,
-      steering: queue.steering.map((item) => ({ ...item })),
-      followUp: queue.followUp.map((item) => ({ ...item })),
+      steering: queue.steering.map((item) => this.toItem(item)),
+      followUp: queue.followUp.map((item) => this.toItem(item)),
     };
+  }
+
+  private toItem({ id, kind, text }: QueueEntry): PromptQueueItem {
+    return { id, kind, text };
   }
 }

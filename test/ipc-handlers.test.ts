@@ -40,6 +40,7 @@ interface Calls {
   entries: (string | undefined)[];
   queued: { kind: string; text: string; target: unknown }[];
   popped: number;
+  resolved: { id: string; outcome: string; target: unknown }[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -51,7 +52,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     ...settingsPatch,
     runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
-  const calls: Calls = { abortShell: 0, entries: [], queued: [], popped: 0 };
+  const calls: Calls = { abortShell: 0, entries: [], queued: [], popped: 0, resolved: [] };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
@@ -81,6 +82,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       popPrompt: () => {
         calls.popped += 1;
         return { id: 'prompt-1', kind: 'follow-up', text: 'edit me' };
+      },
+      resolvePromptRecall: (id: string, outcome: string, target: unknown) => {
+        calls.resolved.push({ id, outcome, target });
+        return true;
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
     } as unknown as Context['manager'],
@@ -191,6 +196,14 @@ describe('capability-gated and adapter-contract actions', () => {
       text: 'edit me',
     });
     expect(calls.popped).toBe(1);
+    expect(
+      await handleRequest(context, {
+        action: 'queue.resolve',
+        payload: { id: 'prompt-1', outcome: 'restore' },
+        session,
+      }),
+    ).toBe(true);
+    expect(calls.resolved).toEqual([{ id: 'prompt-1', outcome: 'restore', target: session }]);
   });
 
   it('routes agent.entries with and without a cursor', async () => {

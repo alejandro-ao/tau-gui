@@ -32,13 +32,17 @@ export interface Store {
   actions: Actions;
 }
 
+export interface QueueRecall extends PromptQueueItem {
+  resolve: (outcome: 'accept' | 'restore') => Promise<void>;
+}
+
 export interface Actions {
   start: (cwd?: string | null, sessionRef?: string | null) => Promise<void>;
   stop: () => Promise<void>;
   submit: (text: string) => Promise<void>;
   steer: (text: string) => Promise<void>;
   followUp: (text: string) => Promise<void>;
-  popQueued: () => Promise<PromptQueueItem | null>;
+  popQueued: () => Promise<QueueRecall | null>;
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
   setModel: (ref: ModelRef) => Promise<void>;
@@ -347,7 +351,16 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       popQueued: async () => {
         if (stateRef.current.sessionTransitioning) return null;
-        return attempt('queue.pop', undefined, notice, viewed());
+        const target = viewed();
+        if (!target) return null;
+        const item = await attempt('queue.pop', undefined, notice, target);
+        if (!item) return null;
+        return {
+          ...item,
+          resolve: async (outcome) => {
+            await attempt('queue.resolve', { id: item.id, outcome }, notice, target);
+          },
+        };
       },
       abort: async () => {
         await attempt('agent.abort', undefined, notice, viewed());

@@ -68,6 +68,8 @@ export async function handleRequest(
       return manager.queueSnapshot(target);
     case 'queue.pop':
       return manager.popPrompt(target);
+    case 'queue.resolve':
+      return manager.resolvePromptRecall(request.payload.id, request.payload.outcome, target);
     case 'agent.abort':
       await runtime().abort();
       return null;

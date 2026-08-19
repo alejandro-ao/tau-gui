@@ -9,7 +9,20 @@ import {
   type InvokeCall,
   type Mounted,
 } from './harness.js';
-import type { RuntimeCapabilities } from '../../src/shared/domain.js';
+import type { AgentState, RuntimeCapabilities } from '../../src/shared/domain.js';
+
+const AGENT: AgentState = {
+  model: null,
+  thinkingLevel: 'medium',
+  isStreaming: false,
+  isCompacting: false,
+  sessionFile: null,
+  sessionId: 'session-1',
+  sessionName: null,
+  autoCompactionEnabled: true,
+  messageCount: 0,
+  pendingMessageCount: 0,
+};
 
 const ALL_CAPABILITIES: Partial<RuntimeCapabilities> = {
   steering: true,
@@ -27,10 +40,12 @@ afterEach(() => {
 async function renderComposer(options: {
   status?: 'idle' | 'running';
   capabilities?: Partial<RuntimeCapabilities>;
+  agent?: AgentState;
 }): Promise<{ bridge: FakeBridge; input: HTMLTextAreaElement; view: Mounted }> {
   const bridge = installFakeBridge({
     status: options.status ?? 'idle',
     capabilities: options.capabilities ?? ALL_CAPABILITIES,
+    agent: options.agent,
   });
   // Imported lazily so the fake bridge exists before the store bootstraps.
   const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
@@ -183,7 +198,7 @@ describe('Composer key handling', () => {
   });
 
   it('atomically pops queued text for editing and only requeues it after Enter', async () => {
-    const { bridge, input } = await renderComposer({ status: 'running' });
+    const { bridge, input } = await renderComposer({ status: 'running', agent: AGENT });
     bridge.setHandler('queue.pop', () => ({
       id: 'prompt-7',
       kind: 'follow-up',
@@ -192,13 +207,67 @@ describe('Composer key handling', () => {
 
     await press(input, 'ArrowUp');
     expect(input.value).toBe('queued draft');
-    expect(actions(bridge)).toEqual(['queue.pop']);
+    expect(actions(bridge)).toEqual(['queue.pop', 'queue.resolve']);
+    expect(bridge.payloads('queue.resolve')).toEqual([{ id: 'prompt-7', outcome: 'accept' }]);
 
     await type(input, 'edited draft');
-    expect(actions(bridge)).toEqual(['queue.pop']);
+    expect(actions(bridge)).toEqual(['queue.pop', 'queue.resolve']);
     await press(input, 'Enter');
-    expect(actions(bridge)).toEqual(['queue.pop', 'agent.steer']);
+    expect(actions(bridge)).toEqual(['queue.pop', 'queue.resolve', 'agent.steer']);
     expect(bridge.payloads('agent.steer')).toEqual([{ text: 'edited draft' }]);
+  });
+
+  it('restores a claimed duplicate when newer draft input arrives before recall', async () => {
+    const { bridge, input, view } = await renderComposer({ status: 'running', agent: AGENT });
+    let release: ((item: unknown) => void) | undefined;
+    bridge.setHandler(
+      'queue.pop',
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await press(input, 'ArrowUp');
+    await type(input, 'duplicate');
+    release?.({ id: 'prompt-8', kind: 'follow-up', text: 'duplicate' });
+    await view.flush();
+
+    expect(input.value).toBe('duplicate');
+    expect(bridge.payloads('queue.resolve')).toEqual([{ id: 'prompt-8', outcome: 'restore' }]);
+  });
+
+  it('restores a claim when navigation completes while recall IPC is in flight', async () => {
+    const { bridge, input, view } = await renderComposer({ status: 'running', agent: AGENT });
+    let release: ((item: unknown) => void) | undefined;
+    bridge.setHandler(
+      'queue.pop',
+      () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    );
+
+    await press(input, 'ArrowUp');
+    act(() => {
+      bridge.emit({
+        type: 'status',
+        snapshot: { ...bridge.snapshot, state: { ...AGENT, sessionId: 'session-2' } },
+      });
+    });
+    release?.({ id: 'prompt-9', kind: 'steering', text: 'old session' });
+    await view.flush();
+
+    expect(input.value).toBe('');
+    expect(bridge.calls.find((call) => call.action === 'queue.pop')?.session).toEqual({
+      runtime: 'tau',
+      sessionId: 'session-1',
+    });
+    expect(bridge.calls.find((call) => call.action === 'queue.resolve')?.session).toEqual({
+      runtime: 'tau',
+      sessionId: 'session-1',
+    });
+    expect(bridge.payloads('queue.resolve')).toEqual([{ id: 'prompt-9', outcome: 'restore' }]);
   });
 
   it('recalls the last submitted prompt with Up on an empty editor when the queue is empty', async () => {
