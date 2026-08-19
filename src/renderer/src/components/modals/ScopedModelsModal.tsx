@@ -1,5 +1,11 @@
 import { useMemo, type ReactNode } from 'react';
-import { isScopedModel, modelRefOf, scopedModels } from '../../../../shared/scoped-models.js';
+import type { RuntimeStatus } from '../../../../shared/domain.js';
+import {
+  isScopedModel,
+  modelKey,
+  modelRefOf,
+  scopedModels,
+} from '../../../../shared/scoped-models.js';
 import { useStore } from '../../state/store.js';
 import { Picker, type PickerItem } from './Picker.js';
 
@@ -15,14 +21,14 @@ export function ScopedModelsModal(): ReactNode {
   const runtime = state.settings.agentRuntime;
   const keys = state.settings.scopedModels[runtime];
   const active = state.agent?.model ?? null;
-  const running = state.snapshot.status !== 'stopped' && state.snapshot.status !== 'failed';
+  const availability = modelAvailability(state.snapshot.status, state.models.length > 0);
 
   const items = useMemo<PickerItem[]>(
     () =>
       state.models.map((model) => {
         const scoped = isScopedModel(keys, modelRefOf(model));
         return {
-          id: `${model.provider}:${model.id}`,
+          id: modelKey(modelRefOf(model)),
           label: model.name,
           hint: model.provider,
           badge: scoped ? 'scoped' : null,
@@ -40,14 +46,10 @@ export function ScopedModelsModal(): ReactNode {
     <Picker
       name="scoped"
       title={`scoped models · ${runtime}`}
-      subtitle="app-owned favourites; no runtime supports scoped models over RPC"
+      subtitle={`app-owned favourites; ${availability.subtitle}`}
       placeholder="search models…"
       items={items}
-      emptyLabel={
-        running
-          ? 'the runtime reported no models'
-          : 'the runtime is not running, so it reports no models to scope'
-      }
+      emptyLabel={availability.emptyLabel}
       footer={
         <span>
           {scopedCount === 0
@@ -59,13 +61,42 @@ export function ScopedModelsModal(): ReactNode {
       }
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
-        const model = state.models.find(
-          (candidate) => `${candidate.provider}:${candidate.id}` === item.id,
-        );
+        const model = state.models.find((candidate) => modelKey(modelRefOf(candidate)) === item.id);
         if (!model) return;
         // Toggling never calls set_model, so scoping cannot switch the model.
         void actions.toggleScopedModel(modelRefOf(model));
       }}
     />
   );
+}
+
+export function modelAvailability(
+  status: RuntimeStatus,
+  hasCachedModels: boolean,
+): { subtitle: string; emptyLabel: string } {
+  if (
+    status === 'idle' ||
+    status === 'running' ||
+    status === 'compacting' ||
+    status === 'retrying'
+  ) {
+    return {
+      subtitle: 'no runtime supports scoped models over RPC',
+      emptyLabel: 'the connected runtime reported no models',
+    };
+  }
+  const state =
+    status === 'starting'
+      ? 'the runtime is starting'
+      : status === 'disconnected'
+        ? 'the runtime is disconnected'
+        : status === 'failed'
+          ? 'the runtime failed'
+          : 'the runtime is stopped';
+  return {
+    subtitle: hasCachedModels
+      ? `${state}; shown models are cached and may be stale`
+      : `${state}; connect it to load models`,
+    emptyLabel: `${state}, so no models are currently available to scope`,
+  };
 }

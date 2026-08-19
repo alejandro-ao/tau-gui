@@ -16,7 +16,7 @@ import type {
   TreeSnapshot,
 } from '../../../shared/domain.js';
 import type { FileCompletion, RuntimeProbe } from '../../../shared/ipc.js';
-import { nextScopedModel, toggleScopedKey } from '../../../shared/scoped-models.js';
+import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
@@ -75,6 +75,7 @@ const StoreContext = createContext<Store | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }): ReactNode {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const stateRef = useRef(state);
+  const scopedMutationRef = useRef(0);
   stateRef.current = state;
 
   const notice = useCallback((message: string) => {
@@ -288,14 +289,17 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       toggleScopedModel: async (ref) => {
-        const { settings } = stateRef.current;
-        const runtime = settings.agentRuntime;
-        const scopedModels = {
-          ...settings.scopedModels,
-          [runtime]: toggleScopedKey(settings.scopedModels[runtime] ?? [], ref),
-        };
-        const updated = await attempt('settings.update', { scopedModels }, notice);
-        if (updated) dispatch({ type: 'settings', settings: updated });
+        const runtime = stateRef.current.settings.agentRuntime;
+        const mutation = ++scopedMutationRef.current;
+        const updated = await attempt(
+          'settings.toggleScopedModel',
+          { runtime, provider: ref.provider, modelId: ref.modelId },
+          notice,
+        );
+        // Ignore an older transport response that arrived after a newer toggle.
+        if (updated && mutation === scopedMutationRef.current) {
+          dispatch({ type: 'settings', settings: updated });
+        }
       },
       setThinking: async (level) => {
         await attempt('thinking.set', { level }, notice);

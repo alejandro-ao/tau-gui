@@ -4,6 +4,9 @@ import { query, texts, type Mounted } from './harness.js';
 import { click, options, press, renderApp, type } from './ui.js';
 import type { AgentState, AppSettings, Model } from '../../src/shared/domain.js';
 import { DEFAULT_SETTINGS } from '../../src/shared/domain.js';
+import { modelKey, toggleScopedKey } from '../../src/shared/scoped-models.js';
+
+const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
 
 let mounted: Mounted | null = null;
 
@@ -87,14 +90,14 @@ describe('scoped models modal', () => {
     expect(texts(dialog, '.picker-badge')).toEqual([]);
 
     // Emulate the main process persisting the toggle before it echoes settings.
-    const persisted = { ...DEFAULT_SETTINGS, ...scoped(['anthropic:sonnet-4']) };
-    bridge.setResult('settings.update', persisted);
+    const persisted = { ...DEFAULT_SETTINGS, ...scoped([key('anthropic', 'sonnet-4')]) };
+    bridge.setResult('settings.toggleScopedModel', persisted);
     const rows = [...dialog.querySelectorAll('[role="option"]')];
     await click(rows[1]!);
     await view.flush();
 
-    expect(bridge.payloads('settings.update')).toEqual([
-      { scopedModels: { tau: ['anthropic:sonnet-4'], pi: [] } },
+    expect(bridge.payloads('settings.toggleScopedModel')).toEqual([
+      { runtime: 'tau', provider: 'anthropic', modelId: 'sonnet-4' },
     ]);
     // Scoping is not model selection, and the dialog stays open for more edits.
     expect(bridge.payloads('models.set')).toEqual([]);
@@ -105,26 +108,88 @@ describe('scoped models modal', () => {
     );
 
     // Toggling again removes the entry.
-    bridge.setResult('settings.update', DEFAULT_SETTINGS);
+    bridge.setResult('settings.toggleScopedModel', DEFAULT_SETTINGS);
     await click([...view.container.querySelectorAll('[role="option"]')][1]!);
     await view.flush();
-    expect(bridge.payloads('settings.update').at(-1)).toEqual({
-      scopedModels: { tau: [], pi: [] },
+    expect(bridge.payloads('settings.toggleScopedModel').at(-1)).toEqual({
+      runtime: 'tau',
+      provider: 'anthropic',
+      modelId: 'sonnet-4',
     });
   });
 
-  it('explains the empty state when the runtime reports no models', async () => {
+  it('explains the empty state when the connected runtime reports no models', async () => {
     const { view } = await renderApp({ agent: AGENT, results: { 'models.list': [] } });
     mounted = view;
     const dialog = await openScopedModal(view);
-    expect(dialog.textContent).toContain('the runtime reported no models');
+    expect(dialog.textContent).toContain('the connected runtime reported no models');
   });
 
-  it('explains the empty state when the runtime is not running', async () => {
-    const { view } = await renderApp({ status: 'failed', results: { 'models.list': [] } });
+  for (const status of ['stopped', 'failed', 'disconnected', 'starting'] as const) {
+    it(`explains the ${status} empty state`, async () => {
+      const { view } = await renderApp({ status, results: { 'models.list': [] } });
+      mounted = view;
+      const dialog = await openScopedModal(view);
+      expect(dialog.textContent).toContain(
+        status === 'failed' ? 'the runtime failed' : `the runtime is ${status}`,
+      );
+      expect(dialog.textContent).toContain('no models are currently available');
+    });
+  }
+
+  it('labels cached models as potentially stale while disconnected', async () => {
+    const { view } = await renderApp({
+      status: 'disconnected',
+      results: { 'models.list': MODELS },
+    });
     mounted = view;
     const dialog = await openScopedModal(view);
-    expect(dialog.textContent).toContain('the runtime is not running');
+    expect(options(dialog)).toHaveLength(3);
+    expect(dialog.textContent).toContain('shown models are cached and may be stale');
+  });
+
+  it('persists overlapping distinct toggles atomically without switching models', async () => {
+    const { view, bridge } = await renderApp({ agent: AGENT, results: { 'models.list': MODELS } });
+    mounted = view;
+    const dialog = await openScopedModal(view);
+    let authoritative = DEFAULT_SETTINGS;
+    const firstRequest: { resolve: ((settings: AppSettings) => void) | null } = { resolve: null };
+    let calls = 0;
+    bridge.setHandler('settings.toggleScopedModel', (payload) => {
+      const ref = {
+        provider: String(payload?.['provider']),
+        modelId: String(payload?.['modelId']),
+      };
+      authoritative = {
+        ...authoritative,
+        scopedModels: {
+          ...authoritative.scopedModels,
+          tau: toggleScopedKey(authoritative.scopedModels.tau, ref),
+        },
+      };
+      calls += 1;
+      if (calls === 1) {
+        const firstSnapshot = authoritative;
+        return new Promise<AppSettings>((resolve) => {
+          firstRequest.resolve = () => resolve(firstSnapshot);
+        });
+      }
+      return authoritative;
+    });
+
+    const rows = [...dialog.querySelectorAll('[role="option"]')];
+    await click(rows[0]!);
+    await click(rows[1]!);
+    await view.flush();
+    expect(authoritative.scopedModels.tau).toEqual([
+      key('openai', 'gpt-5'),
+      key('anthropic', 'sonnet-4'),
+    ]);
+    expect(bridge.payloads('models.set')).toEqual([]);
+
+    firstRequest.resolve?.(authoritative);
+    await view.flush();
+    expect(texts(view.container, '.picker-badge')).toHaveLength(2);
   });
 });
 
@@ -132,7 +197,7 @@ describe('scoped model cycling', () => {
   it('cycles only scoped models once two are scoped', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
-      settings: scoped(['openai:gpt-5', 'anthropic:haiku']),
+      settings: scoped([key('openai', 'gpt-5'), key('anthropic', 'haiku')]),
       results: { 'models.list': MODELS },
     });
     mounted = view;
@@ -146,7 +211,7 @@ describe('scoped model cycling', () => {
   it('falls back to the runtime cycle when scoping cannot resolve two models', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
-      settings: scoped(['openai:gpt-5', 'openai:retired']),
+      settings: scoped([key('openai', 'gpt-5'), key('openai', 'retired')]),
       results: { 'models.list': MODELS },
     });
     mounted = view;
@@ -162,7 +227,7 @@ describe('model picker', () => {
   it('marks scoped models without changing selection behavior', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
-      settings: scoped(['anthropic:haiku']),
+      settings: scoped([key('anthropic', 'haiku')]),
       results: { 'models.list': MODELS },
     });
     mounted = view;

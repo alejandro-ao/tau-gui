@@ -376,9 +376,9 @@ export interface AppSettings {
   projectTrust: ProjectTrust;
   runtime: Record<RuntimeKind, RuntimeSettings>;
   /**
-   * App-owned scoped ("favourite") models per runtime, stored as
-   * `provider:modelId` keys. No runtime exposes scoped models over RPC, so the
-   * GUI owns this list and applies it with ordinary `set_model` calls.
+   * App-owned scoped ("favourite") models per runtime, stored as canonical
+   * JSON `[provider, modelId]` tuple keys. No runtime exposes scoped models over
+   * RPC, so the GUI owns this list and applies it with ordinary `set_model`.
    */
   scopedModels: Record<RuntimeKind, string[]>;
   recentSessions: SessionRef[];

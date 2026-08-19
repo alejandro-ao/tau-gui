@@ -2,20 +2,59 @@
  * Scoped ("favourite") model helpers.
  *
  * Neither Tau nor Pi exposes an RPC surface to list or edit scoped models, so
- * scoping is owned by this application: the selection lives in GUI settings,
- * keyed by runtime kind and by `provider:modelId`, and is only ever applied
- * through the ordinary `set_model` command. Nothing here invents protocol.
+ * scoping is owned by this application. Keys use a canonical JSON tuple so
+ * arbitrary provider/model punctuation cannot make two identities collide.
  */
 import type { Model, ModelRef, RuntimeKind } from './domain.js';
 
 /** Maximum scoped entries kept per runtime; bounds settings growth. */
 export const MAX_SCOPED_MODELS = 100;
+/** Maximum encoded identity length accepted both from disk and over IPC. */
+export const MAX_SCOPED_MODEL_KEY_LENGTH = 200;
 
 export type ScopedModelMap = Record<RuntimeKind, string[]>;
 
-/** Stable identity of a model: provider and model id, never the display name. */
+/** Stable collision-safe identity of a model: provider and model id. */
 export function modelKey(ref: ModelRef): string {
-  return `${ref.provider}:${ref.modelId}`;
+  return JSON.stringify([ref.provider, ref.modelId]);
+}
+
+/** True only for a canonical, bounded model identity produced by `modelKey`. */
+export function isScopedModelKey(value: string): boolean {
+  if (value.length < 1 || value.length > MAX_SCOPED_MODEL_KEY_LENGTH) return false;
+  try {
+    const parsed: unknown = JSON.parse(value);
+    return (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === 'string' &&
+      parsed[0].length > 0 &&
+      typeof parsed[1] === 'string' &&
+      parsed[1].length > 0 &&
+      modelKey({ provider: parsed[0], modelId: parsed[1] }) === value
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Repairs a persisted key. Candidate builds used `provider:modelId`; migrate
+ * those by splitting the first colon. Ambiguous legacy punctuation could not
+ * be recovered perfectly, but every newly written key is collision-safe.
+ */
+export function repairScopedModelKey(value: unknown): string | null {
+  if (typeof value !== 'string' || value.length === 0) return null;
+  if (isScopedModelKey(value)) return value;
+  // Malformed attempted structured keys are dropped rather than reinterpreted.
+  if (value.startsWith('[')) return null;
+  const separator = value.indexOf(':');
+  if (separator < 1 || separator === value.length - 1) return null;
+  const migrated = modelKey({
+    provider: value.slice(0, separator),
+    modelId: value.slice(separator + 1),
+  });
+  return isScopedModelKey(migrated) ? migrated : null;
 }
 
 export function modelRefOf(model: Model): ModelRef {
@@ -29,6 +68,7 @@ export function isScopedModel(keys: readonly string[], ref: ModelRef): boolean {
 /** Adds or removes one key, keeping insertion order and bounding the list. */
 export function toggleScopedKey(keys: readonly string[], ref: ModelRef): string[] {
   const key = modelKey(ref);
+  if (!isScopedModelKey(key)) return [...keys];
   if (keys.includes(key)) return keys.filter((item) => item !== key);
   return [...keys, key].slice(-MAX_SCOPED_MODELS);
 }
@@ -40,10 +80,7 @@ export function scopedModels(models: readonly Model[], keys: readonly string[]):
 
 /**
  * Next model for scoped cycling, or `null` when scoped cycling does not apply.
- *
- * Scoped cycling needs at least two runtime-reported scoped models; with fewer,
- * callers fall back to the runtime's own `cycle_model`, so a stale or empty
- * scope never traps the user on one model.
+ * With fewer than two currently reported favourites, callers use runtime cycle.
  */
 export function nextScopedModel(
   models: readonly Model[],

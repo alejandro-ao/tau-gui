@@ -75,8 +75,9 @@ Tracks issue #1. Update this file whenever behavior changes.
 - App-owned scoped ("favourite") models: `/scoped-models` opens a
   keyboard/mouse picker that toggles scope without calling `set_model`. The
   selection is persisted per runtime by the main process
-  (`AppSettings.scopedModels`, keyed by `provider:modelId`) through the
-  validated settings IPC, never by renderer storage. Once two scoped models are
+  (`AppSettings.scopedModels`, keyed by collision-safe JSON provider/model
+  tuples) through an atomic validated settings IPC action, never by renderer
+  storage. Once two scoped models are
   reported by the runtime, `Ctrl+P` cycles only those (through `set_model`);
   otherwise it falls back to the runtime's own `cycle_model`, so stale or empty
   scopes cannot trap the user.

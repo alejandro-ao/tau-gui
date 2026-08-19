@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppSettings } from '../src/shared/domain.js';
+import { modelKey } from '../src/shared/scoped-models.js';
 import { launchApp, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
@@ -67,7 +68,13 @@ test('/scoped-models scopes models and constrains Ctrl+P cycling', async () => {
   const persisted = JSON.parse(
     readFileSync(join(handle.userDataDir, 'settings.json'), 'utf8'),
   ) as AppSettings;
-  expect(persisted.scopedModels).toEqual({ tau: ['fake:fake-small', 'fake:fake-large'], pi: [] });
+  expect(persisted.scopedModels).toEqual({
+    tau: [
+      modelKey({ provider: 'fake', modelId: 'fake-small' }),
+      modelKey({ provider: 'fake', modelId: 'fake-large' }),
+    ],
+    pi: [],
+  });
 });
 
 test('the palette also reaches the model picker', async () => {
