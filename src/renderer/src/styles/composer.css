@@ -6,20 +6,7 @@
   padding: var(--space-3) var(--space-4);
   background: var(--panel);
   border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-dim);
   border-radius: var(--radius);
-}
-
-.composer[data-status='running'] {
-  border-left-color: var(--tool-running);
-}
-
-.composer[data-status='error'] {
-  border-left-color: var(--tool-failure);
-}
-
-.composer[data-shell='true'] {
-  border-left-color: var(--shell-prompt);
 }
 
 .composer[data-shell='true'] .composer-prefix,

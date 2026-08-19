@@ -84,7 +84,7 @@
 }
 
 .block-user > .role-bar {
-  background: var(--role-user);
+  background: transparent;
 }
 
 .block-assistant {
