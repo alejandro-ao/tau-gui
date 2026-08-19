@@ -350,6 +350,8 @@ export interface SkillInfo {
   description: string | null;
   origin: string;
   disableModelInvocation: boolean;
+  /** Approximate token count derived in main from the complete SKILL.md text. */
+  estimatedTokens: number;
 }
 
 export interface PromptTemplateInfo {

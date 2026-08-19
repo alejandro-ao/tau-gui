@@ -17,6 +17,7 @@ const resources = {
       description: 'Generate the weekly report',
       origin: '~/.tau/skills',
       disableModelInvocation: true,
+      estimatedTokens: 120,
     },
   ],
   prompts: [{ name: 'worktree', description: 'Work in isolation', origin: './.agents/prompts' }],

@@ -120,6 +120,7 @@ describe('IPC request validation', () => {
           description: null,
           origin: '~/.tau/skills',
           disableModelInvocation: false,
+          estimatedTokens: 120,
         },
       ],
       prompts: [],
