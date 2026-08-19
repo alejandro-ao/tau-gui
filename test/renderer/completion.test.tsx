@@ -28,6 +28,15 @@ function actionsOf(bridge: FakeBridge): string[] {
   return bridge.calls.map((call) => call.action).filter((action) => !action.startsWith('ui.'));
 }
 
+/** Finds a completion row by its label, failing loudly when it is absent. */
+function optionByLabel(root: ParentNode, label: string): HTMLElement {
+  const option = [...root.querySelectorAll('.completion-option')].find(
+    (element) => element.querySelector('.completion-label')?.textContent === label,
+  );
+  if (!option) throw new Error(`No completion option labelled ${label}`);
+  return option as HTMLElement;
+}
+
 describe('slash command completion', () => {
   it('merges runtime and frontend commands and filters fuzzily', async () => {
     const { view, input } = await open();
@@ -150,12 +159,89 @@ describe('slash command completion', () => {
     await type(input, '/mod');
     const labels = texts(view.container, '.completion-label');
     expect(labels.filter((label) => label === '/model')).toHaveLength(1);
-    await press(input, 'Enter');
+    // The prompt sits in its own section below the commands; pick it directly.
+    await click(optionByLabel(view.container, '/model'));
     expect(input.value).toBe('/model ');
     await type(input, '/model audit providers');
     await press(input, 'Enter');
     expect(bridge.payloads('agent.prompt')).toEqual([{ text: '/model audit providers' }]);
     expect(view.container.querySelector('[data-modal-name="model"]')).toBeNull();
+  });
+
+  it('lists builtin commands by default with custom prompts in their own section', async () => {
+    const { view } = await renderApp({
+      results: {
+        'resources.list': {
+          skills: [
+            {
+              name: 'security-review',
+              description: 'Review for security issues',
+              origin: '~/.agents/skills',
+              disableModelInvocation: false,
+            },
+          ],
+          prompts: [
+            {
+              name: 'release-notes',
+              description: 'Draft release notes',
+              origin: './.tau/prompts',
+            },
+          ],
+          diagnostics: [],
+        },
+      },
+    });
+    mounted = view;
+    const input = composer(view);
+    await type(input, '/');
+
+    const popup = query(view.container, '[data-testid="completion-slash"]');
+    const labels = texts(popup, '.completion-label');
+    // Builtin commands come first, including the /skill: prefix entry.
+    expect(labels[0]).toBe('/new');
+    expect(labels).toContain('/model');
+    expect(labels).toContain('/skill:');
+    // Skills stay hidden until /skill: is typed.
+    expect(labels).not.toContain('/skill:security-review');
+    // Custom prompts sit in their own section after the commands.
+    expect(texts(popup, '.completion-section')).toEqual(['Commands', 'Custom prompts']);
+    expect(labels.indexOf('/release-notes')).toBeGreaterThan(labels.indexOf('/skill:'));
+  });
+
+  it('accepts /skill: as a prefix and then recommends skills', async () => {
+    const { view } = await renderApp({
+      results: {
+        'resources.list': {
+          skills: [
+            {
+              name: 'security-review',
+              description: 'Review for security issues',
+              origin: '~/.agents/skills',
+              disableModelInvocation: false,
+            },
+            {
+              name: 'docs',
+              description: 'Write documentation',
+              origin: '~/.agents/skills',
+              disableModelInvocation: true,
+            },
+          ],
+          prompts: [],
+          diagnostics: [],
+        },
+      },
+    });
+    mounted = view;
+    const input = composer(view);
+    await type(input, '/skill');
+    await click(optionByLabel(view.container, '/skill:'));
+    // The prefix inserts without a trailing space so completion stays open.
+    expect(input.value).toBe('/skill:');
+    const labels = texts(view.container, '.completion-label');
+    expect(labels).toContain('/skill:security-review');
+    expect(labels).toContain('/skill:docs');
+    // Skill recommendations render without section headers.
+    expect(view.container.querySelector('.completion-section')).toBeNull();
   });
 
   it('sends unknown slash input as a normal prompt', async () => {

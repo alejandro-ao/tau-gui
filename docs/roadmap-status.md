@@ -51,9 +51,12 @@ Tracks issue #1. Update this file whenever behavior changes.
   Runtime-reported built-ins are deduplicated against GUI handlers.
 - Tau skills and prompt templates are discovered from the same user/project
   `.tau` and `.agents` directories with the same precedence and reserved-name
-  rules as Tau. `/skills` and `/prompts` open searchable pickers, slash completion
-  includes `/skill:<name>` and custom prompts, and selected invocations are sent
-  through Tau's prompt RPC for authoritative expansion. Only metadata crosses IPC;
+  rules as Tau. `/skills` and `/prompts` open searchable pickers, and selected
+  invocations are sent through Tau's prompt RPC for authoritative expansion.
+  Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
+  commands (including the `/skill:` prefix) under a `Commands` heading with
+  custom prompt templates under `Custom prompts`; individual skills are offered
+  only once `/skill:` has been typed. Only metadata crosses IPC;
   resource contents remain in Tau/main-process filesystem access. Project resources
   are omitted when launch-time project trust is declined.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,

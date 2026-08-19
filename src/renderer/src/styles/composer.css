@@ -175,6 +175,14 @@
   padding: var(--space-2) 0;
 }
 
+.completion-section {
+  padding: var(--space-2) var(--space-3) 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
 .completion-option {
   display: flex;
   align-items: baseline;
