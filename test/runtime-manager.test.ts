@@ -103,6 +103,39 @@ describe('RuntimeManager state machine', () => {
     });
   });
 
+  it('queues a name when Tau has not indexed the empty session yet', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+    const nameSession = vi
+      .spyOn(fixture.manager.active, 'nameSession')
+      .mockRejectedValueOnce(new Error('Unknown session: fake-session-1'))
+      .mockResolvedValue(undefined);
+
+    await fixture.manager.nameSession('release prep');
+
+    expect(fixture.manager.snapshot().state?.sessionName).toBe('release prep');
+    const settingsEvent = fixture.broadcasts.findLast((event) => event.type === 'settings');
+    expect(
+      settingsEvent?.type === 'settings' ? settingsEvent.settings.recentSessions[0]?.name : null,
+    ).toBe('release prep');
+
+    fixture.emit({ type: 'agent_settled' });
+    await vi.waitFor(() => expect(nameSession).toHaveBeenCalledTimes(2));
+    expect(nameSession).toHaveBeenLastCalledWith('release prep');
+  });
+
+  it('does not hide unrelated naming failures', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+    vi.spyOn(fixture.manager.active, 'nameSession').mockRejectedValue(
+      new Error('permission denied'),
+    );
+
+    await expect(fixture.manager.nameSession('release prep')).rejects.toThrow('permission denied');
+  });
+
   it('publishes an auto-generated name before the first turn settles', async () => {
     const fixture = makeManager();
     active = fixture.manager;

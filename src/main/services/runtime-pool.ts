@@ -225,6 +225,10 @@ export class RuntimePool {
     await Promise.allSettled(managers.map((manager) => manager.stop()));
   }
 
+  async nameSession(name: string, target?: SessionTarget | null): Promise<void> {
+    await this.managerFor(target).nameSession(name);
+  }
+
   async refreshState(touch = false, target?: SessionTarget | null): Promise<AgentState | null> {
     const manager = target ? this.ownerOf(target) : this.current;
     if (!manager) return null;

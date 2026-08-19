@@ -35,6 +35,8 @@ export class RuntimeManager {
   private firstMessage: string | null = null;
   private loadingFirstMessageFor: string | null = null;
   private watchingSessionNameFor: string | null = null;
+  /** Manual name accepted before Tau indexes an empty session. */
+  private pendingSessionName: { sessionId: string; name: string } | null = null;
   private readonly diagnostics: string[] = [];
 
   constructor(
@@ -136,6 +138,7 @@ export class RuntimeManager {
     if (runtime) await runtime.stop();
     this.state = null;
     this.watchingSessionNameFor = null;
+    this.pendingSessionName = null;
     this.runtimeVersion = null;
     this.setStatus('stopped', null);
     return this.snapshot();
@@ -149,8 +152,16 @@ export class RuntimeManager {
   async refreshState(touch = false): Promise<AgentState | null> {
     if (!this.runtime) return null;
     try {
-      const state = await this.runtime.getState();
-      if (state.sessionId !== this.state?.sessionId) this.firstMessage = null;
+      let state = await this.runtime.getState();
+      if (state.sessionId !== this.state?.sessionId) {
+        this.firstMessage = null;
+        if (this.pendingSessionName?.sessionId !== state.sessionId) this.pendingSessionName = null;
+      }
+      // Tau does not index an empty session until its first prompt. Preserve a
+      // name queued for that session across authoritative refreshes meanwhile.
+      if (this.pendingSessionName?.sessionId === state.sessionId) {
+        state = { ...state, sessionName: this.pendingSessionName.name };
+      }
       this.state = state;
       if (!state.sessionName && state.messageCount > 0 && !this.firstMessage) {
         void this.loadFirstMessage(state.sessionId);
@@ -162,6 +173,33 @@ export class RuntimeManager {
       this.addDiagnostic(`Failed to refresh runtime state: ${(error as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * Name the active session. Tau rejects this for a newly-created, empty
+   * session because its index entry does not exist until the first prompt.
+   * Accept that narrow case locally and persist it once the first turn settles.
+   */
+  async nameSession(name: string): Promise<void> {
+    if (!this.runtime || !this.state?.sessionId) throw new Error('Runtime is not started');
+    try {
+      await this.runtime.nameSession(name);
+    } catch (error) {
+      if (
+        this.kind !== 'tau' ||
+        this.state.messageCount > 0 ||
+        !/unknown session/i.test((error as Error).message)
+      ) {
+        throw error;
+      }
+      this.pendingSessionName = { sessionId: this.state.sessionId, name };
+      this.state = { ...this.state, sessionName: name };
+      this.rememberCurrentSession(false);
+      this.broadcast({ type: 'status', snapshot: this.snapshot() });
+      return;
+    }
+    this.pendingSessionName = null;
+    await this.refreshState();
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -195,7 +233,7 @@ export class RuntimeManager {
       case 'agent_settled':
         // Idle depends on agent_settled, never merely agent_end.
         this.setStatus('idle', null);
-        void this.refreshState(true);
+        void this.persistPendingSessionName();
         break;
       case 'runtime_error':
         this.setStatus('idle', event.message);
@@ -208,6 +246,21 @@ export class RuntimeManager {
     // the renderer reject an event already queued before a session switch.
     const sessionId = this.state?.sessionId;
     if (sessionId) this.broadcast({ type: 'agent', sessionId, runtime: this.kind, event });
+  }
+
+  private async persistPendingSessionName(): Promise<void> {
+    const pending = this.pendingSessionName;
+    if (!pending || !this.runtime || this.state?.sessionId !== pending.sessionId) {
+      await this.refreshState(true);
+      return;
+    }
+    try {
+      await this.runtime.nameSession(pending.name);
+      if (this.pendingSessionName === pending) this.pendingSessionName = null;
+    } catch (error) {
+      this.addDiagnostic(`Failed to persist session name: ${(error as Error).message}`);
+    }
+    await this.refreshState(true);
   }
 
   /**

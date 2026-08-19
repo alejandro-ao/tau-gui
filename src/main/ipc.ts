@@ -106,8 +106,7 @@ export async function handleRequest(
       await manager.activateSession(request.payload.ref);
       return null;
     case 'session.name':
-      await runtime().nameSession(request.payload.name);
-      await manager.refreshState(false, target);
+      await manager.nameSession(request.payload.name, target);
       return null;
     case 'session.fork':
       return runtime().fork(request.payload.entryId);
