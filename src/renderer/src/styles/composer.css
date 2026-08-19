@@ -1,4 +1,7 @@
 .composer {
+  /* Shared by the textarea and its highlight backdrop so both text layers
+     land on the same pixel grid. Matches the UA textarea padding. */
+  --composer-pad: 2px;
   display: flex;
   align-items: flex-start;
   gap: var(--space-3);
@@ -12,6 +15,15 @@
 .composer[data-shell='true'] .composer-prefix,
 .composer[data-shell='true'] .composer-input {
   color: var(--shell-prompt);
+}
+
+/* Echo the directive colour on the prompt marker, as shell mode does. */
+.composer[data-directive='prompt'] .composer-prefix {
+  color: var(--directive-prompt);
+}
+
+.composer[data-directive='skill'] .composer-prefix {
+  color: var(--directive-skill);
 }
 
 .composer-prefix {
@@ -84,12 +96,20 @@
   }
 }
 
-.composer-input {
+/* Positioning context for the highlight backdrop. */
+.composer-editor {
+  position: relative;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+.composer-input {
+  display: block;
+  width: 100%;
   min-height: 22px;
   /* Auto-grows via scrollHeight; capped at 10 lines, then scrolls. */
   max-height: calc(var(--font-size) * var(--line-height) * 10);
+  padding: var(--composer-pad);
   resize: none;
   background: transparent;
   border: 0;
@@ -99,6 +119,52 @@
   font-size: var(--font-size);
   line-height: var(--line-height);
   overflow-y: auto;
+}
+
+/*
+ * Highlight backdrop.
+ *
+ * A textarea cannot style ranges of its own value, so the draft is mirrored
+ * behind it with identical metrics and transparent glyphs. Only the directive
+ * pill paints, which keeps native text rendering, selection and the caret
+ * untouched. Wrapping can differ from the textarea once its scrollbar appears,
+ * but directives only ever start the first line, so the pill stays aligned.
+ */
+.composer-highlight {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  padding: var(--composer-pad);
+  color: transparent;
+  font-family: var(--font-mono);
+  font-size: var(--font-size);
+  line-height: var(--line-height);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  pointer-events: none;
+  user-select: none;
+}
+
+/*
+ * Pill drawn behind a resource directive. Horizontal padding is cancelled by
+ * matching negative margins so the mirrored glyphs keep the textarea's advance
+ * widths; only the background extends past them.
+ */
+.composer-directive {
+  margin: 0 -4px;
+  padding: 1px 4px;
+  border-radius: 999px;
+  box-decoration-break: clone;
+}
+
+.composer-directive[data-kind='prompt'] {
+  background: color-mix(in srgb, var(--directive-prompt) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-prompt) 55%, transparent);
+}
+
+.composer-directive[data-kind='skill'] {
+  background: color-mix(in srgb, var(--directive-skill) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--directive-skill) 55%, transparent);
 }
 
 /* The composer holds focus almost permanently; the global textarea focus ring
@@ -190,6 +256,26 @@
 .completion-option[data-unavailable='true'] .completion-label {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+/* Same colour language as the composer pills, so the popup previews the
+   highlight the draft will get. */
+.completion-option[data-kind='prompt'] .completion-label {
+  color: var(--directive-prompt);
+}
+
+.completion-option[data-kind='skill'] .completion-label {
+  color: var(--directive-skill);
+}
+
+.completion-option[data-kind='prompt'] .completion-badge {
+  border-color: color-mix(in srgb, var(--directive-prompt) 55%, transparent);
+  color: var(--directive-prompt);
+}
+
+.completion-option[data-kind='skill'] .completion-badge {
+  border-color: color-mix(in srgb, var(--directive-skill) 55%, transparent);
+  color: var(--directive-skill);
 }
 
 .completion-detail,
