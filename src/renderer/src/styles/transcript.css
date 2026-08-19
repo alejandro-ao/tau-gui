@@ -41,7 +41,7 @@
   height: 22px;
 }
 
-/* Blocks use a vertical role bar, never a chat bubble. */
+/* Blocks use a vertical role bar, never a chat bubble; assistant output stays unadorned. */
 .block {
   display: grid;
   grid-template-columns: var(--bar-width) 1fr;
@@ -87,8 +87,12 @@
   background: var(--role-user);
 }
 
+.block-assistant {
+  background: transparent;
+}
+
 .block-assistant > .role-bar {
-  background: var(--role-assistant);
+  background: transparent;
 }
 
 .block-thinking > .role-bar {
@@ -218,6 +222,8 @@
 }
 
 .tool-run-settled {
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border);
   color: var(--text-faint);
   font-size: var(--font-size-xs);
   line-height: 1.2;
