@@ -7,6 +7,7 @@
 - Render tool activity semantically: orange running, green success, red failure.
 - Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.
 - Interleave reasoning and clustered tool calls on one compact rail below the active user turn.
+- Render only the assistant message that closes a turn as the answer; reasoning and the narration a model writes before a tool call stay on the rail.
 - Collapse settled activity into a quiet duration/tool-count summary immediately before the answer.
 - Keep exact commands, arguments, output, and patches available through expansion.
 - Optimize for keyboard use without sacrificing mouse selection, scrolling, links, and native clipboard behavior.

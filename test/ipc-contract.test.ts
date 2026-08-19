@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { envelopeSchema, requestSchema } from '../src/shared/ipc.js';
+import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
+
+const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -105,6 +108,69 @@ describe('IPC request validation', () => {
       envelopeSchema.safeParse({
         action: 'agent.abort',
         session: { runtime: 'tau', sessionId: '' },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates scoped model patches', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [key('fake', 'a')], pi: [] } },
+      }).success,
+    ).toBe(true);
+    // Both runtimes must be supplied, and entries must be non-empty strings.
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [key('fake', 'a')] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { scopedModels: { tau: [''], pi: [] } },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: {
+          scopedModels: { tau: Array.from({ length: 101 }, () => key('fake', 'a')), pi: [] },
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: {
+          scopedModels: { tau: [`["p","${'m'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH)}"]`], pi: [] },
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates narrow atomic scoped-model mutations', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: { runtime: 'tau', provider: 'a:b', modelId: 'c' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: {
+          runtime: 'tau',
+          provider: 'p',
+          modelId: 'm'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.toggleScopedModel',
+        payload: { runtime: 'other', provider: 'p', modelId: 'm' },
       }).success,
     ).toBe(false);
   });

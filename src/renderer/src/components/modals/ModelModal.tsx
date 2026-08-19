@@ -1,5 +1,6 @@
 import { useMemo, type ReactNode } from 'react';
 import type { Model } from '../../../../shared/domain.js';
+import { isScopedModel, modelKey, modelRefOf } from '../../../../shared/scoped-models.js';
 import { useStore } from '../../state/store.js';
 import { formatTokens } from '../format.js';
 import { Picker, type PickerItem } from './Picker.js';
@@ -8,33 +9,33 @@ import { Picker, type PickerItem } from './Picker.js';
 export function ModelModal(): ReactNode {
   const { state, actions } = useStore();
   const active = state.agent?.model ?? null;
+  const scopedKeys = state.settings.scopedModels[state.settings.agentRuntime];
 
   const items = useMemo<PickerItem[]>(
     () =>
       state.models.map((model) => ({
-        id: `${model.provider}:${model.id}`,
+        id: modelKey(modelRefOf(model)),
         label: model.name,
         hint: model.provider,
+        badge: isScopedModel(scopedKeys, modelRefOf(model)) ? 'scoped' : null,
         detail: describe(model),
         current: active !== null && active.id === model.id && active.provider === model.provider,
         keywords: `${model.provider} ${model.id} ${model.api}`,
       })),
-    [state.models, active],
+    [state.models, active, scopedKeys],
   );
 
   return (
     <Picker
       name="model"
       title="models"
-      subtitle="selection calls the runtime's set_model"
+      subtitle="selection calls the runtime's set_model · /scoped-models edits favourites"
       placeholder="search models…"
       items={items}
       emptyLabel="the runtime reported no models"
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
-        const model = state.models.find(
-          (candidate) => `${candidate.provider}:${candidate.id}` === item.id,
-        );
+        const model = state.models.find((candidate) => modelKey(modelRefOf(candidate)) === item.id);
         if (!model) return;
         actions.openModal(null);
         void actions.setModel({ provider: model.provider, modelId: model.id });

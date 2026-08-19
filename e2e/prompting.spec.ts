@@ -31,12 +31,39 @@ test('a prompt streams assistant text and then finalizes', async () => {
   await expect(page.getByLabel('composer')).toHaveValue('');
 });
 
-test('a thinking run renders a thinking block before the answer', async () => {
+test('a thinking run keeps reasoning on the activity rail, not in the answer', async () => {
   const { page } = handle;
   await submitPrompt(page, 'show thinking please');
   await waitForSettled(page);
 
-  await expect(page.locator('.block-thinking')).toContainText('Considering the request carefully.');
+  // Only the closing message is an answer; reasoning collapses into a summary.
+  await expect(page.locator('.block-assistant')).toHaveCount(1);
   await expect(page.locator('.block-assistant')).toContainText('Here is the answer.');
-  expect(await transcript(page).innerText()).toContain('thinking');
+  await expect(page.locator('.block-thinking')).toHaveCount(0);
+  expect(await transcript(page).innerText()).not.toContain('Considering the request carefully.');
+
+  const summary = page.locator('.tool-run-header').last();
+  await expect(summary).toContainText('Thought for');
+  await summary.click();
+  await expect(page.locator('.tool-run-thinking')).toContainText(
+    'Considering the request carefully.',
+  );
+});
+
+test('a reasoning turn renders one answer with its work on the rail', async () => {
+  const { page } = handle;
+  await submitPrompt(page, 'reason about the code');
+  await waitForSettled(page);
+
+  // Reasoning, narration, and the tool call are one feed; the closing message
+  // is the only answer.
+  await expect(page.locator('.block-assistant')).toHaveCount(1);
+  await expect(page.locator('.block-assistant')).toContainText('Found one match.');
+
+  const summary = page.locator('.tool-run-header').last();
+  await expect(summary).toContainText('Worked for');
+  await summary.click();
+  await expect(page.locator('.tool-run-note')).toContainText('Searching the project first.');
+  await expect(page.locator('.tool-run-thinking').first()).toContainText('Planning the search.');
+  await expect(page.locator('.tool-run-row')).toHaveCount(1);
 });

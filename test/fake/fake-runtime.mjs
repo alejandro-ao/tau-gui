@@ -311,6 +311,22 @@ async function runPrompt(message) {
         thinking: 'Considering the request carefully.',
         text: 'Here is the answer.',
       });
+    } else if (lower.includes('reason')) {
+      // A reasoning model narrates every step: thinking and text arrive next to
+      // the tool call, and only the closing message is the answer.
+      const grep = { id: 'call-r1', name: 'grep', args: { pattern: 'value' } };
+      await streamAssistant({
+        thinking: 'Planning the search.',
+        text: 'Searching the project first.',
+        toolCalls: [grep],
+      });
+      await runTool(grep, 'src/index.ts:1: export const value = 1;\n');
+      write({ type: 'turn_end' });
+      write({ type: 'turn_start' });
+      await streamAssistant({
+        thinking: 'Reviewing what came back.',
+        text: 'Found one match.',
+      });
     } else if (lower.includes('compact')) {
       write({ type: 'compaction_start', reason: 'overflow' });
       write({

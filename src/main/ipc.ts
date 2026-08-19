@@ -31,6 +31,8 @@ export async function handleRequest(
       return settings.current;
     case 'settings.update':
       return settings.update(request.payload);
+    case 'settings.toggleScopedModel':
+      return settings.toggleScopedModel(request.payload.runtime, request.payload);
     case 'settings.forgetSession':
       return settings.forgetSession(request.payload.id);
 

@@ -160,5 +160,9 @@ export function Picker({
 }
 
 function optionId(name: string, id: string): string {
-  return `picker-${name}-option-${id.replaceAll(/[^\w-]/g, '_')}`;
+  let encodedId = '';
+  for (let index = 0; index < id.length; index += 1) {
+    encodedId += id.charCodeAt(index).toString(16).padStart(4, '0');
+  }
+  return `picker-${name}-option-${encodedId}`;
 }

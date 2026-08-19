@@ -30,6 +30,11 @@ export interface FakeBridge {
   snapshot: RuntimeSnapshot;
   /** Replaces the resolved value of one action for later calls. */
   setResult: (action: IpcAction, value: unknown) => void;
+  /** Replaces one action with an async transport handler. */
+  setHandler: (
+    action: IpcAction,
+    handler: (payload: Record<string, unknown> | undefined) => unknown,
+  ) => void;
   payloads: (action: IpcAction) => (Record<string, unknown> | undefined)[];
 }
 
@@ -86,6 +91,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     ...options.results,
   };
 
+  const handlers = new Map<IpcAction, (payload: Record<string, unknown> | undefined) => unknown>();
   const bridge = {
     invoke: (
       action: string,
@@ -93,6 +99,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
       session?: SessionTarget,
     ): Promise<unknown> => {
       calls.push({ action, payload, session });
+      const handler = handlers.get(action as IpcAction);
+      if (handler) return Promise.resolve(handler(payload));
       const value = results[action as IpcAction];
       return Promise.resolve(value === undefined ? null : value);
     },
@@ -113,6 +121,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     snapshot,
     setResult: (action, value) => {
       results[action] = value;
+    },
+    setHandler: (action, handler) => {
+      handlers.set(action, handler);
     },
     payloads: (action) =>
       calls.filter((call) => call.action === action).map((call) => call.payload),

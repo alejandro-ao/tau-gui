@@ -20,7 +20,13 @@ test('tool blocks render with success state and reveal details on expansion', as
   const summary = page.locator('.tool-run-header').last();
   await expect(summary).toContainText('Worked for');
   await expect(page.locator('.block-tool')).toHaveCount(0);
+
+  // The narration written before the calls is intermediate work: the closing
+  // message is the only answer rendered as a message.
+  await expect(page.locator('.block-assistant')).toHaveCount(1);
+  await expect(page.locator('.block-assistant')).toContainText('Done: tests pass.');
   await summary.click();
+  await expect(page.locator('.tool-run-note')).toContainText('Inspecting the project.');
 
   const readRow = page.locator('.tool-run-row').filter({ hasText: 'read' }).first();
   const editRow = page.locator('.tool-run-row').filter({ hasText: 'edit' }).first();

@@ -93,8 +93,8 @@ export function Transcript(): ReactNode {
                   activity={group.activity}
                   turnStartedAt={group.startedAt}
                   turnEndedAt={group.endedAt}
-                  expanded={expandedFor(`run-${group.blocks[0]?.id ?? ''}`)}
-                  onToggle={() => toggle(`run-${group.blocks[0]?.id ?? ''}`)}
+                  expanded={expandedFor(`run-${group.id}`)}
+                  onToggle={() => toggle(`run-${group.id}`)}
                   isBlockExpanded={expandedFor}
                   onToggleBlock={toggle}
                   settled={group.settled}
@@ -158,7 +158,7 @@ function ConversationSkeleton(): ReactNode {
 
 function groupId(group: BlockGroup, index: number): string {
   if (group.kind === 'user-tools') return group.user.id;
-  if (group.kind === 'tools') return group.blocks[0]?.id ?? `group-${index}`;
+  if (group.kind === 'tools') return group.id || `group-${index}`;
   return group.block.id;
 }
 

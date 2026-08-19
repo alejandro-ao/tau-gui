@@ -30,6 +30,8 @@ Tracks issue #1. Update this file whenever behavior changes.
 ## Phase 2 — Tau visual parity ✅
 
 - Role-based transcript styling with vertical role bars.
+- One answer per turn: reasoning and pre-tool narration stay on the activity
+  rail, which collapses into a duration summary before the answer.
 - Tool grouping, progress, previews, patch/diff rendering, expansion
   (global `Ctrl+O` plus per-block).
 - Sidebar and compact status row.
@@ -60,10 +62,10 @@ Tracks issue #1. Update this file whenever behavior changes.
   resource contents remain in Tau/main-process filesystem access. Project resources
   are omitted when launch-time project trust is declined.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/scoped-models`, `/clone`, and extension commands that RPC can list
-  but not execute) are listed as unavailable with the reason instead of being sent
-  incorrectly to the model. `/clone` stays unavailable even on Pi, where the runtime
-  supports it, because the desktop app has no clone flow yet.
+  `/logout`, `/clone`, and extension commands that RPC can list but not execute)
+  are listed as unavailable with the reason instead of being sent incorrectly to
+  the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
+  because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,
@@ -83,7 +85,17 @@ Tracks issue #1. Update this file whenever behavior changes.
 
 ## Phase 4 — models, context, sessions ✅
 
-- Model picker with full RPC metadata and `Ctrl+P` cycling.
+- Model picker with full RPC metadata and `Ctrl+P` cycling; scoped models are
+  badged in the picker.
+- App-owned scoped ("favourite") models: `/scoped-models` opens a
+  keyboard/mouse picker that toggles scope without calling `set_model`. The
+  selection is persisted per runtime by the main process
+  (`AppSettings.scopedModels`, keyed by collision-safe JSON provider/model
+  tuples) through an atomic validated settings IPC action, never by renderer
+  storage. Once two scoped models are
+  reported by the runtime, `Ctrl+P` cycles only those (through `set_model`);
+  otherwise it falls back to the runtime's own `cycle_model`, so stale or empty
+  scopes cannot trap the user.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
 - Session details, usage/cache/context sidebar with cost or `$N/A`. The cache
   hit figure is derived from reported token counts, so it is shown as an
@@ -135,7 +147,6 @@ with conformance tests:
 | resource reload                  | `resourceReload`         | neither                                                         |
 | system prompt inspection         | `systemPromptInspection` | neither                                                         |
 | tool catalog                     | `toolCatalog`            | neither                                                         |
-| scoped models                    | `scopedModels`           | neither; all-model cycling is not labelled scoped               |
 | interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline            |
 
 ## Phase 7 — packaging and release ⏳ partial
