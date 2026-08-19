@@ -153,7 +153,10 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
     expect(view.container.querySelector('[aria-label="Model working"]')).toBeNull();
     expect(view.container.textContent).not.toContain('opening session…');
-    expect(view.container.querySelector('[aria-label="Loading thread"]')).not.toBeNull();
+    const skeleton = view.container.querySelector('[aria-label="Loading conversation"]');
+    expect(skeleton).not.toBeNull();
+    expect(skeleton?.querySelectorAll('.skeleton-message')).toHaveLength(4);
+    expect(view.container.querySelector('.thread-loading-spinner')).toBeNull();
     expect(view.container.querySelector('.connection-notice')).toBeNull();
     expect(view.container.textContent).not.toContain('Starting runtime');
     expect(view.container.textContent).not.toContain('No messages yet');
@@ -166,7 +169,7 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).toContain('second session answer');
     expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
-    expect(view.container.querySelector('[aria-label="Loading thread"]')).toBeNull();
+    expect(view.container.querySelector('[aria-label="Loading conversation"]')).toBeNull();
     expect(view.container.textContent).toContain('idle');
   });
 
