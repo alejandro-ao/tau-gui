@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { requestSchema } from '../src/shared/ipc.js';
+import { requestSchema, resourceCatalogSchema } from '../src/shared/ipc.js';
+import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -36,6 +37,57 @@ describe('IPC request validation', () => {
         kind: 'tau',
       },
     );
+  });
+
+  it('accepts only the payload-free resources.list request', () => {
+    expect(requestSchema.safeParse({ action: 'resources.list' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'resources.list', payload: { cwd: '/untrusted' } }).success,
+    ).toBe(false);
+  });
+
+  it('validates and bounds resources.list output metadata', () => {
+    const valid = {
+      skills: [
+        {
+          name: 'review',
+          description: null,
+          origin: '~/.tau/skills',
+          disableModelInvocation: false,
+        },
+      ],
+      prompts: [],
+      diagnostics: [],
+    };
+    expect(resourceCatalogSchema.safeParse(valid).success).toBe(true);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        skills: [{ ...valid.skills[0], content: 'must not cross IPC' }],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        skills: [{ ...valid.skills[0], origin: 'x'.repeat(RESOURCE_LIMITS.originCharacters + 1) }],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        diagnostics: ['x'.repeat(RESOURCE_LIMITS.diagnosticCharacters + 1)],
+      }).success,
+    ).toBe(false);
+    expect(
+      resourceCatalogSchema.safeParse({
+        ...valid,
+        prompts: Array.from({ length: RESOURCE_LIMITS.catalogEntries + 1 }, (_, index) => ({
+          name: `p${index}`,
+          description: null,
+          origin: '~/.tau/prompts',
+        })),
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects unknown actions', () => {

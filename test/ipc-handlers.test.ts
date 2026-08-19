@@ -14,6 +14,13 @@ vi.mock('electron', () => ({
   shell: { openExternal: vi.fn() },
 }));
 
+const resourceMocks = vi.hoisted(() => ({
+  discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
+}));
+vi.mock('../src/main/services/resources.js', () => ({
+  discoverTauResources: resourceMocks.discover,
+}));
+
 const { handleRequest } = await import('../src/main/ipc.js');
 type Context = Parameters<typeof handleRequest>[0];
 
@@ -57,7 +64,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
 
   const context = {
     settings: { current: settings } as Context['settings'],
-    manager: { active } as unknown as Context['manager'],
+    manager: {
+      active,
+      snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
+    } as unknown as Context['manager'],
     window: () => null,
   } as Context;
   return { context, calls };
@@ -97,6 +107,32 @@ describe('runtime.probe handler', () => {
     expect(probe.binary).toBe('pi-not-installed-anywhere');
     expect(probe.resolved).toBeNull();
     expect(probe.error).toContain('was not found on PATH');
+  });
+});
+
+describe('resources.list handler', () => {
+  it.each([
+    ['default', false],
+    ['decline-once', false],
+    ['approve-once', true],
+  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
+    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
+    const { context } = makeContext({ projectTrust });
+
+    await handleRequest(context, { action: 'resources.list' });
+
+    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+  });
+
+  it('rejects malformed discovery output before it crosses IPC', async () => {
+    resourceMocks.discover.mockResolvedValueOnce({
+      skills: [{ name: 'leak', description: null, origin: 'project', content: 'secret' }],
+      prompts: [],
+      diagnostics: [],
+    } as never);
+    const { context } = makeContext({ projectTrust: 'approve-once' });
+
+    await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
   });
 });
 

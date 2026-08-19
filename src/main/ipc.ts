@@ -1,6 +1,7 @@
 import { dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcRequest, IpcResult } from '../shared/ipc.js';
+import { resourceCatalogSchema } from '../shared/ipc.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
@@ -141,9 +142,13 @@ export async function handleRequest(
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
         return { skills: [], prompts: [], diagnostics: [] };
       }
-      return discoverTauResources(snapshot.cwd, {
-        includeProject: settings.current.projectTrust !== 'decline-once',
+      const catalog = await discoverTauResources(snapshot.cwd, {
+        // Only an explicit main-process trust choice authorizes project reads.
+        // "default" may lead the runtime to prompt, but it is not a positive
+        // decision available to this discovery service.
+        includeProject: settings.current.projectTrust === 'approve-once',
       });
+      return resourceCatalogSchema.parse(catalog);
     }
 
     case 'fs.complete': {
