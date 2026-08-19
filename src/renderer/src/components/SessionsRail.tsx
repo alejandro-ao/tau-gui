@@ -103,21 +103,15 @@ export function SessionsRail(): ReactNode {
                   {session.runtime !== state.settings.agentRuntime ? (
                     <span className="sessions-rail-runtime">{session.runtime}</span>
                   ) : null}
-                  {indicator === 'response' ? (
-                    <span
-                      className="sessions-rail-indicator sessions-rail-indicator-response"
-                      role="status"
-                      aria-label="response ready"
-                      title="response ready"
-                    />
-                  ) : null}
                   <span className="sessions-rail-end">
-                    {indicator === 'working' ? (
+                    {indicator ? (
                       <span
-                        className="sessions-rail-indicator sessions-rail-indicator-working"
+                        className={`sessions-rail-indicator sessions-rail-indicator-${indicator}`}
                         role="status"
-                        aria-label="assistant working"
-                        title="assistant working"
+                        aria-label={
+                          indicator === 'working' ? 'assistant working' : 'response ready'
+                        }
+                        title={indicator === 'working' ? 'assistant working' : 'response ready'}
                       />
                     ) : (
                       <span className="sessions-rail-time">

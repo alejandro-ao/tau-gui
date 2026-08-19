@@ -151,8 +151,8 @@ describe('SessionsRail', () => {
       await Promise.resolve();
     });
     expect(background?.querySelector('[aria-label="assistant working"]')).toBeNull();
-    expect(background?.querySelector('[aria-label="response ready"]')).not.toBeNull();
-    expect(background?.querySelector('.sessions-rail-time')).not.toBeNull();
+    expect(end?.querySelector('[aria-label="response ready"]')).not.toBeNull();
+    expect(end?.querySelector('.sessions-rail-time')).toBeNull();
   });
 
   it('marks a clicked session active while it is opening', async () => {

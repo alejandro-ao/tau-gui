@@ -263,7 +263,7 @@
 
 .sessions-rail-indicator-response {
   background: var(--role-assistant);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--role-assistant) 18%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--role-assistant) 8%, transparent);
 }
 
 @keyframes sessions-rail-spin {
