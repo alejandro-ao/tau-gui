@@ -166,6 +166,19 @@
 .usage-series-3 polyline {
   stroke: var(--role-error);
 }
+.usage-series-1 .usage-single-point {
+  fill: var(--accent);
+}
+.usage-series-2 .usage-single-point {
+  fill: var(--tool-success);
+}
+.usage-series-3 .usage-single-point {
+  fill: var(--role-error);
+}
+.usage-single-point {
+  stroke: var(--panel);
+  stroke-width: 2;
+}
 .usage-figure figcaption {
   display: flex;
   justify-content: flex-end;
@@ -192,6 +205,14 @@
   grid-template-columns: minmax(0, 4fr) minmax(160px, 1fr);
   gap: var(--space-4);
   margin-top: var(--space-4);
+}
+.usage-no-visible {
+  margin-top: var(--space-5);
+}
+.usage-no-visible p {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
 }
 .usage-panel {
   min-width: 0;

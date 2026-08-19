@@ -110,9 +110,11 @@ Tracks issue #1. Update this file whenever behavior changes.
   cards cover requests, tokens, cost, and tool calls when stats are available;
   plots, request rows, reasoning, compaction summaries, and per-tool names are
   explicitly active-transcript-only because older details may be compacted away.
-  SVG ticks are sampled and request rows paginated for long sessions. Unsupported
-  event markers and missing provider measurements are unavailable rather than
-  inferred.
+  SVG ticks and series points are deterministically sampled (retaining endpoints
+  and local extrema), and request rows are paginated for long sessions. Cumulative
+  cards remain visible at compaction boundaries even when no request detail remains.
+  Unsupported event markers and missing provider measurements are unavailable rather
+  than inferred.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the

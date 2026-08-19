@@ -72,6 +72,22 @@ describe('session usage tab', () => {
     expect(view.container.textContent).toContain('Visible tool-name breakdown');
     expect(view.container.textContent).toContain('read1');
 
+    const singletonPoints = [
+      ...view.container.querySelectorAll<SVGCircleElement>('.usage-single-point'),
+    ];
+    expect(singletonPoints).toHaveLength(7);
+    expect(singletonPoints.every((point) => Number(point.getAttribute('r')) > 0)).toBe(true);
+    expect(singletonPoints.map((point) => point.getAttribute('aria-label'))).toEqual([
+      'cached: 800 tokens at request 1',
+      'cache writes: 100 tokens at request 1',
+      'fresh: 100 tokens at request 1',
+      'request: 80.0% at request 1',
+      'cumulative: 80.0% at request 1',
+      'output: 40 tokens at request 1',
+      'reasoning: 10 tokens at request 1',
+    ]);
+    expect(view.container.textContent).toContain('cached: 800 tokens');
+
     act(() => {
       usage.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }));
     });
@@ -111,9 +127,13 @@ describe('session usage tab', () => {
     );
   });
 
-  it('bounds chart ticks and mounted table rows while paginating a large session', async () => {
-    const largeSession = Array.from({ length: 500 }, (_, index): AssistantMessage => ({
+  it('bounds chart payload and table rows while preserving endpoints and extrema', async () => {
+    const largeSession = Array.from({ length: 5000 }, (_, index): AssistantMessage => ({
       ...(messages[0] as AssistantMessage),
+      usage: {
+        ...(messages[0] as AssistantMessage).usage!,
+        input: index === 2500 ? 1_000_000 : 100,
+      },
       toolCalls: [],
       timestamp: 1_700_000_000_000 + index,
     }));
@@ -121,15 +141,91 @@ describe('session usage tab', () => {
     act(() => query<HTMLButtonElement>(view.container, '#tab-session-usage').click());
 
     expect(view.container.querySelectorAll('.usage-x-tick')).toHaveLength(30);
+    const series = [
+      ...view.container.querySelectorAll<SVGPolylineElement>('.usage-series polyline'),
+    ];
+    expect(series).toHaveLength(7);
+    expect(series.every((line) => Number(line.getAttribute('data-point-count')) <= 240)).toBe(true);
+    const freshPoints = query<SVGPolylineElement>(
+      view.container,
+      '.usage-figure:first-child .usage-series-3 polyline',
+    )
+      .getAttribute('points')!
+      .split(' ');
+    expect(freshPoints[0]?.startsWith('50,')).toBe(true);
+    expect(freshPoints.at(-1)?.startsWith('704,')).toBe(true);
+    expect(freshPoints.some((point) => point.endsWith(',34'))).toBe(true);
+    expect(view.container.innerHTML.length).toBeLessThan(300_000);
     expect(view.container.querySelectorAll('.usage-table-wrap tbody tr')).toHaveLength(50);
-    expect(view.container.textContent).toContain('Showing 1–50 of 500 visible requests');
+    expect(view.container.textContent).toContain('Showing 1–50 of 5,000 visible requests');
 
     act(() =>
       query<HTMLButtonElement>(view.container, '.usage-pagination button:last-child').click(),
     );
     expect(view.container.querySelector('.usage-table-wrap tbody tr td')?.textContent).toBe('51');
     expect(view.container.querySelectorAll('.usage-table-wrap tbody tr')).toHaveLength(50);
-    expect(view.container.textContent).toContain('Showing 51–100 of 500 visible requests');
+    expect(view.container.textContent).toContain('Showing 51–100 of 5,000 visible requests');
+  });
+
+  it('keeps cumulative totals after compaction removes every visible request', async () => {
+    const stats: SessionStats = {
+      sessionFile: '/tmp/session.jsonl',
+      sessionId: 'stats-only',
+      userMessages: 19,
+      assistantMessages: 20,
+      toolCalls: 42,
+      totalMessages: 39,
+      tokens: { input: 900, output: 400, cacheRead: 2000, cacheWrite: 100, total: 3400 },
+      cost: 1.25,
+      contextUsage: { tokens: 3000, contextWindow: 200_000, percent: 1.5 },
+    };
+    const view = await render(
+      [
+        {
+          role: 'compactionSummary',
+          summary: 'The previous requests were compacted.',
+          tokensBefore: 20_000,
+          timestamp: 2,
+        },
+      ],
+      stats,
+    );
+    act(() => query<HTMLButtonElement>(view.container, '#tab-session-usage').click());
+
+    expect(view.container.textContent).toContain('Total model requests20');
+    expect(view.container.textContent).toContain('Total prompt input3,000');
+    expect(view.container.textContent).toContain('Total output tokens400');
+    expect(view.container.textContent).toContain('Total estimated cost$1.25');
+    expect(view.container.textContent).toContain('Total tool calls42');
+    expect(view.container.textContent).toContain('Visible compaction summaries1');
+    expect(view.container.textContent).toContain('No visible request detail');
+    expect(view.container.querySelector('.usage-charts')).toBeNull();
+    expect(view.container.querySelector('.usage-details')).toBeNull();
+  });
+
+  it('renders legitimate zero-valued runtime totals instead of an empty session', async () => {
+    const stats: SessionStats = {
+      sessionFile: null,
+      sessionId: 'new',
+      userMessages: 0,
+      assistantMessages: 0,
+      toolCalls: 0,
+      totalMessages: 0,
+      tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      cost: 0,
+      contextUsage: { tokens: 0, contextWindow: 200_000, percent: 0 },
+    };
+    const view = await render([], stats);
+    act(() => query<HTMLButtonElement>(view.container, '#tab-session-usage').click());
+
+    expect(view.container.textContent).toContain('Total model requests0');
+    expect(view.container.textContent).toContain('Total prompt input0');
+    expect(view.container.textContent).toContain('Total estimated cost$0.00');
+    expect(view.container.textContent).toContain('Total tool calls0');
+    expect(view.container.textContent).toContain('No visible request detail');
+    expect(view.container.textContent).not.toContain(
+      'No assistant responses with token usage are available for this session yet.',
+    );
   });
 
   it('keeps the tab available and explains an empty session', async () => {

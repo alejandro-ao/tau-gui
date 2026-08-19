@@ -5,6 +5,7 @@ import { useStore } from '../state/store.js';
 const number = new Intl.NumberFormat('en-US');
 const REQUESTS_PER_PAGE = 50;
 const MAX_X_TICKS = 10;
+const MAX_CHART_POINTS = 240;
 
 export function SessionUsage(): ReactNode {
   const { state } = useStore();
@@ -19,7 +20,7 @@ export function SessionUsage(): ReactNode {
       </p>
     );
   }
-  if (usage.requests.length === 0) {
+  if (usage.requests.length === 0 && state.stats === null) {
     return (
       <section className="session-usage usage-empty" aria-label="Session usage">
         <h1>Session usage</h1>
@@ -29,6 +30,7 @@ export function SessionUsage(): ReactNode {
     );
   }
 
+  const hasVisibleRequests = usage.requests.length > 0;
   const hasRuntimeStats = state.stats !== null;
   const scopeLabel = (total: string, visible: string): string =>
     hasRuntimeStats ? total : visible;
@@ -43,7 +45,7 @@ export function SessionUsage(): ReactNode {
   const cacheHitRate =
     totalPrompt > 0 && (totalCached > 0 || totalCacheWrite > 0) ? totalCached / totalPrompt : null;
   const pageCount = Math.ceil(usage.requests.length / REQUESTS_PER_PAGE);
-  const currentPage = Math.min(requestPage, pageCount - 1);
+  const currentPage = pageCount === 0 ? 0 : Math.min(requestPage, pageCount - 1);
   const firstRequest = currentPage * REQUESTS_PER_PAGE;
   const visibleRequests = usage.requests.slice(firstRequest, firstRequest + REQUESTS_PER_PAGE);
   const visibleToolCallCount = usage.toolCalls.reduce((total, tool) => total + tool.count, 0);
@@ -61,7 +63,7 @@ export function SessionUsage(): ReactNode {
       <div className="usage-heading">
         <div>
           <h1>Session usage</h1>
-          <p>Provider-reported measurements for the current normalized RPC transcript.</p>
+          <p>Provider-reported measurements from normalized RPC session data.</p>
         </div>
       </div>
 
@@ -116,123 +118,141 @@ export function SessionUsage(): ReactNode {
         are inferred.
       </p>
 
-      <div className="usage-charts">
-        <UsageChart
-          title="Visible prompt input by request"
-          requests={usage.requests}
-          series={[
-            { name: 'cached', key: 'cached' },
-            { name: 'cache writes', key: 'cacheWrite' },
-            { name: 'fresh', key: 'fresh' },
-          ]}
-        />
-        {usage.cacheHitRate === null ? null : (
-          <UsageChart
-            title="Visible cache hit rate by request"
-            requests={usage.requests}
-            series={[
-              { name: 'request', values: usage.requests.map((request) => request.hitRate * 100) },
-              { name: 'cumulative', values: rates.map((rate) => rate * 100) },
-            ]}
-            percent
-          />
-        )}
-        <UsageChart
-          title="Visible output and reasoning tokens"
-          requests={usage.requests}
-          series={[
-            { name: 'output', key: 'output' },
-            { name: 'reasoning', key: 'reasoning' },
-          ]}
-        />
-      </div>
-
-      <div className="usage-details">
-        <section className="usage-panel">
-          <h2>Visible requests</h2>
-          <p className="usage-page-status" aria-live="polite">
-            Showing {firstRequest + 1}–{firstRequest + visibleRequests.length} of{' '}
-            {usage.requests.length} visible requests
-          </p>
-          <div className="usage-table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Time</th>
-                  <th>Provider</th>
-                  <th>Model</th>
-                  <th>Fresh</th>
-                  <th>Cached</th>
-                  <th>Written</th>
-                  <th>Prompt</th>
-                  <th>Hit rate</th>
-                  <th>Output</th>
-                  <th>Reasoning</th>
-                  <th>Cost</th>
-                  <th>Stop</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleRequests.map((request) => (
-                  <tr key={request.number}>
-                    <td>{request.number}</td>
-                    <td>{formatTime(request.timestamp)}</td>
-                    <td>{request.provider || 'unavailable'}</td>
-                    <td>{request.model || 'unavailable'}</td>
-                    <td>{number.format(request.fresh)}</td>
-                    <td>{number.format(request.cached)}</td>
-                    <td>{number.format(request.cacheWrite)}</td>
-                    <td>{number.format(request.prompt)}</td>
-                    <td>{usage.cacheHitRate === null ? 'N/A' : formatPercent(request.hitRate)}</td>
-                    <td>{number.format(request.output)}</td>
-                    <td>{number.format(request.reasoning)}</td>
-                    <td>{formatCost(request.cost)}</td>
-                    <td>{request.stopReason ?? 'unavailable'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+      {hasVisibleRequests ? (
+        <>
+          <div className="usage-charts">
+            <UsageChart
+              title="Visible prompt input by request"
+              requests={usage.requests}
+              series={[
+                { name: 'cached', key: 'cached' },
+                { name: 'cache writes', key: 'cacheWrite' },
+                { name: 'fresh', key: 'fresh' },
+              ]}
+            />
+            {usage.cacheHitRate === null ? null : (
+              <UsageChart
+                title="Visible cache hit rate by request"
+                requests={usage.requests}
+                series={[
+                  {
+                    name: 'request',
+                    values: usage.requests.map((request) => request.hitRate * 100),
+                  },
+                  { name: 'cumulative', values: rates.map((rate) => rate * 100) },
+                ]}
+                percent
+              />
+            )}
+            <UsageChart
+              title="Visible output and reasoning tokens"
+              requests={usage.requests}
+              series={[
+                { name: 'output', key: 'output' },
+                { name: 'reasoning', key: 'reasoning' },
+              ]}
+            />
           </div>
-          {pageCount > 1 ? (
-            <nav className="usage-pagination" aria-label="Visible request pages">
-              <button
-                type="button"
-                disabled={currentPage === 0}
-                onClick={() => setRequestPage((page) => Math.max(0, page - 1))}
-              >
-                Previous
-              </button>
-              <span>
-                Page {currentPage + 1} of {pageCount}
-              </span>
-              <button
-                type="button"
-                disabled={currentPage === pageCount - 1}
-                onClick={() => setRequestPage((page) => Math.min(pageCount - 1, page + 1))}
-              >
-                Next
-              </button>
-            </nav>
-          ) : null}
-        </section>
-        <section className="usage-panel usage-tools">
-          <h2>Visible tool-name breakdown</h2>
-          <p className="usage-page-status">
-            {number.format(visibleToolCallCount)} calls remain in the active transcript
-          </p>
-          {usage.toolCalls.length === 0 ? (
-            <p className="usage-muted">No visible tool calls.</p>
-          ) : (
-            usage.toolCalls.map((tool) => (
-              <div className="usage-tool" key={tool.name}>
-                <span>{tool.name}</span>
-                <strong>{tool.count}</strong>
+
+          <div className="usage-details">
+            <section className="usage-panel">
+              <h2>Visible requests</h2>
+              <p className="usage-page-status" aria-live="polite">
+                Showing {firstRequest + 1}–{firstRequest + visibleRequests.length} of{' '}
+                {number.format(usage.requests.length)} visible requests
+              </p>
+              <div className="usage-table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Time</th>
+                      <th>Provider</th>
+                      <th>Model</th>
+                      <th>Fresh</th>
+                      <th>Cached</th>
+                      <th>Written</th>
+                      <th>Prompt</th>
+                      <th>Hit rate</th>
+                      <th>Output</th>
+                      <th>Reasoning</th>
+                      <th>Cost</th>
+                      <th>Stop</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleRequests.map((request) => (
+                      <tr key={request.number}>
+                        <td>{request.number}</td>
+                        <td>{formatTime(request.timestamp)}</td>
+                        <td>{request.provider || 'unavailable'}</td>
+                        <td>{request.model || 'unavailable'}</td>
+                        <td>{number.format(request.fresh)}</td>
+                        <td>{number.format(request.cached)}</td>
+                        <td>{number.format(request.cacheWrite)}</td>
+                        <td>{number.format(request.prompt)}</td>
+                        <td>
+                          {usage.cacheHitRate === null ? 'N/A' : formatPercent(request.hitRate)}
+                        </td>
+                        <td>{number.format(request.output)}</td>
+                        <td>{number.format(request.reasoning)}</td>
+                        <td>{formatCost(request.cost)}</td>
+                        <td>{request.stopReason ?? 'unavailable'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
-            ))
-          )}
+              {pageCount > 1 ? (
+                <nav className="usage-pagination" aria-label="Visible request pages">
+                  <button
+                    type="button"
+                    disabled={currentPage === 0}
+                    onClick={() => setRequestPage((page) => Math.max(0, page - 1))}
+                  >
+                    Previous
+                  </button>
+                  <span>
+                    Page {currentPage + 1} of {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage === pageCount - 1}
+                    onClick={() => setRequestPage((page) => Math.min(pageCount - 1, page + 1))}
+                  >
+                    Next
+                  </button>
+                </nav>
+              ) : null}
+            </section>
+            <section className="usage-panel usage-tools">
+              <h2>Visible tool-name breakdown</h2>
+              <p className="usage-page-status">
+                {number.format(visibleToolCallCount)} calls remain in the active transcript
+              </p>
+              {usage.toolCalls.length === 0 ? (
+                <p className="usage-muted">No visible tool calls.</p>
+              ) : (
+                usage.toolCalls.map((tool) => (
+                  <div className="usage-tool" key={tool.name}>
+                    <span>{tool.name}</span>
+                    <strong>{tool.count}</strong>
+                  </div>
+                ))
+              )}
+            </section>
+          </div>
+        </>
+      ) : (
+        <section className="usage-panel usage-no-visible" role="status">
+          <h2>No visible request detail</h2>
+          <p>
+            Cumulative totals are available, but no model requests with usage remain in the active
+            transcript. Charts, request rows, and the tool-name breakdown need visible requests and
+            may have been replaced by compaction.
+          </p>
         </section>
-      </div>
+      )}
     </section>
   );
 }
@@ -291,13 +311,28 @@ function UsageChart({
             </g>
           );
         })}
-        {series.map((item, index) => (
-          <g className={`usage-series usage-series-${index + 1}`} key={item.name}>
-            <polyline
-              points={values[index]?.map((value, point) => `${x(point)},${y(value)}`).join(' ')}
-            />
-          </g>
-        ))}
+        {series.map((item, index) => {
+          const seriesValues = values[index] ?? [];
+          const points = sampleSeriesIndexes(seriesValues).map(
+            (point) => `${x(point)},${y(seriesValues[point] ?? 0)}`,
+          );
+          const singletonValue = seriesValues[0];
+          return (
+            <g className={`usage-series usage-series-${index + 1}`} key={item.name}>
+              <polyline data-point-count={points.length} points={points.join(' ')} />
+              {requests.length === 1 && singletonValue !== undefined ? (
+                <circle
+                  className="usage-single-point"
+                  cx={x(0)}
+                  cy={y(singletonValue)}
+                  r={5}
+                  role="img"
+                  aria-label={`${item.name}: ${formatChartValue(singletonValue, percent)} at request 1`}
+                />
+              ) : null}
+            </g>
+          );
+        })}
         {sampleTickIndexes(requests.length).map((index) => (
           <text
             className="usage-tick usage-x-tick"
@@ -314,6 +349,9 @@ function UsageChart({
         {series.map((item, index) => (
           <span className={`usage-legend usage-legend-${index + 1}`} key={item.name}>
             {item.name}
+            {requests.length === 1 && values[index]?.[0] !== undefined
+              ? `: ${formatChartValue(values[index][0], percent)}`
+              : null}
           </span>
         ))}
       </figcaption>
@@ -326,6 +364,33 @@ function sampleTickIndexes(length: number): number[] {
   return Array.from({ length: MAX_X_TICKS }, (_, index) =>
     Math.round((index * (length - 1)) / (MAX_X_TICKS - 1)),
   );
+}
+
+/** Bounds SVG payload while retaining endpoints and each bucket's local extrema. */
+function sampleSeriesIndexes(values: readonly number[]): number[] {
+  if (values.length <= MAX_CHART_POINTS) {
+    return Array.from({ length: values.length }, (_, index) => index);
+  }
+
+  const indexes = new Set<number>([0, values.length - 1]);
+  const bucketCount = Math.floor((MAX_CHART_POINTS - 2) / 2);
+  for (let bucket = 0; bucket < bucketCount; bucket += 1) {
+    const start = 1 + Math.floor((bucket * (values.length - 2)) / bucketCount);
+    const end = 1 + Math.floor(((bucket + 1) * (values.length - 2)) / bucketCount);
+    let minimum = start;
+    let maximum = start;
+    for (let index = start + 1; index < end; index += 1) {
+      if ((values[index] ?? 0) < (values[minimum] ?? 0)) minimum = index;
+      if ((values[index] ?? 0) > (values[maximum] ?? 0)) maximum = index;
+    }
+    indexes.add(minimum);
+    indexes.add(maximum);
+  }
+  return [...indexes].sort((left, right) => left - right);
+}
+
+function formatChartValue(value: number, percent: boolean): string {
+  return percent ? `${value.toFixed(1)}%` : `${number.format(value)} tokens`;
 }
 
 function compact(value: number): string {
