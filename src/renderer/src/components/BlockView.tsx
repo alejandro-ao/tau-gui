@@ -23,7 +23,7 @@ export function BlockView({
 
     case 'user':
       return (
-        <div className="message-block">
+        <div className="message-block message-block-user">
           <BlockFrame kind="user" label="you">
             <pre className="block-text">{block.text}</pre>
           </BlockFrame>

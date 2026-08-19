@@ -164,6 +164,18 @@
   pointer-events: auto;
 }
 
+.message-block-user {
+  position: relative;
+}
+
+.message-block-user .message-actions {
+  margin: 0;
+  position: absolute;
+  right: var(--space-1);
+  top: 100%;
+  z-index: 1;
+}
+
 .copy-button {
   align-items: center;
   background: transparent;
