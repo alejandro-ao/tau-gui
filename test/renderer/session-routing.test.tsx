@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, type ReactNode } from 'react';
+import { act, StrictMode, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentMessage, AgentState, SessionRef } from '../../src/shared/domain.js';
 import type { Actions } from '../../src/renderer/src/state/store.js';
@@ -43,6 +43,22 @@ function assistant(text: string): AgentMessage {
 }
 
 describe('session hydration routing', () => {
+  it('bootstraps one runtime under development StrictMode', async () => {
+    const bridge = installFakeBridge({ status: 'stopped' });
+    const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
+    const view = await mount(
+      <StrictMode>
+        <StoreProvider>
+          <div />
+        </StoreProvider>
+      </StrictMode>,
+    );
+    mounted = view;
+    await view.flush();
+
+    expect(bridge.calls.filter((call) => call.action === 'runtime.start')).toHaveLength(1);
+  });
+
   it('discards transcript reads that resolve after another session is selected', async () => {
     const first = agent('first-session');
     const second = agent('second-session');

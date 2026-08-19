@@ -46,6 +46,18 @@ afterEach(async () => {
 });
 
 describe('RuntimePool', () => {
+  it('shares concurrent startup requests without replacing the launched process', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+
+    const [first, second] = await Promise.all([pool.start(), pool.start()]);
+
+    expect(first.state?.sessionId).toBe('fake-session-1');
+    expect(second.state?.sessionId).toBe('fake-session-1');
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
+
   it('keeps an idle session bound to its own runtime process', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

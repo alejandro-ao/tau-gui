@@ -168,8 +168,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     return unsubscribe;
   }, [refresh]);
 
-  // Bootstrap: load settings, then connect to the configured runtime.
+  // Bootstrap exactly once. React development StrictMode replays effects;
+  // without this guard both passes can race two runtime.start requests and
+  // stop the process that owns an in-flight session.
+  const bootstrapped = useRef(false);
   useEffect(() => {
+    if (bootstrapped.current) return;
+    bootstrapped.current = true;
     void (async () => {
       const settings = await attempt('settings.get', undefined, notice);
       if (settings) dispatch({ type: 'settings', settings });

@@ -15,6 +15,7 @@ export class RuntimePool {
   /** Stable ownership assigned at activation; never inferred from transient startup state. */
   private readonly owners = new Map<string, RuntimeManager>();
   private current: RuntimeManager | null = null;
+  private starting: Promise<RuntimeSnapshot> | null = null;
 
   constructor(
     private readonly settings: SettingsStore,
@@ -43,6 +44,20 @@ export class RuntimePool {
     options: { cwd?: string | null; sessionRef?: string | null } = {},
   ): Promise<RuntimeSnapshot> {
     if (options.sessionRef) return this.activateSession(options.sessionRef, options.cwd);
+    // React development StrictMode can bootstrap twice before the first
+    // runtime handshake completes. Share that handshake rather than letting
+    // the second call stop the process the first call just launched.
+    if (this.starting) return this.starting;
+    const starting = this.startFresh(options);
+    this.starting = starting;
+    try {
+      return await starting;
+    } finally {
+      if (this.starting === starting) this.starting = null;
+    }
+  }
+
+  private async startFresh(options: { cwd?: string | null }): Promise<RuntimeSnapshot> {
     if (this.current) await this.remove(this.current);
     const manager = this.createManager();
     this.current = manager;
