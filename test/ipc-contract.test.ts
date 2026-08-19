@@ -21,7 +21,19 @@ describe('IPC request validation', () => {
     ).toBe(true);
   });
 
-  it('strictly validates working-directory persistence requests', () => {
+  it('strictly validates working-directory persistence and opening requests', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.openSession',
+        payload: { cwd: '/work/project' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.openSession',
+        payload: { cwd: '', sessionRef: 'unexpected' },
+      }).success,
+    ).toBe(false);
     expect(
       requestSchema.safeParse({
         action: 'settings.rememberWorkingDirectory',

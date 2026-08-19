@@ -310,7 +310,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       dispatch({ type: 'settings', settings });
       const navigation = beginNavigation(stateRef.current.snapshot.runtime);
       try {
-        await navigate(navigation, () => invoke('runtime.start', { cwd }));
+        await navigate(navigation, () => invoke('runtime.openSession', { cwd }));
       } finally {
         finishNavigation(navigation);
       }

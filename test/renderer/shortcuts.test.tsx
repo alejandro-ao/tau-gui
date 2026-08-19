@@ -51,7 +51,8 @@ describe('global shortcuts', () => {
     await press(window, 'n', { ctrlKey: true, shiftKey: true });
     expect(actionsOf(bridge)).toContain('fs.pickDirectory');
     expect(actionsOf(bridge)).toContain('settings.rememberWorkingDirectory');
-    expect(bridge.payloads('runtime.start')).toContainEqual({ cwd: '/work/shortcut' });
+    expect(bridge.payloads('runtime.openSession')).toEqual([{ cwd: '/work/shortcut' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
     expect(actionsOf(bridge)).not.toContain('session.new');
 
     bridge.calls.length = 0;

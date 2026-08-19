@@ -38,6 +38,7 @@ beforeAll(() => {
 interface Calls {
   abortShell: number;
   entries: (string | undefined)[];
+  openedDirectories: string[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -49,7 +50,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     ...settingsPatch,
     runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
-  const calls: Calls = { abortShell: 0, entries: [] };
+  const calls: Calls = { abortShell: 0, entries: [], openedDirectories: [] };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
@@ -68,6 +69,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     manager: {
       active,
       runtimeFor: () => active,
+      openSession: (cwd: string) => {
+        calls.openedDirectories.push(cwd);
+        return Promise.resolve({ runtime: 'tau', cwd });
+      },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
     } as unknown as Context['manager'],
     window: () => null,
@@ -99,6 +104,19 @@ describe('directory chooser handler', () => {
     expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
       expect.objectContaining({ properties: ['openDirectory', 'createDirectory'] }),
     );
+  });
+});
+
+describe('fresh directory session handler', () => {
+  it('routes the validated cwd to the runtime pool operation', async () => {
+    const { context, calls } = makeContext();
+
+    await handleRequest(context, {
+      action: 'runtime.openSession',
+      payload: { cwd: '/work/chosen' },
+    });
+
+    expect(calls.openedDirectories).toEqual(['/work/chosen']);
   });
 });
 

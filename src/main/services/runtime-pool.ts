@@ -112,6 +112,17 @@ export class RuntimePool {
     }
   }
 
+  /**
+   * Opens a fresh session rooted in a chosen directory. Busy work keeps its
+   * process in the background; an idle, stopped, or failed viewed process is
+   * replaced so unused managers do not accumulate.
+   */
+  async openSession(cwd: string): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(() =>
+      this.startFresh({ cwd }, { replaceCurrent: !this.current || !isBusy(this.current) }),
+    );
+  }
+
   /** Selects an existing process or launches a new process for the session. */
   async activateSession(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(() => this.activateSessionNow(ref, cwd));

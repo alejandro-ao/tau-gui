@@ -251,6 +251,53 @@ describe('RuntimePool', () => {
     );
   });
 
+  it('opens a picker session without stopping the streaming process', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    await pool.active.prompt({ text: 'tool work' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+
+    const busy = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const chosen = fileURLToPath(new URL('.', import.meta.url));
+    process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
+    try {
+      await pool.openSession(chosen);
+    } finally {
+      delete process.env['FAKE_RUNTIME_UNIQUE_SESSION'];
+    }
+
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(2);
+    expect(pool.snapshot().cwd).toBe(chosen);
+    expect(pool.snapshot().state?.sessionId).not.toBe('fake-session-1');
+    await waitFor(async () => !(await pool!.runtimeFor(busy).getState()).isStreaming);
+    const messages = await pool.runtimeFor(busy).getMessages();
+    expect(messages.some((message) => message.role === 'assistant')).toBe(true);
+    expect(messages.filter((message) => message.role === 'toolResult')).toHaveLength(3);
+  });
+
+  it('replaces an idle process when opening a picker session', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    const replaced = [...internals.managers][0]!;
+    const chosen = fileURLToPath(new URL('.', import.meta.url));
+
+    await pool.openSession(chosen);
+
+    expect(internals.managers.size).toBe(1);
+    expect(internals.managers.has(replaced)).toBe(false);
+    expect(replaced.isStarted).toBe(false);
+    expect(pool.snapshot().cwd).toBe(chosen);
+  });
+
   it('gives a new session its own process while a run is still streaming', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

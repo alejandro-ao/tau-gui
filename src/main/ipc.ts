@@ -44,6 +44,8 @@ export async function handleRequest(
         cwd: request.payload.cwd ?? null,
         sessionRef: request.payload.sessionRef ?? null,
       });
+    case 'runtime.openSession':
+      return manager.openSession(request.payload.cwd);
     case 'runtime.stop':
       return manager.stop();
     case 'runtime.probe': {

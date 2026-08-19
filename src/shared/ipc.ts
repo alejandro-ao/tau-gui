@@ -99,6 +99,10 @@ export const requestSchema = z.discriminatedUnion('action', [
       sessionRef: z.string().nullable().optional(),
     }),
   }),
+  z.object({
+    action: z.literal('runtime.openSession'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
+  }),
   z.object({ action: z.literal('runtime.stop') }),
   // The probe never accepts a renderer-supplied binary: only the runtime kind
   // may be selected, and the executable always comes from persisted settings.
@@ -230,6 +234,7 @@ export interface IpcResultMap {
   'settings.rememberWorkingDirectory': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
+  'runtime.openSession': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
   'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;

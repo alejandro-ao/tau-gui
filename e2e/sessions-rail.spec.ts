@@ -122,6 +122,45 @@ test.describe('sessions rail', () => {
     await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
   });
 
+  test('keeps a streaming process alive when the picker opens another directory', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-picker-source-'));
+    const chosenDir = mkdtempSync(join(tmpdir(), 'tau-gui-picker-target-'));
+    handle = await launchApp({
+      projectDir,
+      env: {
+        FAKE_RUNTIME_DELAY_MS: '250',
+        FAKE_RUNTIME_UNIQUE_SESSION: '1',
+      },
+    });
+    const { app, page } = handle;
+    await waitForConnected(page);
+
+    await submitPrompt(page, 'tool work via picker that must survive');
+    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
+    const streamingPid = runtimePids(handle.marker)[0];
+    expect(streamingPid).toBeDefined();
+    await app.evaluate(({ dialog }, directory) => {
+      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [directory] });
+    }, chosenDir);
+
+    await page.getByRole('button', { name: 'new session in directory' }).click();
+    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
+    await expect
+      .poll(() => runtimePids(handle.marker), { timeout: 10_000 })
+      .toEqual(expect.arrayContaining([streamingPid!]));
+    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
+
+    const background = page
+      .getByTestId('sessions-rail')
+      .locator('.sessions-rail-item')
+      .filter({ hasText: 'tool work via picker that must survive' });
+    await background.click();
+    await waitForSettled(page, 15_000);
+    await expect(transcript(page)).toContainText('Done: tests pass.');
+    await page.locator('.tool-run-header').last().click();
+    await expect(page.locator('.tool-run-row[data-state="success"]')).toHaveCount(3);
+  });
+
   test('keeps a streaming session on its own process when a new session opens', async () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-new-session-'));
     handle = await launchApp({

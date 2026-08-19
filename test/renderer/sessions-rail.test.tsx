@@ -42,8 +42,42 @@ describe('SessionsRail', () => {
     await settle(view);
     expect(bridge.payloads('fs.pickDirectory')).toEqual([undefined]);
     expect(bridge.payloads('settings.rememberWorkingDirectory')).toEqual([{ cwd: '/work/chosen' }]);
-    expect(bridge.payloads('runtime.start')).toContainEqual({ cwd: '/work/chosen' });
+    expect(bridge.payloads('runtime.openSession')).toEqual([{ cwd: '/work/chosen' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
     expect(bridge.payloads('session.new')).toEqual([]);
+  });
+
+  it('does nothing when directory selection is cancelled', async () => {
+    const { bridge, view } = await render({
+      settings: { recentSessions: [], workingDirectories: [] },
+      results: { 'fs.pickDirectory': null },
+    });
+    const newSession = view.container.querySelector<HTMLButtonElement>('.sessions-rail-new');
+    if (!newSession) throw new Error('new session button missing');
+
+    await click(newSession);
+    await settle(view);
+
+    expect(bridge.payloads('settings.rememberWorkingDirectory')).toEqual([]);
+    expect(bridge.payloads('runtime.openSession')).toEqual([]);
+  });
+
+  it('does not open a session when directory persistence fails', async () => {
+    const { bridge, view } = await render({
+      settings: { recentSessions: [], workingDirectories: [] },
+      results: { 'fs.pickDirectory': '/work/chosen' },
+    });
+    bridge.setHandler('settings.rememberWorkingDirectory', () => {
+      throw new Error('settings unavailable');
+    });
+    const newSession = view.container.querySelector<HTMLButtonElement>('.sessions-rail-new');
+    if (!newSession) throw new Error('new session button missing');
+
+    await click(newSession);
+    await settle(view);
+
+    expect(bridge.payloads('runtime.openSession')).toEqual([]);
+    expect(view.container.textContent).toContain('settings unavailable');
   });
 
   it('can be resized with its accessible separator', async () => {

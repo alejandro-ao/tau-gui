@@ -71,6 +71,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'settings.rememberWorkingDirectory': settings,
     'runtime.snapshot': snapshot,
     'runtime.start': snapshot,
+    'runtime.openSession': snapshot,
     'runtime.stop': snapshot,
     'agent.messages': [],
     'agent.stats': options.stats ?? null,
