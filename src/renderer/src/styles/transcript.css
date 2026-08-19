@@ -68,6 +68,8 @@
   border-color: var(--accent-dim);
   color: var(--accent);
   height: 22px;
+  width: 22px;
+  padding: 0;
 }
 
 /* Blocks use a vertical role bar, never a chat bubble; assistant output stays unadorned. */

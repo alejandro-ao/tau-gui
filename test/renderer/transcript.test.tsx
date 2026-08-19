@@ -122,7 +122,8 @@ describe('transcript scroll anchoring', () => {
     });
 
     const affordance = query(view.container, '.new-output');
-    expect(affordance.textContent).toContain('new output');
+    expect(affordance.textContent?.trim()).toBe('↓');
+    expect(affordance.getAttribute('aria-label')).toBe('Go to bottom');
 
     await act(async () => {
       affordance.dispatchEvent(new MouseEvent('click', { bubbles: true }));

@@ -121,8 +121,14 @@ export function Transcript(): ReactNode {
       </div>
 
       {hasNewOutput ? (
-        <button type="button" className="ghost-button new-output" onClick={scrollToBottom}>
-          new output ↓
+        <button
+          type="button"
+          className="ghost-button new-output"
+          aria-label="Go to bottom"
+          title="Go to bottom"
+          onClick={scrollToBottom}
+        >
+          <span aria-hidden="true">↓</span>
         </button>
       ) : null}
     </div>
