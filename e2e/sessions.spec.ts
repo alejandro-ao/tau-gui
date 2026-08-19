@@ -1,3 +1,5 @@
+import { mkdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   composer,
@@ -19,19 +21,24 @@ test.afterEach(async () => {
   await handle.close();
 });
 
-test('Ctrl+N starts a new session, clearing the transcript but keeping the draft', async () => {
-  const { page } = handle;
-  await submitPrompt(page, 'first session prompt');
-  await waitForSettled(page);
-  await expect(page.locator('.block-assistant')).toHaveCount(1);
+test('Shift+Ctrl+N chooses and persists a working directory before starting', async () => {
+  const { app, page, userDataDir } = handle;
+  const chosen = join(userDataDir, 'chosen-project');
+  mkdirSync(chosen);
+  await app.evaluate(({ dialog }, directory) => {
+    dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [directory] });
+  }, chosen);
 
-  await typeDraft(page, 'draft that must survive');
-  await page.keyboard.press('Control+n');
-
-  await expect(transcript(page)).toContainText('No messages yet');
-  await expect(page.locator('.block-user')).toHaveCount(0);
-  await expect(composer(page)).toHaveValue('draft that must survive');
+  await page.keyboard.press('Control+Shift+n');
   await waitForSettled(page);
+  await expect(page.getByTestId('sessions-rail')).toContainText('chosen-project');
+
+  const persisted = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8')) as {
+    cwd: string;
+    workingDirectories: string[];
+  };
+  expect(persisted.cwd).toBe(chosen);
+  expect(persisted.workingDirectories[0]).toBe(chosen);
 });
 
 test('/new from the composer clears the transcript too', async () => {

@@ -76,6 +76,7 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
           current.toggleThinking();
           return;
         case 'n':
+          if (!event.shiftKey) return;
           event.preventDefault();
           current.newSession();
           return;

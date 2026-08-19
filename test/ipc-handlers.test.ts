@@ -6,11 +6,11 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn() }));
+const electronMocks = vi.hoisted(() => ({ writeText: vi.fn(), showOpenDialog: vi.fn() }));
 
 vi.mock('electron', () => ({
   clipboard: { writeText: electronMocks.writeText },
-  dialog: { showSaveDialog: vi.fn(), showOpenDialog: vi.fn() },
+  dialog: { showSaveDialog: vi.fn(), showOpenDialog: electronMocks.showOpenDialog },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
 }));
@@ -38,6 +38,7 @@ beforeAll(() => {
 interface Calls {
   abortShell: number;
   entries: (string | undefined)[];
+  openedDirectories: string[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -49,7 +50,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     ...settingsPatch,
     runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
-  const calls: Calls = { abortShell: 0, entries: [] };
+  const calls: Calls = { abortShell: 0, entries: [], openedDirectories: [] };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
@@ -68,6 +69,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     manager: {
       active,
       runtimeFor: () => active,
+      openSession: (cwd: string) => {
+        calls.openedDirectories.push(cwd);
+        return Promise.resolve({ runtime: 'tau', cwd });
+      },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
     } as unknown as Context['manager'],
     window: () => null,
@@ -82,6 +87,36 @@ describe('clipboard handler', () => {
     await handleRequest(context, { action: 'ui.copyText', payload: { text: 'copy me' } });
 
     expect(electronMocks.writeText).toHaveBeenCalledWith('copy me');
+  });
+});
+
+describe('directory chooser handler', () => {
+  it('uses the native directory-only dialog and returns its selected path', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/work/chosen'],
+    });
+    const { context } = makeContext();
+
+    await expect(handleRequest(context, { action: 'fs.pickDirectory' })).resolves.toBe(
+      '/work/chosen',
+    );
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: ['openDirectory', 'createDirectory'] }),
+    );
+  });
+});
+
+describe('fresh directory session handler', () => {
+  it('routes the validated cwd to the runtime pool operation', async () => {
+    const { context, calls } = makeContext();
+
+    await handleRequest(context, {
+      action: 'runtime.openSession',
+      payload: { cwd: '/work/chosen' },
+    });
+
+    expect(calls.openedDirectories).toEqual(['/work/chosen']);
   });
 });
 

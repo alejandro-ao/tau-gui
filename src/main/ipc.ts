@@ -34,6 +34,8 @@ export async function handleRequest(
       return settings.update(request.payload);
     case 'settings.toggleScopedModel':
       return settings.toggleScopedModel(request.payload.runtime, request.payload);
+    case 'settings.rememberWorkingDirectory':
+      return settings.rememberWorkingDirectory(request.payload.cwd);
     case 'settings.forgetSession':
       return settings.forgetSession(request.payload.id);
 
@@ -42,6 +44,8 @@ export async function handleRequest(
         cwd: request.payload.cwd ?? null,
         sessionRef: request.payload.sessionRef ?? null,
       });
+    case 'runtime.openSession':
+      return manager.openSession(request.payload.cwd);
     case 'runtime.stop':
       return manager.stop();
     case 'runtime.probe': {
