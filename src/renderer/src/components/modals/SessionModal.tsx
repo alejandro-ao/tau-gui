@@ -58,7 +58,7 @@ export function SessionModal(): ReactNode {
         const session = sessions.find((candidate) => candidate.id === item.id);
         if (!session) return;
         actions.openModal(null);
-        void actions.switchSession(session.path ?? session.id);
+        void actions.resumeSession(session);
       }}
     />
   );

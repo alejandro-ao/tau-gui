@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from 'react';
+import { act, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   installFakeBridge,
@@ -48,11 +48,24 @@ async function renderComposer(options: {
     agent: options.agent,
   });
   // Imported lazily so the fake bridge exists before the store bootstraps.
-  const { StoreProvider } = await import('../../src/renderer/src/state/store.js');
+  const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
   const { Composer } = await import('../../src/renderer/src/components/Composer.js');
+  function ExternalDraftControl(): ReactNode {
+    const { actions } = useStore();
+    return (
+      <button
+        type="button"
+        data-testid="external-draft"
+        onClick={() => actions.setDraft('/skill:review ')}
+      >
+        replace draft
+      </button>
+    );
+  }
   const view = await mount(
     <StoreProvider>
       <Composer />
+      <ExternalDraftControl />
     </StoreProvider>,
   );
   mounted = view;
@@ -71,6 +84,32 @@ async function type(input: HTMLTextAreaElement, value: string): Promise<void> {
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await Promise.resolve();
   });
+}
+
+async function userInput(
+  input: HTMLTextAreaElement,
+  value: string,
+  selectionStart: number,
+  inputType: string,
+): Promise<void> {
+  const descriptor = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+  // eslint-disable-next-line @typescript-eslint/unbound-method
+  const setValue = descriptor?.set;
+  await act(async () => {
+    if (setValue) Reflect.apply(setValue, input, [value]);
+    input.setSelectionRange(selectionStart, selectionStart);
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType }));
+    await Promise.resolve();
+  });
+}
+
+async function typeWithKeyboard(input: HTMLTextAreaElement, text: string): Promise<void> {
+  for (const character of text) {
+    const start = input.selectionStart;
+    const end = input.selectionEnd;
+    const value = `${input.value.slice(0, start)}${character}${input.value.slice(end)}`;
+    await userInput(input, value, start + character.length, 'insertText');
+  }
 }
 
 async function press(
@@ -210,6 +249,12 @@ describe('Composer key handling', () => {
     expect(actions(bridge)).toEqual(['queue.pop', 'queue.resolve']);
     expect(bridge.payloads('queue.resolve')).toEqual([{ id: 'prompt-7', outcome: 'accept' }]);
 
+    // Queue recall is a discrete programmatic edit in the native-like history.
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('');
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('queued draft');
+
     await type(input, 'edited draft');
     expect(actions(bridge)).toEqual(['queue.pop', 'queue.resolve']);
     await press(input, 'Enter');
@@ -280,6 +325,51 @@ describe('Composer key handling', () => {
     expect(input.value).toBe('first prompt');
   });
 
+  it('undoes and redoes an Up Arrow history replacement', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'first prompt');
+    await press(input, 'Enter');
+    await press(input, 'ArrowUp');
+    expect(input.value).toBe('first prompt');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('first prompt');
+  });
+
+  it('coalesces contiguous keyboard typing into one undo unit', async () => {
+    const { input } = await renderComposer({});
+    await typeWithKeyboard(input, 'hello');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('hello');
+  });
+
+  it('coalesces contiguous backward deletion into one undo unit', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'hello');
+    for (const value of ['hell', 'hel', 'he']) {
+      await userInput(input, value, value.length, 'deleteContentBackward');
+    }
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('hello');
+  });
+
+  it('undoes deleted text with the platform modifier', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'accidental deletion');
+    await type(input, 'accidental ');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('accidental deletion');
+  });
+
   it('clears the editor with Ctrl+C when nothing is selected', async () => {
     const { bridge, input } = await renderComposer({});
     await type(input, 'scratch text');
@@ -287,5 +377,51 @@ describe('Composer key handling', () => {
 
     expect(input.value).toBe('');
     expect(actions(bridge)).toHaveLength(0);
+  });
+
+  it('undoes a cleared draft and redoes it with the macOS shortcuts', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'scratch text');
+    await press(input, 'c', { ctrlKey: true });
+
+    await press(input, 'z', { metaKey: true });
+    expect(input.value).toBe('scratch text');
+
+    await press(input, 'z', { metaKey: true, shiftKey: true });
+    expect(input.value).toBe('');
+  });
+
+  it('makes external replacements undoable and invalidates stale redo', async () => {
+    const { input, view } = await renderComposer({});
+    await type(input, 'original draft');
+    await press(input, 'c', { ctrlKey: true });
+    await press(input, 'z', { ctrlKey: true });
+
+    await act(async () => {
+      query<HTMLButtonElement>(view.container, '[data-testid="external-draft"]').click();
+      await Promise.resolve();
+    });
+    expect(input.value).toBe('/skill:review ');
+
+    await press(input, 'y', { ctrlKey: true });
+    expect(input.value).toBe('/skill:review ');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('original draft');
+  });
+
+  it('restores the selection captured before a replacement', async () => {
+    const { input } = await renderComposer({});
+    await type(input, 'select me');
+    await act(async () => {
+      input.setSelectionRange(0, 6);
+      input.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await type(input, 'replacement');
+
+    await press(input, 'z', { ctrlKey: true });
+    expect(input.value).toBe('select me');
+    expect([input.selectionStart, input.selectionEnd]).toEqual([0, 6]);
   });
 });

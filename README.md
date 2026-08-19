@@ -27,7 +27,10 @@ clean-machine release smoke tests still need credentials and hardware. See
 
 ## What works
 
-- Open a project directory, pick Tau or Pi, start or resume a session.
+- Manage working directories in the collapsible left rail, with each directory's
+  sessions grouped beneath it. The rail plus button or `Shift+Ctrl+N`
+  (`Shift+Cmd+N` on macOS) opens the native folder chooser; `/new` starts in the
+  active session's directory without prompting.
 - Prompt and watch text, thinking, and tool activity stream live.
 - Cancel (`Esc`), steer (`Enter` while running), or queue follow-ups
   (`Alt+Enter`) without waiting for the current run.

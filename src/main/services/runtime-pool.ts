@@ -1,4 +1,4 @@
-import type { AgentEvent, AgentState } from '../../shared/domain.js';
+import type { AgentEvent, AgentState, ProjectTrust } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
@@ -109,6 +109,11 @@ export class RuntimePool {
     );
   }
 
+  /** Trust used to launch the selected process, not the mutable settings value. */
+  get effectiveProjectTrust(): ProjectTrust | null {
+    return this.current?.effectiveProjectTrust ?? null;
+  }
+
   listDiagnostics(): string[] {
     return [...this.managers]
       .flatMap((manager) => manager.listDiagnostics())
@@ -137,7 +142,8 @@ export class RuntimePool {
     options: { cwd?: string | null; sessionRef?: string | null },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
-    if (replaceCurrent && this.current) await this.remove(this.current);
+    const previous = this.current;
+    if (replaceCurrent && previous) await this.remove(previous);
     const manager = this.createManager();
     this.current = manager;
     try {
@@ -147,8 +153,17 @@ export class RuntimePool {
       void this.schedule(manager);
       return snapshot;
     } catch (error) {
-      this.managers.delete(manager);
-      this.runLifecycles.delete(manager);
+      // Startup can fail after spawning or indexing transient state. Fully
+      // remove that manager, then restore only a busy manager deliberately
+      // preserved by this transition. A replaced idle/failed manager was
+      // intentionally removed and must never be revived.
+      await this.remove(manager);
+      if (!replaceCurrent && previous && this.managers.has(previous)) {
+        this.current = previous;
+        const snapshot = previous.snapshot();
+        this.broadcast({ type: 'status', snapshot });
+        this.broadcastActivity(previous, snapshot.status, false);
+      }
       throw error;
     }
   }
@@ -162,6 +177,17 @@ export class RuntimePool {
         snapshot?.runtime === 'pi' ? (state?.sessionFile ?? state?.sessionId) : state?.sessionId;
       return this.startFresh({ cwd: snapshot?.cwd ?? null, sessionRef: sessionRef ?? null });
     });
+  }
+
+  /**
+   * Opens a fresh session rooted in a chosen directory. Busy work keeps its
+   * process in the background; an idle, stopped, or failed viewed process is
+   * replaced so unused managers do not accumulate.
+   */
+  async openSession(cwd: string): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(() =>
+      this.startFresh({ cwd }, { replaceCurrent: !this.current || !isBusy(this.current) }),
+    );
   }
 
   /** Selects an existing process or launches a new process for the session. */

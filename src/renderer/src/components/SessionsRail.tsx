@@ -1,24 +1,24 @@
-import { useCallback, useEffect, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { useStore } from '../state/store.js';
+import { groupSessionsByWorkingDirectory, sessionLabel } from '../state/working-directories.js';
 import { formatRelativeTime } from './format.js';
 
-/**
- * Resizable left rail listing app-owned recent sessions for the current directory.
- * The full cross-directory list lives in the session picker modal.
- */
+/** Resizable left rail grouping app-owned sessions by working directory. */
 export function SessionsRail(): ReactNode {
   const { state, actions } = useStore();
   const [width, setWidth] = useState(260);
   const [resizing, setResizing] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
-  const cwd = state.snapshot.cwd ?? state.settings.cwd;
-  const sessions = state.settings.recentSessions.filter(
-    (session) =>
-      session.cwd !== null &&
-      session.cwd === cwd &&
-      session.messageCount !== 0 &&
-      sessionLabel(session) !== null,
-  );
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const groups = useMemo(() => groupSessionsByWorkingDirectory(state.settings), [state.settings]);
+  const sessionCount = groups.reduce((count, group) => count + group.sessions.length, 0);
   const activeId = pendingSessionId ?? state.agent?.sessionId ?? null;
   const resize = useCallback((nextWidth: number) => {
     const maximum = Math.min(420, Math.max(160, window.innerWidth * 0.45));
@@ -56,86 +56,125 @@ export function SessionsRail(): ReactNode {
       className="sessions-rail"
       data-testid="sessions-rail"
       data-resizing={resizing}
-      aria-label="recent sessions in this directory"
+      aria-label="working directories and recent sessions"
       style={{ flexBasis: width }}
     >
       <div className="sessions-rail-header">
-        <h2 className="sessions-rail-title">sessions · {sessions.length}</h2>
+        <h2 className="sessions-rail-title">
+          projects · {groups.length} / sessions · {sessionCount}
+        </h2>
         <button
           type="button"
           className="sessions-rail-new"
-          onClick={() => void actions.newSession()}
-          aria-label="new session"
-          title="new session"
+          onClick={() => void actions.newSessionFromDirectoryPicker()}
+          aria-label="new session in directory"
+          title="choose directory for new session"
         >
           <svg viewBox="0 0 20 20" aria-hidden="true">
             <path d="M10 4v12M4 10h12" />
           </svg>
         </button>
       </div>
-      <ul>
-        {sessions.map((session) => {
-          const label = sessionLabel(session)!;
-          const activity = state.sessionActivity[`${session.runtime}:${session.id}`];
-          const working =
-            activity?.status === 'starting' ||
-            activity?.status === 'running' ||
-            activity?.status === 'compacting' ||
-            activity?.status === 'retrying';
-          const indicator = working ? 'working' : activity?.responseReady ? 'response' : null;
+      <div className="sessions-rail-groups">
+        {groups.map((group) => {
+          const isCollapsed = collapsed[group.cwd] === true;
           return (
-            <li key={session.id} data-active={session.id === activeId}>
+            <section className="sessions-directory" key={group.cwd} data-collapsed={isCollapsed}>
               <button
                 type="button"
-                className="sessions-rail-item"
-                data-active={session.id === activeId}
-                data-pending={session.id === pendingSessionId}
-                aria-current={session.id === activeId ? 'true' : undefined}
-                aria-busy={session.id === pendingSessionId}
-                title={session.path ?? session.id}
-                onClick={() => {
-                  setPendingSessionId(session.id);
-                  void actions.resumeSession(session).finally(() => {
-                    setPendingSessionId((pending) => (pending === session.id ? null : pending));
-                  });
-                }}
+                className="sessions-directory-toggle"
+                aria-expanded={!isCollapsed}
+                title={group.cwd}
+                onClick={() =>
+                  setCollapsed((current) => ({ ...current, [group.cwd]: !current[group.cwd] }))
+                }
               >
-                <span className="sessions-rail-primary">
-                  <span className="sessions-rail-name">{label}</span>
-                  {session.runtime !== state.settings.agentRuntime ? (
-                    <span className="sessions-rail-runtime">{session.runtime}</span>
-                  ) : null}
-                  <span className="sessions-rail-end">
-                    {indicator ? (
-                      <span
-                        className={`sessions-rail-indicator sessions-rail-indicator-${indicator}`}
-                        role="status"
-                        aria-label={
-                          indicator === 'working' ? 'assistant working' : 'response ready'
-                        }
-                        title={indicator === 'working' ? 'assistant working' : 'response ready'}
-                      />
-                    ) : (
-                      <span className="sessions-rail-time">
-                        {formatRelativeTime(session.lastSeen)}
-                      </span>
-                    )}
-                  </span>
+                <span className="sessions-directory-chevron" aria-hidden="true">
+                  ›
                 </span>
+                <span className="sessions-directory-name">{group.label}</span>
+                <span className="sessions-directory-count">{group.sessions.length}</span>
               </button>
-              <button
-                type="button"
-                className="sessions-rail-forget"
-                aria-label={`forget ${label}`}
-                title="remove from recent sessions"
-                onClick={() => void actions.forgetSession(session.id)}
-              >
-                ×
-              </button>
-            </li>
+              {isCollapsed ? null : (
+                <ul>
+                  {group.sessions.map((session) => {
+                    const label = sessionLabel(session)!;
+                    const activity = state.sessionActivity[`${session.runtime}:${session.id}`];
+                    const working =
+                      activity?.status === 'starting' ||
+                      activity?.status === 'running' ||
+                      activity?.status === 'compacting' ||
+                      activity?.status === 'retrying';
+                    const indicator = working
+                      ? 'working'
+                      : activity?.responseReady
+                        ? 'response'
+                        : null;
+                    return (
+                      <li
+                        key={`${session.runtime}:${session.id}`}
+                        data-active={session.id === activeId}
+                      >
+                        <button
+                          type="button"
+                          className="sessions-rail-item"
+                          data-active={session.id === activeId}
+                          data-pending={session.id === pendingSessionId}
+                          aria-current={session.id === activeId ? 'true' : undefined}
+                          aria-busy={session.id === pendingSessionId}
+                          title={session.path ?? session.id}
+                          onClick={() => {
+                            setPendingSessionId(session.id);
+                            void actions.resumeSession(session).finally(() => {
+                              setPendingSessionId((pending) =>
+                                pending === session.id ? null : pending,
+                              );
+                            });
+                          }}
+                        >
+                          <span className="sessions-rail-primary">
+                            <span className="sessions-rail-name">{label}</span>
+                            {session.runtime !== state.settings.agentRuntime ? (
+                              <span className="sessions-rail-runtime">{session.runtime}</span>
+                            ) : null}
+                            <span className="sessions-rail-end">
+                              {indicator ? (
+                                <span
+                                  className={`sessions-rail-indicator sessions-rail-indicator-${indicator}`}
+                                  role="status"
+                                  aria-label={
+                                    indicator === 'working' ? 'assistant working' : 'response ready'
+                                  }
+                                  title={
+                                    indicator === 'working' ? 'assistant working' : 'response ready'
+                                  }
+                                />
+                              ) : (
+                                <span className="sessions-rail-time">
+                                  {formatRelativeTime(session.lastSeen)}
+                                </span>
+                              )}
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="sessions-rail-forget"
+                          aria-label={`forget ${label}`}
+                          title="remove from recent sessions"
+                          onClick={() => void actions.forgetSession(session.id)}
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </section>
           );
         })}
-      </ul>
+      </div>
       <div
         className="sessions-rail-resize"
         role="separator"
@@ -153,19 +192,4 @@ export function SessionsRail(): ReactNode {
       />
     </aside>
   );
-}
-
-function sessionLabel(session: {
-  name: string | null;
-  firstMessage?: string | null;
-}): string | null {
-  const name = session.name?.trim();
-  return name || messageLabel(session.firstMessage);
-}
-
-function messageLabel(message: string | null | undefined): string | null {
-  if (!message) return null;
-  const label = message.replace(/\s+/g, ' ').trim();
-  if (!label) return null;
-  return label.length > 48 ? `${label.slice(0, 48)}…` : label;
 }

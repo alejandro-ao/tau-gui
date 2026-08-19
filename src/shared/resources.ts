@@ -46,6 +46,7 @@ export const resourceCatalogSchema = z
             description: descriptionSchema,
             origin: originSchema,
             disableModelInvocation: z.boolean(),
+            estimatedTokens: z.number().int().min(0).max(RESOURCE_LIMITS.fileBytes),
           })
           .strict(),
       )

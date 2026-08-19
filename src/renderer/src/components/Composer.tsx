@@ -22,6 +22,30 @@ interface ShellIntent {
   excludeFromContext: boolean;
 }
 
+interface EditSnapshot {
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+type UserEditKind = 'insert' | 'deleteBackward' | 'deleteForward';
+
+interface UserEdit {
+  kind: UserEditKind;
+  text: string;
+  selectionStart: number;
+  selectionEnd: number;
+}
+
+const MAX_EDIT_HISTORY = 100;
+
+function userEditKind(inputType: string): UserEditKind | null {
+  if (inputType === 'insertText' || inputType === 'insertCompositionText') return 'insert';
+  if (/^delete.*Backward$/.test(inputType)) return 'deleteBackward';
+  if (/^delete.*Forward$/.test(inputType)) return 'deleteForward';
+  return null;
+}
+
 /** `!cmd` runs and keeps output in context, `!!cmd` runs and excludes it. */
 export function parseShellIntent(text: string): ShellIntent | null {
   if (!text.startsWith('!')) return null;
@@ -38,7 +62,12 @@ export function Composer(): ReactNode {
   const draftRevision = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
-  const pendingCursor = useRef<number | null>(null);
+  const draftRef = useRef(draft);
+  const selection = useRef({ start: 0, end: 0 });
+  const pendingSelection = useRef<{ start: number; end: number } | null>(null);
+  const undoStack = useRef<EditSnapshot[]>([]);
+  const redoStack = useRef<EditSnapshot[]>([]);
+  const lastUserEdit = useRef<UserEdit | null>(null);
   const [cursor, setCursor] = useState(0);
 
   // Focus on initial session load and whenever a session action opens another
@@ -58,31 +87,103 @@ export function Composer(): ReactNode {
   const shellDisabled = shellMode && !capabilities.directBash;
 
   const setDraft = useCallback(
-    (text: string) => {
+    (
+      text: string,
+      selectionStart = text.length,
+      selectionEnd = selectionStart,
+      restore = true,
+      userEdit: UserEditKind | null = null,
+    ) => {
+      const previousText = draftRef.current;
+      if (text === previousText) return;
       draftRevision.current += 1;
+      const previousSelection = selection.current;
+      const previousUserEdit = lastUserEdit.current;
+      const continuesUserEdit =
+        userEdit !== null &&
+        previousUserEdit?.kind === userEdit &&
+        previousUserEdit.text === previousText &&
+        previousUserEdit.selectionStart === previousSelection.start &&
+        previousUserEdit.selectionEnd === previousSelection.end &&
+        previousSelection.start === previousSelection.end;
+      if (!continuesUserEdit) {
+        undoStack.current.push({
+          text: previousText,
+          selectionStart: previousSelection.start,
+          selectionEnd: previousSelection.end,
+        });
+        if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+      }
+      redoStack.current = [];
+      draftRef.current = text;
+      selection.current = { start: selectionStart, end: selectionEnd };
+      lastUserEdit.current = userEdit
+        ? { kind: userEdit, text, selectionStart, selectionEnd }
+        : null;
+      if (restore) pendingSelection.current = { start: selectionStart, end: selectionEnd };
+      setCursor(selectionStart);
       actions.setDraft(text);
     },
     [actions],
   );
 
+  // Modal selections and asynchronous prefills dispatch to the shared store
+  // directly. Treat those replacements as edits and invalidate stale redo.
+  useEffect(() => {
+    const previousText = draftRef.current;
+    if (draft === previousText) return;
+    draftRevision.current += 1;
+    undoStack.current.push({
+      text: previousText,
+      selectionStart: selection.current.start,
+      selectionEnd: selection.current.end,
+    });
+    if (undoStack.current.length > MAX_EDIT_HISTORY) undoStack.current.shift();
+    redoStack.current = [];
+    lastUserEdit.current = null;
+    draftRef.current = draft;
+    selection.current = { start: draft.length, end: draft.length };
+    pendingSelection.current = { start: draft.length, end: draft.length };
+    setCursor(draft.length);
+  }, [draft]);
+
   /** Replaces the draft and restores the caret once React has re-rendered. */
   const applyText = useCallback(
     (text: string, nextCursor: number) => {
-      pendingCursor.current = nextCursor;
-      setCursor(nextCursor);
-      setDraft(text);
+      setDraft(text, nextCursor);
     },
     [setDraft],
   );
 
+  const restoreEdit = useCallback(
+    (source: { current: EditSnapshot[] }, destination: { current: EditSnapshot[] }) => {
+      const next = source.current.pop();
+      if (!next) return;
+      lastUserEdit.current = null;
+      const element = input.current;
+      destination.current.push({
+        text: draftRef.current,
+        selectionStart: element?.selectionStart ?? selection.current.start,
+        selectionEnd: element?.selectionEnd ?? selection.current.end,
+      });
+      draftRevision.current += 1;
+      draftRef.current = next.text;
+      selection.current = { start: next.selectionStart, end: next.selectionEnd };
+      pendingSelection.current = { start: next.selectionStart, end: next.selectionEnd };
+      setCursor(next.selectionStart);
+      actions.setDraft(next.text);
+    },
+    [actions],
+  );
+
   useEffect(() => {
-    const position = pendingCursor.current;
-    if (position === null) return;
-    pendingCursor.current = null;
+    const next = pendingSelection.current;
+    if (!next) return;
+    pendingSelection.current = null;
     const element = input.current;
     if (!element) return;
     element.focus();
-    element.setSelectionRange(position, position);
+    element.setSelectionRange(next.start, next.end);
   }, [draft]);
 
   // Keeps the highlight backdrop aligned with the textarea once it starts to
@@ -177,6 +278,28 @@ export function Composer(): ReactNode {
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+    const key = event.key.toLowerCase();
+    if (
+      key.startsWith('arrow') ||
+      key === 'home' ||
+      key === 'end' ||
+      key === 'pageup' ||
+      key === 'pagedown'
+    ) {
+      lastUserEdit.current = null;
+    }
+    const commandModifier = (event.metaKey || event.ctrlKey) && !event.altKey;
+    if (commandModifier && key === 'z') {
+      event.preventDefault();
+      restoreEdit(event.shiftKey ? redoStack : undoStack, event.shiftKey ? undoStack : redoStack);
+      return;
+    }
+    if (event.ctrlKey && !event.metaKey && !event.altKey && key === 'y') {
+      event.preventDefault();
+      restoreEdit(redoStack, undoStack);
+      return;
+    }
+
     // Completion owns navigation keys while its popup is open.
     if (completion.kind) {
       if (event.key === 'ArrowDown') {
@@ -323,12 +446,40 @@ export function Composer(): ReactNode {
             placeholder={placeholder(running)}
             spellCheck={false}
             onChange={(event) => {
-              setCursor(event.target.selectionStart);
-              setDraft(event.target.value);
+              const inputType =
+                'inputType' in event.nativeEvent && typeof event.nativeEvent.inputType === 'string'
+                  ? event.nativeEvent.inputType
+                  : '';
+              setDraft(
+                event.target.value,
+                event.target.selectionStart,
+                event.target.selectionEnd,
+                false,
+                userEditKind(inputType),
+              );
             }}
-            onSelect={(event) => setCursor(event.currentTarget.selectionStart)}
-            onClick={(event) => setCursor(event.currentTarget.selectionStart)}
-            onKeyUp={(event) => setCursor(event.currentTarget.selectionStart)}
+            onSelect={(event) => {
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
+            onClick={(event) => {
+              lastUserEdit.current = null;
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
+            onKeyUp={(event) => {
+              selection.current = {
+                start: event.currentTarget.selectionStart,
+                end: event.currentTarget.selectionEnd,
+              };
+              setCursor(event.currentTarget.selectionStart);
+            }}
             onKeyDown={onKeyDown}
             onScroll={(event) => syncScroll(event.currentTarget)}
           />

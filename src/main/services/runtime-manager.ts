@@ -6,6 +6,7 @@ import type {
   RuntimeKind,
   RuntimeLaunchConfig,
   RuntimeStatus,
+  ProjectTrust,
 } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
 import { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
@@ -32,6 +33,7 @@ export class RuntimeManager {
   private state: AgentState | null = null;
   private runtimeVersion: string | null = null;
   private runtimeKind: RuntimeKind | null = null;
+  private launchProjectTrust: ProjectTrust | null = null;
   private firstMessage: string | null = null;
   /** Prevents stale duplicate settles from changing an active run's UI status. */
   private settleExpected = true;
@@ -59,6 +61,11 @@ export class RuntimeManager {
 
   get isStarted(): boolean {
     return this.runtime !== null;
+  }
+
+  /** Trust passed to the active subprocess, unaffected by later settings edits. */
+  get effectiveProjectTrust(): ProjectTrust | null {
+    return this.runtime ? this.launchProjectTrust : null;
   }
 
   snapshot(): RuntimeSnapshot {
@@ -119,11 +126,13 @@ export class RuntimeManager {
       diagnostic: (line) => this.addDiagnostic(line),
     });
     this.runtime = runtime;
+    this.launchProjectTrust = config.projectTrust;
 
     try {
       await runtime.start(config);
     } catch (error) {
       this.runtime = null;
+      this.launchProjectTrust = null;
       const message = describeStartFailure(config, error as Error);
       this.setStatus('failed', message);
       this.addDiagnostic(message);
@@ -137,6 +146,7 @@ export class RuntimeManager {
   async stop(): Promise<RuntimeSnapshot> {
     const runtime = this.runtime;
     this.runtime = null;
+    this.launchProjectTrust = null;
     if (runtime) await runtime.stop();
     this.state = null;
     this.watchingSessionNameFor = null;

@@ -48,6 +48,7 @@ function settings(patch: Partial<AppSettings> = {}): AppSettings {
     scopedModels: { tau: [], pi: [] },
     recentSessions: [],
     ...patch,
+    workingDirectories: patch.workingDirectories ?? [VISUAL_PROJECT],
   };
 }
 

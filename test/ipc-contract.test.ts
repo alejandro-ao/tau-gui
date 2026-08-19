@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { envelopeSchema, requestSchema, resourceCatalogSchema } from '../src/shared/ipc.js';
+import {
+  contextFilesSchema,
+  envelopeSchema,
+  requestSchema,
+  resourceCatalogSchema,
+} from '../src/shared/ipc.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
@@ -28,6 +33,36 @@ describe('IPC request validation', () => {
     expect(
       requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
     ).toBe(true);
+  });
+
+  it('strictly validates working-directory persistence and opening requests', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.openSession',
+        payload: { cwd: '/work/project' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.openSession',
+        payload: { cwd: '', sessionRef: 'unexpected' },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.rememberWorkingDirectory',
+        payload: { cwd: '/work/project' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.rememberWorkingDirectory',
+        payload: { cwd: '', extra: true },
+      }).success,
+    ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'settings.rememberWorkingDirectory' }).success).toBe(
+      false,
+    );
   });
 
   it('never lets the renderer choose the probed binary', () => {
@@ -61,6 +96,31 @@ describe('IPC request validation', () => {
     ).toBe(false);
   });
 
+  it('accepts only payload-free context discovery and validates metadata', () => {
+    expect(requestSchema.safeParse({ action: 'context.list' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({ action: 'context.list', payload: { cwd: '/untrusted' } }).success,
+    ).toBe(false);
+    expect(
+      contextFilesSchema.safeParse([
+        { label: '~/.tau/AGENTS.md', path: '/home/user/.tau/AGENTS.md' },
+      ]).success,
+    ).toBe(true);
+    expect(
+      contextFilesSchema.safeParse([
+        { label: '~/.tau/AGENTS.md', path: '/home/user/.tau/AGENTS.md', content: 'secret' },
+      ]).success,
+    ).toBe(false);
+    expect(
+      contextFilesSchema.safeParse(
+        Array.from({ length: 5 }, (_, index) => ({
+          label: `file-${index}`,
+          path: `/file-${index}`,
+        })),
+      ).success,
+    ).toBe(false);
+  });
+
   it('validates and bounds resources.list output metadata', () => {
     const valid = {
       skills: [
@@ -69,6 +129,7 @@ describe('IPC request validation', () => {
           description: null,
           origin: '~/.tau/skills',
           disableModelInvocation: false,
+          estimatedTokens: 120,
         },
       ],
       prompts: [],

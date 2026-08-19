@@ -62,9 +62,12 @@ Tracks issue #1. Update this file whenever behavior changes.
   Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
   commands (including the `/skill:` prefix) under a `Commands` heading with
   custom prompt templates under `Custom prompts`; individual skills are offered
-  only once `/skill:` has been typed. Only metadata crosses IPC;
-  resource contents remain in Tau/main-process filesystem access. Project resources
-  are omitted unless launch-time project trust is explicitly approved.
+  only once `/skill:` has been typed. The sidebar summarizes the aggregate skill
+  footprint as an approximate token count (for example, `~2k tokens`), using a
+  deterministic one-token-per-four-characters estimate over each `SKILL.md`.
+  Only metadata, including that numeric estimate, crosses IPC; resource contents
+  remain in Tau/main-process filesystem access. Project resources are omitted
+  unless launch-time project trust is explicitly approved.
 - A leading `/skill:<name>` or custom-prompt token in the draft is highlighted as a
   coloured pill, drawn by a mirrored backdrop behind the composer textarea
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
@@ -83,7 +86,8 @@ Tracks issue #1. Update this file whenever behavior changes.
 - `@` file completion through the constrained main-process service, debounced in
   the renderer, inserting quoted display paths at the cursor.
 - Composer drafts live in the store, so they survive modals, session switches,
-  and runtime switches.
+  and runtime switches. Local undo/redo history also covers programmatic clears
+  and prompt-history replacements.
 - `!`/`!!` direct shell mode with amber prompt styling.
 - Drag/drop path insertion with quoting.
 - Native completion notifications (only while the window is unfocused and
@@ -106,9 +110,11 @@ Tracks issue #1. Update this file whenever behavior changes.
   otherwise it falls back to the runtime's own `cycle_model`, so stale or empty
   scopes cannot trap the user.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
-- Session details, usage/cache/context sidebar with cost or `$N/A`. The cache
-  hit figure is derived from reported token counts, so it is shown as an
-  estimate (`~`).
+- Session details plus a focused sidebar with activity counts, usage/cache, and
+  discovered context files. The cache hit figure is derived from reported token
+  counts, so it is shown as an estimate (`~`). Context lists existing
+  `AGENTS.md` metadata from fixed user/project `.tau` and `.agents` locations;
+  discovery stays in the main process and project paths require explicit trust.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the

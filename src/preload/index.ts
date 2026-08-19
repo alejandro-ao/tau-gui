@@ -6,7 +6,12 @@ import type {
   IpcResult,
   SessionTarget,
 } from '../shared/ipc.js';
-import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL, resourceCatalogSchema } from '../shared/ipc.js';
+import {
+  contextFilesSchema,
+  IPC_EVENT_CHANNEL,
+  IPC_INVOKE_CHANNEL,
+  resourceCatalogSchema,
+} from '../shared/ipc.js';
 
 /**
  * Narrow, context-isolated bridge. The renderer gets exactly two capabilities:
@@ -41,6 +46,9 @@ const bridge: TauBridge = {
     if (!response.ok) throw new Error(response.error);
     if (action === 'resources.list') {
       return resourceCatalogSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'context.list') {
+      return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return response.value as IpcResult<typeof action>;
   },
