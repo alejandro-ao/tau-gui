@@ -95,7 +95,7 @@ test.describe('sessions rail', () => {
     const rail = page.getByTestId('sessions-rail');
     const other = rail.locator('.sessions-rail-item').filter({ hasText: 'Other session' });
     await other.click();
-    await expect(page.getByRole('status', { name: 'Loading thread' })).toBeVisible();
+    await expect(page.getByRole('status', { name: 'Loading conversation' })).toBeVisible();
     await expect(page.getByTestId('connection-notice')).toHaveCount(0);
     await expect(page.getByRole('status', { name: 'Model working' })).toHaveCount(0);
     await expect(transcript(page)).not.toContainText('No messages yet');
