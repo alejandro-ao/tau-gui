@@ -17,7 +17,9 @@ export function PromptSlot(): ReactNode {
 
   return (
     <div className="prompt-slot" data-testid="prompt-slot">
-      {running ? (
+      {state.sessionTransitioning ? (
+        <span className="faint">opening session…</span>
+      ) : running ? (
         <span className="activity">
           <span className="activity-dot" aria-hidden="true">
             ●

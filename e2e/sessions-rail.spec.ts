@@ -67,7 +67,10 @@ test.describe('sessions rail', () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-concurrent-'));
     handle = await launchApp({
       projectDir,
-      env: { FAKE_RUNTIME_DELAY_MS: '120' },
+      env: {
+        FAKE_RUNTIME_DELAY_MS: '120',
+        FAKE_RUNTIME_SWITCH_DELAY_MS: '500',
+      },
       settings: {
         recentSessions: [
           {
@@ -91,6 +94,11 @@ test.describe('sessions rail', () => {
     const rail = page.getByTestId('sessions-rail');
     const other = rail.locator('.sessions-rail-item').filter({ hasText: 'Other session' });
     await other.click();
+    await expect(page.getByTestId('prompt-slot')).toContainText('opening session…');
+    await expect(page.getByTestId('prompt-slot')).not.toContainText('working…');
+    await expect(transcript(page)).toContainText('No messages yet');
+    await expect(transcript(page)).not.toContainText('src/index.ts');
+    await expect(page.locator('.block-tool')).toHaveCount(0);
     await expect(other).toHaveCount(0);
     await expect(page.getByLabel('composer')).toBeEnabled();
     await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');

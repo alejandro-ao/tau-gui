@@ -59,12 +59,13 @@ describe('session hydration routing', () => {
     expect(bridge.calls.filter((call) => call.action === 'runtime.start')).toHaveLength(1);
   });
 
-  it('drops a tool event queued while another session is being selected', async () => {
+  it('clears old work and drops tool/status events while another session opens', async () => {
     const first = agent('first-session');
     const second = agent('second-session');
-    const bridge = installFakeBridge({ agent: first });
+    const bridge = installFakeBridge({ agent: first, status: 'running' });
     const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
     const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
+    const { PromptSlot } = await import('../../src/renderer/src/components/PromptSlot.js');
     let actions: Actions | null = null;
 
     function Capture(): ReactNode {
@@ -76,10 +77,30 @@ describe('session hydration routing', () => {
       <StoreProvider>
         <Capture />
         <Transcript />
+        <PromptSlot />
       </StoreProvider>,
     );
     mounted = view;
     await view.flush();
+
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+    await act(async () => {
+      bridge.emit({
+        type: 'agent',
+        sessionId: first.sessionId,
+        runtime: 'tau',
+        event: {
+          type: 'tool_start',
+          toolCallId: 'already-visible-call',
+          toolName: 'read',
+          args: { path: 'old-visible.ts' },
+        },
+      });
+      await Promise.resolve();
+    });
+    expect(view.container.textContent).toContain('old-visible.ts');
+    expect(view.container.textContent).toContain('working…');
 
     let resolveSwitch: (() => void) | null = null;
     bridge.setResult(
@@ -88,7 +109,11 @@ describe('session hydration routing', () => {
         resolveSwitch = resolve;
       }),
     );
-    bridge.setResult('runtime.snapshot', { ...bridge.snapshot, state: second });
+    bridge.setResult('runtime.snapshot', {
+      ...bridge.snapshot,
+      status: 'idle',
+      state: second,
+    });
     bridge.setResult('agent.messages', [assistant('second session answer')]);
     const ref: SessionRef = {
       id: second.sessionId,
@@ -99,12 +124,14 @@ describe('session hydration routing', () => {
       runtime: 'tau',
       lastSeen: Date.now(),
     };
-    const storeActions = actions as Actions | null;
-    if (!storeActions) throw new Error('store actions were not captured');
 
     let navigation: Promise<void> = Promise.resolve();
     await act(async () => {
       navigation = storeActions.resumeSession(ref);
+      bridge.emit({
+        type: 'status',
+        snapshot: { ...bridge.snapshot, status: 'running', state: first },
+      });
       bridge.emit({
         type: 'agent',
         sessionId: first.sessionId,
@@ -119,14 +146,20 @@ describe('session hydration routing', () => {
       await Promise.resolve();
     });
 
+    expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
+    expect(view.container.textContent).not.toContain('working…');
+    expect(view.container.textContent).toContain('opening session…');
+
     await act(async () => {
       resolveSwitch?.();
       await navigation;
     });
 
     expect(view.container.textContent).toContain('second session answer');
+    expect(view.container.textContent).not.toContain('old-visible.ts');
     expect(view.container.textContent).not.toContain('must-not-leak.ts');
+    expect(view.container.textContent).toContain('idle');
   });
 
   it('discards transcript reads that resolve after another session is selected', async () => {

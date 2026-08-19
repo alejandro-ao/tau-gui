@@ -82,13 +82,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     refreshEpoch.current += 1;
     navigationEpoch.current += 1;
   }, []);
-  const beginNavigation = useCallback(() => {
-    invalidateRefresh();
-    navigating.current = true;
-    return navigationEpoch.current;
-  }, [invalidateRefresh]);
+  const beginNavigation = useCallback(
+    (targetRuntime?: RuntimeKind) => {
+      invalidateRefresh();
+      navigating.current = true;
+      dispatch({ type: 'sessionNavigation', active: true, targetRuntime });
+      return navigationEpoch.current;
+    },
+    [invalidateRefresh],
+  );
   const finishNavigation = useCallback((navigation: number) => {
-    if (navigation === navigationEpoch.current) navigating.current = false;
+    if (navigation !== navigationEpoch.current) return;
+    navigating.current = false;
+    dispatch({ type: 'sessionNavigation', active: false });
   }, []);
 
   const notice = useCallback((message: string) => {
@@ -159,6 +165,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           }
           break;
         case 'status':
+          // Status is transcript-scoped too. Keeping the previous manager's
+          // `running` snapshot here would carry its working label into the
+          // session the user has just selected.
+          if (navigating.current) break;
           dispatch({ type: 'snapshot', snapshot: event.snapshot });
           break;
         case 'settings':
@@ -329,12 +339,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         dispatch({ type: 'snapshot', snapshot });
       },
       newSession: async () => {
-        const navigation = beginNavigation();
+        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
           await run(async () => {
             await invoke('session.new');
             if (navigation !== navigationEpoch.current) return;
-            dispatch({ type: 'clearTranscript' });
             await refresh();
           });
         } finally {
@@ -342,12 +351,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       switchSession: async (ref) => {
-        const navigation = beginNavigation();
+        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
           await run(async () => {
             await invoke('session.switch', { ref });
             if (navigation !== navigationEpoch.current) return;
-            dispatch({ type: 'clearTranscript' });
             await refresh();
           });
         } finally {
@@ -355,7 +363,8 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       resumeSession: async (ref) => {
-        const navigation = beginNavigation();
+        const previousStatus = stateRef.current.snapshot.status;
+        const navigation = beginNavigation(ref.runtime);
         try {
           // Tau resumes by indexed session id; Pi resumes by session path.
           const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
@@ -368,17 +377,15 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             if (!settings) return;
             dispatch({ type: 'settings', settings });
           }
-          const status = stateRef.current.snapshot.status;
           const started =
-            status === 'idle' ||
-            status === 'running' ||
-            status === 'compacting' ||
-            status === 'retrying';
+            previousStatus === 'idle' ||
+            previousStatus === 'running' ||
+            previousStatus === 'compacting' ||
+            previousStatus === 'retrying';
           if (started) {
             await run(async () => {
               await invoke('session.switch', { ref: target });
               if (navigation !== navigationEpoch.current) return;
-              dispatch({ type: 'clearTranscript' });
               await refresh();
             });
             return;
@@ -390,7 +397,6 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             });
             if (navigation !== navigationEpoch.current) return;
             dispatch({ type: 'snapshot', snapshot });
-            dispatch({ type: 'clearTranscript' });
             await refresh();
           });
         } finally {

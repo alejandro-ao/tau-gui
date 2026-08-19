@@ -34,6 +34,7 @@ export const INITIAL_STATE: AppState = {
   modal: null,
   windowFocused: true,
   busy: false,
+  sessionTransitioning: false,
   lastCompletionPreview: null,
   settledCount: 0,
   sessionActivity: {},
@@ -70,6 +71,36 @@ export function reducer(state: AppState, action: Action): AppState {
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
+    case 'sessionNavigation':
+      if (!action.active) {
+        return {
+          ...state,
+          sessionTransitioning: false,
+          snapshot:
+            state.snapshot.status === 'starting' && state.snapshot.detail === 'Opening session'
+              ? { ...state.snapshot, status: 'idle', detail: null }
+              : state.snapshot,
+        };
+      }
+      return {
+        ...state,
+        sessionTransitioning: true,
+        snapshot: {
+          ...state.snapshot,
+          runtime: action.targetRuntime ?? state.snapshot.runtime,
+          status: 'starting',
+          detail: 'Opening session',
+          state: null,
+        },
+        agent: null,
+        stats: null,
+        blocks: [],
+        streamingAssistantId: null,
+        streamingThinkingId: null,
+        queue: { steering: [], followUp: [] },
+        expanded: {},
+        composerFocusRequest: state.composerFocusRequest + 1,
+      };
     case 'settings':
       return { ...state, settings: action.settings };
     case 'sessionActivity': {
@@ -666,6 +697,7 @@ export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
 }
 
 export function isRunning(state: AppState): boolean {
+  if (state.sessionTransitioning) return false;
   const status = state.snapshot.status;
   return status === 'running' || status === 'compacting' || status === 'retrying';
 }

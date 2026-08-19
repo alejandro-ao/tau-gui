@@ -141,6 +141,8 @@ export interface AppState {
   modal: ModalKind | null;
   windowFocused: boolean;
   busy: boolean;
+  /** True from the user's session selection until its transcript is hydrated. */
+  sessionTransitioning: boolean;
   lastCompletionPreview: string | null;
   /** Monotonic count of settled turns; keys completion notifications. */
   settledCount: number;
@@ -158,6 +160,11 @@ export type Action =
       runtime?: RuntimeSnapshot['runtime'];
     }
   | { type: 'snapshot'; snapshot: RuntimeSnapshot }
+  | {
+      type: 'sessionNavigation';
+      active: boolean;
+      targetRuntime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'diagnostic'; message: string }
