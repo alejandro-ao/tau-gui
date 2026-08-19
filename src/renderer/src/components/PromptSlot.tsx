@@ -18,10 +18,11 @@ export function PromptSlot(): ReactNode {
   return (
     <div className="prompt-slot" data-testid="prompt-slot">
       {state.sessionTransitioning ? null : running ? (
-        <span className="activity" role="status" aria-label={activityAriaLabel(status)}>
-          <CliSpinner />
-          {activityLabel(status) ? <span>{activityLabel(status)}</span> : null}
-        </span>
+        activityLabel(status) ? (
+          <span className="activity" role="status" aria-label={activityAriaLabel(status)}>
+            {activityLabel(status)}
+          </span>
+        ) : null
       ) : (
         <span className="faint">{status === 'idle' ? 'idle' : status}</span>
       )}
@@ -31,20 +32,6 @@ export function PromptSlot(): ReactNode {
         </span>
       ))}
     </div>
-  );
-}
-
-const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
-
-function CliSpinner(): ReactNode {
-  return (
-    <span className="activity-spinner" aria-hidden="true">
-      {spinnerFrames.map((frame) => (
-        <span key={frame} className="activity-spinner-frame">
-          {frame}
-        </span>
-      ))}
-    </span>
   );
 }
 

@@ -137,10 +137,13 @@ describe('Composer key handling', () => {
     expect(actions(bridge)).toEqual(['agent.abort']);
   });
 
-  it('renders an icon-only abort control while running', async () => {
+  it('replaces the tau prompt with a spinner and renders an icon-only abort while running', async () => {
     const { bridge, view } = await renderComposer({ status: 'running' });
     const abort = query<HTMLButtonElement>(view.container, '[aria-label="abort run"]');
+    const prefix = query(view.container, '.composer-prefix');
 
+    expect(prefix.querySelector('[aria-label="Model working"]')).not.toBeNull();
+    expect(prefix.textContent).not.toContain('τ');
     expect(abort.textContent?.trim()).toBe('');
     expect(abort.querySelector('svg')).not.toBeNull();
     expect(

@@ -5,7 +5,7 @@
 - Use vertical role bars rather than boxed chat bubbles.
 - Use Tau's dark, light, and high-contrast palettes as the initial themes.
 - Render tool activity semantically: orange running, green success, red failure.
-- Show active model work with one compact CLI-style spinner instead of a persistent text label.
+- Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.
 - Interleave reasoning and clustered tool calls on one compact rail below the active user turn.
 - Collapse settled activity into a quiet duration/tool-count summary immediately before the answer.
 - Keep exact commands, arguments, output, and patches available through expansion.

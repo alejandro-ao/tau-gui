@@ -103,7 +103,7 @@ describe('session hydration routing', () => {
       await Promise.resolve();
     });
     expect(view.container.textContent).toContain('old-visible.ts');
-    expect(view.container.querySelector('[aria-label="Model working"]')).not.toBeNull();
+    expect(view.container.querySelector('[aria-label="Model working"]')).toBeNull();
 
     let resolveSwitch: (() => void) | null = null;
     bridge.setResult(

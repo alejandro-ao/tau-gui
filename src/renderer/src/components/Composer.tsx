@@ -10,6 +10,7 @@ import { useCompletion } from '../hooks/useCompletion.js';
 import { useFileDrop } from '../hooks/useFileDrop.js';
 import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
+import { ActivitySpinner } from './ActivitySpinner.js';
 import { CompletionPopup } from './completion/CompletionPopup.js';
 import { insertPaths } from './completion/tokens.js';
 import { hasTextSelection } from './format.js';
@@ -241,8 +242,14 @@ export function Composer(): ReactNode {
         data-testid="composer"
         title={shellDisabled ? 'This runtime lacks direct shell execution.' : undefined}
       >
-        <span className="composer-prefix" aria-hidden="true">
-          {shellMode ? '$' : 'τ'}
+        <span className="composer-prefix">
+          {shellMode ? (
+            <span aria-hidden="true">$</span>
+          ) : running ? (
+            <ActivitySpinner />
+          ) : (
+            <span aria-hidden="true">τ</span>
+          )}
         </span>
         <textarea
           ref={input}
