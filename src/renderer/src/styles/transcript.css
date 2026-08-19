@@ -156,7 +156,7 @@
 
 .message-actions {
   display: flex;
-  margin: var(--space-3) 0 0 calc(var(--bar-width) + var(--space-4));
+  margin: var(--space-2) 0 var(--space-4) calc(var(--bar-width) + var(--space-4));
   opacity: 0;
   pointer-events: none;
   transition: opacity 100ms ease;
