@@ -57,6 +57,7 @@ describe('CopyButton', () => {
     expect(mounted.container.querySelector('.block-user .copy-button')).toBeNull();
     expect(mounted.container.querySelector('.block-assistant .copy-button')).toBeNull();
     expect(mounted.container.querySelector('.message-block-user')).not.toBeNull();
+    expect(mounted.container.querySelector('.block-user .block-label')).toBeNull();
     const actions = [...mounted.container.querySelectorAll('.message-actions')];
     expect(actions).toHaveLength(2);
     expect(actions.map((action) => action.previousElementSibling?.tagName)).toEqual([

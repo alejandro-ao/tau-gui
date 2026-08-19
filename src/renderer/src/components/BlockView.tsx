@@ -24,7 +24,7 @@ export function BlockView({
     case 'user':
       return (
         <div className="message-block message-block-user">
-          <BlockFrame kind="user" label="you">
+          <BlockFrame kind="user">
             <pre className="block-text">{block.text}</pre>
           </BlockFrame>
           <div className="message-actions">
@@ -108,7 +108,7 @@ function BlockFrame({
   children,
 }: {
   kind: string;
-  label: string;
+  label?: string;
   labelExtra?: ReactNode;
   children: ReactNode;
 }): ReactNode {
@@ -116,10 +116,12 @@ function BlockFrame({
     <article className={`block block-${kind}`}>
       <div className="role-bar" aria-hidden="true" />
       <div className="block-body">
-        <div className="block-label">
-          <span>{label}</span>
-          {labelExtra}
-        </div>
+        {label ? (
+          <div className="block-label">
+            <span>{label}</span>
+            {labelExtra}
+          </div>
+        ) : null}
         {children}
       </div>
     </article>
