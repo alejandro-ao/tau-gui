@@ -69,6 +69,7 @@ function seedSettings(
     cwd: projectDir,
     projectTrust: 'default',
     runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
+    scopedModels: { tau: [], pi: [] },
     recentSessions: [],
     ...overrides,
   };

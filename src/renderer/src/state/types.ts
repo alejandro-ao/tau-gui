@@ -105,6 +105,7 @@ export type TranscriptBlock =
 export type ModalKind =
   | 'palette'
   | 'model'
+  | 'scoped'
   | 'session'
   | 'tree'
   | 'theme'

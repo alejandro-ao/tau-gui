@@ -48,7 +48,7 @@ Tracks issue #1. Update this file whenever behavior changes.
   with Enter (run) or Tab (complete text); unknown slash input is sent as a
   normal prompt.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/scoped-models`, `/clone`) are listed as unavailable with the
+  `/logout`, `/clone`) are listed as unavailable with the
   reason instead of failing silently. `/clone` stays unavailable even on Pi,
   where the runtime supports it, because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
@@ -70,7 +70,17 @@ Tracks issue #1. Update this file whenever behavior changes.
 
 ## Phase 4 — models, context, sessions ✅
 
-- Model picker with full RPC metadata and `Ctrl+P` cycling.
+- Model picker with full RPC metadata and `Ctrl+P` cycling; scoped models are
+  badged in the picker.
+- App-owned scoped ("favourite") models: `/scoped-models` opens a
+  keyboard/mouse picker that toggles scope without calling `set_model`. The
+  selection is persisted per runtime by the main process
+  (`AppSettings.scopedModels`, keyed by collision-safe JSON provider/model
+  tuples) through an atomic validated settings IPC action, never by renderer
+  storage. Once two scoped models are
+  reported by the runtime, `Ctrl+P` cycles only those (through `set_model`);
+  otherwise it falls back to the runtime's own `cycle_model`, so stale or empty
+  scopes cannot trap the user.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
 - Session details, usage/cache/context sidebar with cost or `$N/A`. The cache
   hit figure is derived from reported token counts, so it is shown as an
@@ -122,7 +132,6 @@ with conformance tests:
 | resource reload                  | `resourceReload`         | neither                                                         |
 | system prompt inspection         | `systemPromptInspection` | neither                                                         |
 | tool catalog                     | `toolCatalog`            | neither                                                         |
-| scoped models                    | `scopedModels`           | neither; all-model cycling is not labelled scoped               |
 | interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline            |
 
 ## Phase 7 — packaging and release ⏳ partial

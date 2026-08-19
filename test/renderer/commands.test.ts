@@ -75,7 +75,6 @@ describe('command registry', () => {
     const state = stateWith({});
     const unimplemented = [
       'session.clone',
-      'model.scoped',
       'runtime.tools',
       'runtime.system',
       'runtime.reload',
@@ -93,6 +92,17 @@ describe('command registry', () => {
       ).toBe(true);
       expect(calls.join(' ')).toContain(command?.unavailable ?? 'missing reason');
     }
+  });
+
+  it('opens the app-owned scoped model manager instead of reporting a gap', () => {
+    const { actions, calls } = stubActions();
+    const command = buildCommands(stateWith({}), actions).find(
+      (entry) => entry.id === 'model.scoped',
+    );
+    expect(command?.unavailable).toBeNull();
+    expect(command?.origin).toBe('frontend');
+    command?.run();
+    expect(calls).toEqual(['openModal:scoped']);
   });
 
   it('keeps palette extras runnable', () => {

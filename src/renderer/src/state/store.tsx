@@ -16,6 +16,7 @@ import type {
   TreeSnapshot,
 } from '../../../shared/domain.js';
 import type { FileCompletion, RuntimeProbe } from '../../../shared/ipc.js';
+import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
@@ -35,7 +36,10 @@ export interface Actions {
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
   setModel: (ref: ModelRef) => Promise<void>;
+  /** Cycles scoped models when at least two are scoped, else the runtime's own cycle. */
   cycleModel: () => Promise<void>;
+  /** Adds or removes a model from the app-owned scoped list for the active runtime. */
+  toggleScopedModel: (ref: ModelRef) => Promise<void>;
   setThinking: (level: ThinkingLevel) => Promise<void>;
   cycleThinking: () => Promise<void>;
   newSession: () => Promise<void>;
@@ -71,6 +75,7 @@ const StoreContext = createContext<Store | null>(null);
 export function StoreProvider({ children }: { children: ReactNode }): ReactNode {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const stateRef = useRef(state);
+  const scopedMutationRef = useRef(0);
   stateRef.current = state;
 
   const notice = useCallback((message: string) => {
@@ -256,10 +261,44 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         });
       },
       cycleModel: async () => {
+        const current = stateRef.current;
+        const runtime = current.settings.agentRuntime;
+        const scoped = current.settings.scopedModels[runtime] ?? [];
+        const target = nextScopedModel(
+          current.models,
+          scoped,
+          current.agent?.model
+            ? { provider: current.agent.model.provider, modelId: current.agent.model.id }
+            : null,
+        );
+        if (target) {
+          // Scoped cycling stays inside the app: it only ever calls set_model.
+          await attempt(
+            'models.set',
+            { provider: target.provider, modelId: target.modelId },
+            notice,
+          );
+          const snapshot = await attempt('runtime.snapshot', undefined, notice);
+          if (snapshot) dispatch({ type: 'snapshot', snapshot });
+          return;
+        }
         const result = await attempt('models.cycle', undefined, notice);
         if (result) {
           const snapshot = await invoke('runtime.snapshot');
           dispatch({ type: 'snapshot', snapshot });
+        }
+      },
+      toggleScopedModel: async (ref) => {
+        const runtime = stateRef.current.settings.agentRuntime;
+        const mutation = ++scopedMutationRef.current;
+        const updated = await attempt(
+          'settings.toggleScopedModel',
+          { runtime, provider: ref.provider, modelId: ref.modelId },
+          notice,
+        );
+        // Ignore an older transport response that arrived after a newer toggle.
+        if (updated && mutation === scopedMutationRef.current) {
+          dispatch({ type: 'settings', settings: updated });
         }
       },
       setThinking: async (level) => {

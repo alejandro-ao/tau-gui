@@ -22,6 +22,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from './domain.js';
+import { MAX_SCOPED_MODELS, isScopedModelKey, modelKey } from './scoped-models.js';
 
 export interface RuntimeProbe {
   binary: string;
@@ -44,6 +45,15 @@ const runtimeSettings = z.object({
   extraArgs: z.array(z.string()),
 });
 
+// Full-map settings patches remain valid for import/repair, but interactive
+// mutations use settings.toggleScopedModel so the main process updates atomically.
+const scopedModelKeys = z.array(z.string().refine(isScopedModelKey)).max(MAX_SCOPED_MODELS);
+const scopedModelRef = z
+  .object({ runtime: runtimeKind, provider: z.string().min(1), modelId: z.string().min(1) })
+  .refine(({ provider, modelId }) => isScopedModelKey(modelKey({ provider, modelId })), {
+    message: 'encoded scoped model identity is too long',
+  });
+
 export const settingsPatchSchema = z
   .object({
     agentRuntime: runtimeKind,
@@ -54,12 +64,14 @@ export const settingsPatchSchema = z
     cwd: z.string().nullable(),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
+    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
   })
   .partial();
 
 export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings.get') }),
   z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
+  z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
   z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
 
   z.object({
@@ -170,6 +182,7 @@ export interface FileCompletion {
 export interface IpcResultMap {
   'settings.get': AppSettings;
   'settings.update': AppSettings;
+  'settings.toggleScopedModel': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;

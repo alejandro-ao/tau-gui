@@ -140,17 +140,24 @@ Session JSONL files are runtime-owned. The GUI never reads them.
 
 ## Capability differences
 
-| Capability                                        | Tau            | Pi                    |
-| ------------------------------------------------- | -------------- | --------------------- |
-| text prompt, steering, follow-ups                 | yes            | yes                   |
-| image prompts                                     | no             | yes                   |
-| direct bash                                       | yes (blocking) | yes (streaming)       |
-| cancel direct bash                                | no             | yes                   |
-| queue modes / retry controls                      | no             | yes                   |
-| session clone                                     | no             | yes                   |
-| portable session listing                          | no             | no                    |
-| extension dialogs/widgets                         | no             | yes (own subprotocol) |
-| scoped models, `/system`, `/tools`, login, reload | no             | partial               |
+| Capability                         | Tau            | Pi                    |
+| ---------------------------------- | -------------- | --------------------- |
+| text prompt, steering, follow-ups  | yes            | yes                   |
+| image prompts                      | no             | yes                   |
+| direct bash                        | yes (blocking) | yes (streaming)       |
+| cancel direct bash                 | no             | yes                   |
+| queue modes / retry controls       | no             | yes                   |
+| session clone                      | no             | yes                   |
+| portable session listing           | no             | no                    |
+| extension dialogs/widgets          | no             | yes (own subprotocol) |
+| scoped model list/toggle commands  | no             | no                    |
+| `/system`, `/tools`, login, reload | no             | partial               |
 
 `src/main/runtime/spec.ts` is the single source of truth for these flags in the
 app, and the renderer must gate optional controls on them rather than guessing.
+
+Neither runtime exposes a command to list or edit scoped models; `cycle_model`
+only reports the runtime's own `isScoped` flag for the model it selected. The
+GUI therefore owns scoped ("favourite") models itself: the list lives in
+`AppSettings.scopedModels` and is applied with plain `set_model` calls. No
+scoped-model command is ever sent to a runtime.

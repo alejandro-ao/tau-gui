@@ -45,6 +45,7 @@ function settings(patch: Partial<AppSettings> = {}): AppSettings {
     cwd: VISUAL_PROJECT,
     projectTrust: 'default',
     runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
+    scopedModels: { tau: [], pi: [] },
     recentSessions: [],
     ...patch,
   };
