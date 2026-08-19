@@ -8,13 +8,20 @@ import type {
   SessionStats,
 } from '../../src/shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../src/shared/domain.js';
-import type { BridgeEvent, IpcAction, RuntimeSnapshot } from '../../src/shared/ipc.js';
+import type {
+  BridgeEvent,
+  IpcAction,
+  RuntimeSnapshot,
+  SessionTarget,
+} from '../../src/shared/ipc.js';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 export interface InvokeCall {
   action: string;
   payload: Record<string, unknown> | undefined;
+  /** Transcript the renderer bound the call to, when it is session-scoped. */
+  session?: SessionTarget | undefined;
 }
 
 export interface FakeBridge {
@@ -23,6 +30,11 @@ export interface FakeBridge {
   snapshot: RuntimeSnapshot;
   /** Replaces the resolved value of one action for later calls. */
   setResult: (action: IpcAction, value: unknown) => void;
+  /** Replaces one action with an async transport handler. */
+  setHandler: (
+    action: IpcAction,
+    handler: (payload: Record<string, unknown> | undefined) => unknown,
+  ) => void;
   payloads: (action: IpcAction) => (Record<string, unknown> | undefined)[];
 }
 
@@ -79,9 +91,16 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     ...options.results,
   };
 
+  const handlers = new Map<IpcAction, (payload: Record<string, unknown> | undefined) => unknown>();
   const bridge = {
-    invoke: (action: string, payload?: Record<string, unknown>): Promise<unknown> => {
-      calls.push({ action, payload });
+    invoke: (
+      action: string,
+      payload?: Record<string, unknown>,
+      session?: SessionTarget,
+    ): Promise<unknown> => {
+      calls.push({ action, payload, session });
+      const handler = handlers.get(action as IpcAction);
+      if (handler) return Promise.resolve(handler(payload));
       const value = results[action as IpcAction];
       return Promise.resolve(value === undefined ? null : value);
     },
@@ -102,6 +121,9 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     snapshot,
     setResult: (action, value) => {
       results[action] = value;
+    },
+    setHandler: (action, handler) => {
+      handlers.set(action, handler);
     },
     payloads: (action) =>
       calls.filter((call) => call.action === action).map((call) => call.payload),

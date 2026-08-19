@@ -35,3 +35,4 @@ renderer → preload IPC contract → main-process services → runtime adapter 
 - Keep runtime-independent behavior in shared application-domain modules.
 - Use fake RPC processes in CI; paid provider access must never be required.
 - Implement work in focused commits and update roadmap/docs when behavior changes.
+- Always commit with a clear, detailed after making a change to the codebase.

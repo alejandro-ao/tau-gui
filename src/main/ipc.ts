@@ -1,6 +1,6 @@
-import { dialog, Notification, shell } from 'electron';
+import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
-import type { IpcAction, IpcRequest, IpcResult } from '../shared/ipc.js';
+import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import { resourceCatalogSchema } from '../shared/ipc.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
@@ -19,15 +19,21 @@ const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 /** Executes one validated request. Throws on failure; the caller serializes it. */
 export async function handleRequest(
   context: HandlerContext,
-  request: IpcRequest,
+  request: IpcEnvelope,
 ): Promise<IpcResult<IpcAction>> {
   const { settings, manager } = context;
+  // Session-scoped commands are routed by the transcript identity the renderer
+  // acted on, so an in-flight session switch cannot redirect them.
+  const target = request.session ?? null;
+  const runtime = (): ReturnType<typeof manager.runtimeFor> => manager.runtimeFor(target);
 
   switch (request.action) {
     case 'settings.get':
       return settings.current;
     case 'settings.update':
       return settings.update(request.payload);
+    case 'settings.toggleScopedModel':
+      return settings.toggleScopedModel(request.payload.runtime, request.payload);
     case 'settings.forgetSession':
       return settings.forgetSession(request.payload.id);
 
@@ -48,74 +54,75 @@ export async function handleRequest(
       return manager.snapshot();
 
     case 'agent.prompt':
-      await manager.active.prompt({ text: request.payload.text });
+      await runtime().prompt({ text: request.payload.text });
       return null;
     case 'agent.steer':
-      await manager.active.steer({ text: request.payload.text });
+      await runtime().steer({ text: request.payload.text });
       return null;
     case 'agent.followUp':
-      await manager.active.followUp({ text: request.payload.text });
+      await runtime().followUp({ text: request.payload.text });
       return null;
     case 'agent.abort':
-      await manager.active.abort();
+      await runtime().abort();
       return null;
     case 'agent.state':
-      return manager.active.getState();
+      return runtime().getState();
     case 'agent.messages':
-      return manager.active.getMessages();
+      return runtime().getMessages();
     case 'agent.entries':
-      return manager.active.getEntries(request.payload?.cursor);
+      return runtime().getEntries(request.payload?.cursor);
     case 'agent.tree':
-      return manager.active.getTree();
+      return runtime().getTree();
     case 'agent.stats':
-      return manager.active.getStats();
+      return runtime().getStats();
 
     case 'models.list':
-      return manager.active.listModels();
+      return runtime().listModels();
     case 'models.set': {
       // Model/thinking mutations change the authoritative agent state, so the
       // snapshot is refreshed like it is for session mutations below.
-      const model = await manager.active.setModel(request.payload);
-      await manager.refreshState();
+      const model = await runtime().setModel(request.payload);
+      await manager.refreshState(false, target);
       return model;
     }
     case 'models.cycle': {
-      const result = await manager.active.cycleModel();
-      await manager.refreshState();
+      const result = await runtime().cycleModel();
+      await manager.refreshState(false, target);
       return result;
     }
 
     case 'thinking.list':
-      return manager.active.listThinkingLevels();
+      return runtime().listThinkingLevels();
     case 'thinking.set':
-      await manager.active.setThinking(request.payload.level);
-      await manager.refreshState();
+      await runtime().setThinking(request.payload.level);
+      await manager.refreshState(false, target);
       return null;
     case 'thinking.cycle': {
-      const level = await manager.active.cycleThinking();
-      await manager.refreshState();
+      const level = await runtime().cycleThinking();
+      await manager.refreshState(false, target);
       return level;
     }
 
     case 'session.new':
-      await manager.active.newSession();
-      await manager.refreshState();
+      await manager.newSession(target);
       return null;
     case 'session.switch':
       await manager.activateSession(request.payload.ref);
       return null;
     case 'session.name':
-      await manager.active.nameSession(request.payload.name);
-      await manager.refreshState();
+      await manager.nameSession(request.payload.name, target);
       return null;
     case 'session.fork':
-      return manager.active.fork(request.payload.entryId);
+      return runtime().fork(request.payload.entryId);
     case 'session.compact':
-      return manager.active.compact(request.payload?.instructions);
+      return runtime().compact(request.payload?.instructions);
     case 'session.autoCompaction':
-      await manager.active.setAutoCompaction(request.payload.enabled);
+      await runtime().setAutoCompaction(request.payload.enabled);
       return null;
     case 'session.exportHtml': {
+      if (request.payload?.destination) {
+        return runtime().exportHtml(request.payload.destination);
+      }
       const window = context.window();
       const options = {
         title: 'Export session as HTML',
@@ -126,17 +133,17 @@ export async function handleRequest(
         ? await dialog.showSaveDialog(window, options)
         : await dialog.showSaveDialog(options);
       if (result.canceled || !result.filePath) return null;
-      return manager.active.exportHtml(result.filePath);
+      return runtime().exportHtml(result.filePath);
     }
 
     case 'shell.run':
-      return manager.active.runShell(request.payload.command, request.payload.excludeFromContext);
+      return runtime().runShell(request.payload.command, request.payload.excludeFromContext);
     case 'shell.abort':
-      await manager.active.abortShell();
+      await runtime().abortShell();
       return null;
 
     case 'commands.list':
-      return manager.active.listCommands();
+      return runtime().listCommands();
     case 'resources.list': {
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
@@ -184,6 +191,9 @@ export async function handleRequest(
       await shell.openExternal(url.toString());
       return null;
     }
+    case 'ui.copyText':
+      clipboard.writeText(request.payload.text);
+      return null;
     case 'ui.setTitle': {
       context.window()?.setTitle(request.payload.title.slice(0, 200));
       return null;

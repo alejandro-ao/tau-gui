@@ -7,6 +7,7 @@ const THEMES: { name: ThemeName; description: string }[] = [
   { name: 'tau-dark', description: 'Tau dark palette' },
   { name: 'tau-light', description: 'Tau light palette' },
   { name: 'high-contrast', description: 'High contrast palette' },
+  { name: 'pure-black', description: 'True black surfaces with Tau dark colours' },
 ];
 
 /** Local theme picker; themes are GUI-owned and never sent to the runtime. */

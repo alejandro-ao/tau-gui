@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { query, type Mounted } from './harness.js';
-import { composer, press, renderApp, type } from './ui.js';
+import { click, composer, renderApp, type } from './ui.js';
 
 let mounted: Mounted | null = null;
 
@@ -80,7 +80,7 @@ describe('composer directive highlighting', () => {
   it('marks a directive accepted from the completion popup', async () => {
     const { view, input } = await open();
     await type(input, '/rel');
-    await press(input, 'Enter');
+    await click(query(view.container, '.completion-option[data-kind="prompt"]'));
 
     expect(composer(view).value).toBe('/release-notes ');
     expect(pill(view)?.textContent).toBe('/release-notes');
