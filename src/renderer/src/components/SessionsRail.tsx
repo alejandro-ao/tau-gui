@@ -68,7 +68,9 @@ export function SessionsRail(): ReactNode {
           aria-label="new session"
           title="new session"
         >
-          + new
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M10 4v12M4 10h12" />
+          </svg>
         </button>
       </div>
       <ul>

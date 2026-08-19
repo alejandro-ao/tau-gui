@@ -34,6 +34,8 @@ describe('SessionsRail', () => {
     expect(rail?.textContent).toContain('sessions · 0');
     const newSession = rail?.querySelector<HTMLButtonElement>('.sessions-rail-new');
     if (!newSession) throw new Error('new session button missing');
+    expect(newSession.textContent?.trim()).toBe('');
+    expect(newSession.querySelector('svg')).not.toBeNull();
     await click(newSession);
     await settle(view);
     expect(bridge.payloads('session.new')).toEqual([undefined]);

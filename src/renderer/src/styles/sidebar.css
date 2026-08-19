@@ -138,20 +138,33 @@
 }
 
 .sessions-rail-new {
+  display: inline-flex;
   flex: 0 0 auto;
-  padding: 2px var(--space-2);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
   color: var(--text-dim);
-  font: inherit;
-  font-size: var(--font-size-xs);
   cursor: pointer;
+}
+
+.sessions-rail-new svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-width: 1.7;
 }
 
 .sessions-rail-new:hover,
 .sessions-rail-new:focus-visible {
-  border-color: var(--accent-dim);
+  background: var(--panel-alt);
+  border-color: var(--border);
   color: var(--accent);
 }
 
