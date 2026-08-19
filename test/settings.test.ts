@@ -39,6 +39,18 @@ describe('mergeSettings', () => {
     expect(mergeSettings({ theme: 'pure-black' }).theme).toBe('pure-black');
   });
 
+  it('repairs and migrates working directories from current and session metadata', () => {
+    const merged = mergeSettings({
+      cwd: '/work/current',
+      workingDirectories: ['/work/saved', '/work/saved', 7, ''],
+      recentSessions: [
+        { id: 'a', runtime: 'tau', cwd: '/work/older' },
+        { id: 'b', runtime: 'tau', cwd: '/work/saved' },
+      ],
+    });
+    expect(merged.workingDirectories).toEqual(['/work/saved', '/work/current', '/work/older']);
+  });
+
   it('repairs scoped model lists and keeps runtimes isolated', () => {
     const merged = mergeSettings({
       scopedModels: { tau: ['fake:a', 'fake:a', 7, ''], pi: ['pi:b'], zeta: ['x'] },
@@ -71,6 +83,17 @@ describe('SettingsStore', () => {
       theme: 'tau-light',
       cwd: '/tmp/project',
     });
+  });
+
+  it('atomically persists chooser-selected working directories', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.rememberWorkingDirectory('/work/one');
+    store.rememberWorkingDirectory('/work/two');
+    store.rememberWorkingDirectory('/work/one');
+    expect(store.current.cwd).toBe('/work/one');
+    expect(store.current.workingDirectories).toEqual(['/work/one', '/work/two']);
+    expect(new SettingsStore(file).current.workingDirectories).toEqual(['/work/one', '/work/two']);
   });
 
   it('tracks recent sessions most-recent-first without duplicates', () => {

@@ -103,7 +103,8 @@ export class RuntimePool {
     options: { cwd?: string | null },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
-    if (replaceCurrent && this.current) await this.remove(this.current);
+    const previous = this.current;
+    if (replaceCurrent && previous) await this.remove(previous);
     const manager = this.createManager();
     this.current = manager;
     try {
@@ -112,9 +113,30 @@ export class RuntimePool {
       this.claimSnapshot(manager);
       return snapshot;
     } catch (error) {
-      this.managers.delete(manager);
+      // Startup can fail after spawning or indexing transient state. Fully
+      // remove that manager, then restore only a busy manager deliberately
+      // preserved by this transition. A replaced idle/failed manager was
+      // intentionally removed and must never be revived.
+      await this.remove(manager);
+      if (!replaceCurrent && previous && this.managers.has(previous)) {
+        this.current = previous;
+        const snapshot = previous.snapshot();
+        this.broadcast({ type: 'status', snapshot });
+        this.broadcastActivity(previous, snapshot.status, false);
+      }
       throw error;
     }
+  }
+
+  /**
+   * Opens a fresh session rooted in a chosen directory. Busy work keeps its
+   * process in the background; an idle, stopped, or failed viewed process is
+   * replaced so unused managers do not accumulate.
+   */
+  async openSession(cwd: string): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(() =>
+      this.startFresh({ cwd }, { replaceCurrent: !this.current || !isBusy(this.current) }),
+    );
   }
 
   /** Selects an existing process or launches a new process for the session. */

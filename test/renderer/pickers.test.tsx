@@ -171,9 +171,7 @@ describe('session picker', () => {
 
     const rows = [...dialog.querySelectorAll('[role="option"]')];
     await click(rows[1]!);
-    expect(bridge.payloads('session.switch')).toEqual([
-      { ref: '/work/project/.tau/sessions/two.jsonl' },
-    ]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-2' }]);
   });
 });
 

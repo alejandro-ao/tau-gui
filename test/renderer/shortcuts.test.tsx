@@ -47,8 +47,13 @@ describe('global shortcuts', () => {
     expect(bridge.payloads('settings.update')).toEqual([{ showThinking: false }]);
 
     bridge.calls.length = 0;
-    await press(window, 'n', { ctrlKey: true });
-    expect(actionsOf(bridge)).toContain('session.new');
+    bridge.setResult('fs.pickDirectory', '/work/shortcut');
+    await press(window, 'n', { ctrlKey: true, shiftKey: true });
+    expect(actionsOf(bridge)).toContain('fs.pickDirectory');
+    expect(actionsOf(bridge)).toContain('settings.rememberWorkingDirectory');
+    expect(bridge.payloads('runtime.openSession')).toEqual([{ cwd: '/work/shortcut' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
+    expect(actionsOf(bridge)).not.toContain('session.new');
 
     bridge.calls.length = 0;
     await press(window, 'r', { ctrlKey: true });
@@ -79,7 +84,7 @@ describe('global shortcuts', () => {
     mounted = view;
     await press(window, 'k', { ctrlKey: true });
     bridge.calls.length = 0;
-    await press(window, 'n', { ctrlKey: true });
+    await press(window, 'n', { ctrlKey: true, shiftKey: true });
     await press(window, 'Tab', { shiftKey: true });
     expect(actionsOf(bridge)).toEqual([]);
   });
