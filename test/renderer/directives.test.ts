@@ -12,6 +12,7 @@ const RESOURCES: ResourceCatalog = {
       description: 'Review for security issues',
       origin: '~/.agents/skills',
       disableModelInvocation: false,
+      estimatedTokens: 120,
     },
   ],
   prompts: [

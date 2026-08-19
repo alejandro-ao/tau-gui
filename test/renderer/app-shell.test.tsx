@@ -131,6 +131,37 @@ describe('app shell', () => {
     expect(view.container.querySelector('.disclosure-body')?.textContent).toContain('/review');
   });
 
+  it('shows the aggregate approximate skill token count', async () => {
+    const view = await renderApp({
+      results: {
+        'resources.list': {
+          skills: [
+            {
+              name: 'review',
+              description: 'Review changes',
+              origin: '~/.agents/skills',
+              disableModelInvocation: false,
+              estimatedTokens: 750,
+            },
+            {
+              name: 'ship',
+              description: 'Ship changes',
+              origin: './.agents/skills',
+              disableModelInvocation: false,
+              estimatedTokens: 1_250,
+            },
+          ],
+          prompts: [],
+          diagnostics: [],
+        },
+      },
+    });
+
+    const skills = query(view.container, '.disclosure-toggle');
+    expect(skills.textContent).toContain('skills');
+    expect(skills.textContent).toContain('(2 · ~2k tokens)');
+  });
+
   it('shows failure detail with restart and open-directory actions', async () => {
     const view = await renderApp({ status: 'failed', detail: 'spawn tau ENOENT' });
     const notice = query(view.container, '.connection-notice');

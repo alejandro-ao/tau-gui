@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { formatApproximateTokens } from '../../../shared/token-estimate.js';
 import { isRunning } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import { Disclosure } from './Disclosure.js';
@@ -95,6 +96,9 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
         <Disclosure
           title="skills"
           count={resources.skills.length}
+          meta={formatApproximateTokens(
+            resources.skills.reduce((total, skill) => total + skill.estimatedTokens, 0),
+          )}
           items={resources.skills.map((skill) => ({
             label: skill.name,
             title: `${skill.description ?? 'No description'} · ${skill.origin}`,

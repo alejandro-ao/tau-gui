@@ -4,6 +4,7 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { PromptTemplateInfo, ResourceCatalog, SkillInfo } from '../../shared/domain.js';
 import { RESOURCE_LIMITS, resourceCatalogSchema } from '../../shared/resources.js';
+import { estimateTextTokens } from '../../shared/token-estimate.js';
 
 const RESERVED_PROMPTS = new Set(['prompts', 'skills', 'tools', 'reload']);
 
@@ -119,6 +120,7 @@ async function skillsFrom(
       origin: directory.origin,
       disableModelInvocation:
         parsed.metadata.get('disable-model-invocation')?.trim().toLowerCase() === 'true',
+      estimatedTokens: estimateTextTokens(raw),
     });
   }
   return skills;

@@ -58,9 +58,12 @@ Tracks issue #1. Update this file whenever behavior changes.
   Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
   commands (including the `/skill:` prefix) under a `Commands` heading with
   custom prompt templates under `Custom prompts`; individual skills are offered
-  only once `/skill:` has been typed. Only metadata crosses IPC;
-  resource contents remain in Tau/main-process filesystem access. Project resources
-  are omitted unless launch-time project trust is explicitly approved.
+  only once `/skill:` has been typed. The sidebar summarizes the aggregate skill
+  footprint as an approximate token count (for example, `~2k tokens`), using a
+  deterministic one-token-per-four-characters estimate over each `SKILL.md`.
+  Only metadata, including that numeric estimate, crosses IPC; resource contents
+  remain in Tau/main-process filesystem access. Project resources are omitted
+  unless launch-time project trust is explicitly approved.
 - A leading `/skill:<name>` or custom-prompt token in the draft is highlighted as a
   coloured pill, drawn by a mirrored backdrop behind the composer textarea
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
