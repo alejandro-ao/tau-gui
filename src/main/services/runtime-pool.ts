@@ -1,5 +1,5 @@
 import type { AgentState } from '../../shared/domain.js';
-import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
+import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
 import { RuntimeManager } from './runtime-manager.js';
@@ -27,6 +27,41 @@ export class RuntimePool {
   get active(): JsonlAgentRuntime {
     if (!this.current) throw new Error('Runtime is not started');
     return this.current.active;
+  }
+
+  /**
+   * Resolves the runtime that owns `target`, falling back to the selected one
+   * when the caller names no transcript.
+   *
+   * Session-scoped IPC is not serialized against lifecycle transitions, so
+   * resolving through the selected runtime alone lets a switch that is already
+   * in flight redirect a prompt or a transcript read into the wrong session.
+   * Routing by identity keeps every command attached to the transcript the
+   * renderer acted on, even when it is running in the background.
+   */
+  runtimeFor(target?: SessionTarget | null): JsonlAgentRuntime {
+    return this.managerFor(target).active;
+  }
+
+  private managerFor(target?: SessionTarget | null): RuntimeManager {
+    if (!target) {
+      if (!this.current) throw new Error('Runtime is not started');
+      return this.current;
+    }
+    const owner = this.ownerOf(target);
+    if (owner) return owner;
+    throw new Error(`Session is no longer available: ${target.sessionId}`);
+  }
+
+  private ownerOf(target: SessionTarget): RuntimeManager | null {
+    const current = this.current;
+    if (current && matches(current, target)) return current;
+    const key = sessionKey(target.runtime, target.sessionId);
+    const routed = this.owners.get(key) ?? this.sessions.get(key);
+    if (routed?.isStarted) return routed;
+    return (
+      [...this.managers].find((manager) => manager.isStarted && matches(manager, target)) ?? null
+    );
   }
 
   snapshot(): RuntimeSnapshot {
@@ -59,8 +94,11 @@ export class RuntimePool {
     }
   }
 
-  private async startFresh(options: { cwd?: string | null }): Promise<RuntimeSnapshot> {
-    if (this.current) await this.remove(this.current);
+  private async startFresh(
+    options: { cwd?: string | null },
+    { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
+  ): Promise<RuntimeSnapshot> {
+    if (replaceCurrent && this.current) await this.remove(this.current);
     const manager = this.createManager();
     this.current = manager;
     try {
@@ -77,6 +115,29 @@ export class RuntimePool {
   /** Selects an existing process or launches a new process for the session. */
   async activateSession(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(() => this.activateSessionNow(ref, cwd));
+  }
+
+  /**
+   * Opens an empty session. A runtime that is mid-run keeps its transcript:
+   * `new_session` swaps the session underneath the live agent, so the rest of
+   * that turn would be written into the new session and both transcripts would
+   * end up corrupted. Busy runtimes are therefore left in the background and
+   * the empty session gets a dedicated process.
+   */
+  async newSession(target?: SessionTarget | null): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(async () => {
+      const manager = target ? this.ownerOf(target) : this.current;
+      if (manager && !isBusy(manager)) {
+        this.current = manager;
+        await manager.active.newSession();
+        await manager.refreshState();
+        this.removeOwnership(manager);
+        this.index(manager);
+        this.claimSnapshot(manager);
+        return manager.snapshot();
+      }
+      return this.startFresh({ cwd: manager?.snapshot().cwd ?? null }, { replaceCurrent: false });
+    });
   }
 
   private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
@@ -159,9 +220,9 @@ export class RuntimePool {
     await Promise.allSettled(managers.map((manager) => manager.stop()));
   }
 
-  async refreshState(touch = false): Promise<AgentState | null> {
-    if (!this.current) return null;
-    const manager = this.current;
+  async refreshState(touch = false, target?: SessionTarget | null): Promise<AgentState | null> {
+    const manager = target ? this.ownerOf(target) : this.current;
+    if (!manager) return null;
     const state = await manager.refreshState(touch);
     if (manager !== this.current) return state;
     this.removeOwnership(manager);
@@ -271,4 +332,19 @@ export class RuntimePool {
 
 function sessionKey(kind: string, ref: string): string {
   return `${kind}:${ref}`;
+}
+
+function isBusy(manager: RuntimeManager): boolean {
+  const status = manager.snapshot().status;
+  return (
+    status === 'starting' ||
+    status === 'running' ||
+    status === 'compacting' ||
+    status === 'retrying'
+  );
+}
+
+function matches(manager: RuntimeManager, target: SessionTarget): boolean {
+  const snapshot = manager.snapshot();
+  return snapshot.runtime === target.runtime && snapshot.state?.sessionId === target.sessionId;
 }

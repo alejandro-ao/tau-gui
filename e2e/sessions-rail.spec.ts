@@ -121,6 +121,49 @@ test.describe('sessions rail', () => {
     await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
   });
 
+  test('keeps a streaming session on its own process when a new session opens', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-new-session-'));
+    handle = await launchApp({
+      projectDir,
+      env: {
+        FAKE_RUNTIME_DELAY_MS: '120',
+        // Model real runtimes: every launch mints its own session id.
+        FAKE_RUNTIME_UNIQUE_SESSION: '1',
+      },
+    });
+    const { page } = handle;
+    await waitForConnected(page);
+
+    await submitPrompt(page, 'tool work that must survive');
+    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
+
+    // Opening an empty session must not swap the session under the live agent:
+    // the rest of that turn would be written into the new transcript.
+    await page.getByRole('button', { name: 'new session' }).click();
+    await expect(transcript(page)).not.toContainText('src/index.ts');
+    await expect(page.locator('.block-tool')).toHaveCount(0);
+    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
+
+    await submitPrompt(page, 'hello in the empty session');
+    await waitForSettled(page, 10_000);
+    await expect(transcript(page)).toContainText('hello in the empty session');
+    await expect(transcript(page)).not.toContainText('tool work that must survive');
+    await expect(page.locator('.block-tool')).toHaveCount(0);
+
+    // The interrupted-looking session finished its whole turn in the background.
+    const rail = page.getByTestId('sessions-rail');
+    const background = rail
+      .locator('.sessions-rail-item')
+      .filter({ hasText: 'tool work that must survive' });
+    await background.click();
+    await waitForSettled(page, 15_000);
+    await expect(transcript(page)).toContainText('Done: tests pass.');
+    // Settled calls collapse into one turn summary; all three ran to completion.
+    await page.locator('.tool-run-header').last().click();
+    await expect(page.locator('.tool-run-row[data-state="success"]')).toHaveCount(3);
+    await expect(transcript(page)).not.toContainText('hello in the empty session');
+  });
+
   test('does not list an empty live session once connected', async () => {
     handle = await launchApp();
     const { page } = handle;

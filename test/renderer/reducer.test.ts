@@ -80,6 +80,43 @@ describe('session event routing', () => {
     expect(stale.blocks).toEqual([]);
     expect(current.blocks).toHaveLength(1);
   });
+
+  it('rejects an authoritative read that describes another session', () => {
+    const messages = [
+      {
+        role: 'user' as const,
+        text: 'belongs to the background session',
+        images: [],
+        timestamp: 1,
+      },
+    ];
+
+    const stale = reducer(activeState, {
+      type: 'hydrate',
+      messages,
+      now: 1000,
+      sessionId: 'background-session',
+      runtime: 'tau',
+    });
+    const otherRuntime = reducer(activeState, {
+      type: 'hydrate',
+      messages,
+      now: 1000,
+      sessionId: 'active-session',
+      runtime: 'pi',
+    });
+    const current = reducer(activeState, {
+      type: 'hydrate',
+      messages,
+      now: 1000,
+      sessionId: 'active-session',
+      runtime: 'tau',
+    });
+
+    expect(stale).toBe(activeState);
+    expect(otherRuntime).toBe(activeState);
+    expect(current.blocks).toHaveLength(1);
+  });
 });
 
 describe('streaming assembly', () => {

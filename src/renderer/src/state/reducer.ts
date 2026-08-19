@@ -136,6 +136,15 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'commands':
       return { ...state, commands: action.commands };
     case 'hydrate':
+      // Authoritative reads are session-scoped too: a response that describes
+      // another transcript must never replace the rendered one.
+      if (
+        action.sessionId !== undefined &&
+        (action.sessionId !== state.snapshot.state?.sessionId ||
+          action.runtime !== state.snapshot.runtime)
+      ) {
+        return state;
+      }
       return {
         ...state,
         blocks: hydrateBlocks(action.messages, action.now),

@@ -15,7 +15,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
-import type { FileCompletion, RuntimeProbe } from '../../../shared/ipc.js';
+import type { FileCompletion, RuntimeProbe, SessionTarget } from '../../../shared/ipc.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
@@ -68,6 +68,8 @@ export interface Actions {
 
 const StoreContext = createContext<Store | null>(null);
 
+const OPENING_SESSION = 'Wait for the session to finish opening before sending a message.';
+
 export function StoreProvider({ children }: { children: ReactNode }): ReactNode {
   const [state, dispatch] = useReducer(reducer, INITIAL_STATE);
   const stateRef = useRef(state);
@@ -105,6 +107,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     });
   }, []);
 
+  /** Transcript identity every session-scoped call is bound to. */
+  const viewed = useCallback((): SessionTarget | undefined => {
+    const snapshot = stateRef.current.snapshot;
+    const sessionId = snapshot.state?.sessionId;
+    return sessionId ? { runtime: snapshot.runtime, sessionId } : undefined;
+  }, []);
+
   /** Reloads everything that describes the current session from the runtime. */
   const refresh = useCallback(
     async (expected?: { runtime: RuntimeKind; sessionId: string }) => {
@@ -123,15 +132,21 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (snapshot) dispatch({ type: 'snapshot', snapshot });
       if (!snapshot || snapshot.status === 'stopped' || snapshot.status === 'failed') return;
 
+      // Every read is bound to the transcript the snapshot just described, so a
+      // session switch that starts mid-flight cannot answer with another
+      // session's messages.
+      const target: SessionTarget | undefined = snapshot.state?.sessionId
+        ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
+        : undefined;
       const [messages, stats, models, levels, commands] = await Promise.all([
-        attempt('agent.messages', undefined, notice),
-        attempt('agent.stats', undefined, notice),
-        attempt('models.list', undefined, notice),
-        attempt('thinking.list', undefined, notice),
-        attempt('commands.list', undefined, notice),
+        attempt('agent.messages', undefined, notice, target),
+        attempt('agent.stats', undefined, notice, target),
+        attempt('models.list', undefined, notice, target),
+        attempt('thinking.list', undefined, notice, target),
+        attempt('commands.list', undefined, notice, target),
       ]);
       if (epoch !== refreshEpoch.current) return;
-      if (messages) dispatch({ type: 'hydrate', messages, now: Date.now() });
+      if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
       if (stats) dispatch({ type: 'stats', stats });
       if (models) dispatch({ type: 'models', models });
       if (levels) dispatch({ type: 'thinkingLevels', levels });
@@ -257,6 +272,26 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       }
     };
 
+    /**
+     * Runs one navigation command and always reconciles afterwards, so the
+     * cleared view is rebuilt from the session the runtime really holds. A
+     * failure is reported after hydration, which replaces local blocks.
+     */
+    const navigate = async (navigation: number, work: () => Promise<unknown>): Promise<void> => {
+      let failure: string | null = null;
+      dispatch({ type: 'busy', busy: true });
+      try {
+        await work();
+      } catch (error) {
+        failure = (error as Error).message;
+      } finally {
+        dispatch({ type: 'busy', busy: false });
+      }
+      if (navigation !== navigationEpoch.current) return;
+      await refresh();
+      if (failure) notice(failure);
+    };
+
     return {
       start: async (cwd, sessionRef) => {
         invalidateRefresh();
@@ -277,17 +312,23 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           dispatch({ type: 'snapshot', snapshot });
         });
       },
+      // Submissions are refused while a session is opening: the transcript they
+      // belong to is not yet known, and an unbound prompt would be delivered to
+      // whichever runtime happens to be selected when it arrives.
       submit: async (text) => {
-        await attempt('agent.prompt', { text }, notice);
+        if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
+        await attempt('agent.prompt', { text }, notice, viewed());
       },
       steer: async (text) => {
-        await attempt('agent.steer', { text }, notice);
+        if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
+        await attempt('agent.steer', { text }, notice, viewed());
       },
       followUp: async (text) => {
-        await attempt('agent.followUp', { text }, notice);
+        if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
+        await attempt('agent.followUp', { text }, notice, viewed());
       },
       abort: async () => {
-        await attempt('agent.abort', undefined, notice);
+        await attempt('agent.abort', undefined, notice, viewed());
       },
       runShell: async (command, excludeFromContext) => {
         const id = nextBlockId('shell');
@@ -304,7 +345,12 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             timestamp: Date.now(),
           },
         });
-        const result = await attempt('shell.run', { command, excludeFromContext }, notice);
+        const result = await attempt(
+          'shell.run',
+          { command, excludeFromContext },
+          notice,
+          viewed(),
+        );
         dispatch({
           type: 'updateBlock',
           id,
@@ -314,38 +360,36 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         });
       },
       setModel: async (ref) => {
+        const target = viewed();
         await run(async () => {
-          await invoke('models.set', { provider: ref.provider, modelId: ref.modelId });
-          await attempt('agent.state', undefined, notice);
+          await invoke('models.set', { provider: ref.provider, modelId: ref.modelId }, target);
+          await attempt('agent.state', undefined, notice, target);
           const snapshot = await invoke('runtime.snapshot');
           dispatch({ type: 'snapshot', snapshot });
         });
       },
       cycleModel: async () => {
-        const result = await attempt('models.cycle', undefined, notice);
+        const result = await attempt('models.cycle', undefined, notice, viewed());
         if (result) {
           const snapshot = await invoke('runtime.snapshot');
           dispatch({ type: 'snapshot', snapshot });
         }
       },
       setThinking: async (level) => {
-        await attempt('thinking.set', { level }, notice);
+        await attempt('thinking.set', { level }, notice, viewed());
         const snapshot = await invoke('runtime.snapshot');
         dispatch({ type: 'snapshot', snapshot });
       },
       cycleThinking: async () => {
-        await attempt('thinking.cycle', undefined, notice);
+        await attempt('thinking.cycle', undefined, notice, viewed());
         const snapshot = await invoke('runtime.snapshot');
         dispatch({ type: 'snapshot', snapshot });
       },
       newSession: async () => {
+        const target = viewed();
         const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
-          await run(async () => {
-            await invoke('session.new');
-            if (navigation !== navigationEpoch.current) return;
-            await refresh();
-          });
+          await navigate(navigation, () => invoke('session.new', undefined, target));
         } finally {
           finishNavigation(navigation);
         }
@@ -353,11 +397,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       switchSession: async (ref) => {
         const navigation = beginNavigation(stateRef.current.snapshot.runtime);
         try {
-          await run(async () => {
-            await invoke('session.switch', { ref });
-            if (navigation !== navigationEpoch.current) return;
-            await refresh();
-          });
+          await navigate(navigation, () => invoke('session.switch', { ref }));
         } finally {
           finishNavigation(navigation);
         }
@@ -383,32 +423,26 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             previousStatus === 'compacting' ||
             previousStatus === 'retrying';
           if (started) {
-            await run(async () => {
-              await invoke('session.switch', { ref: target });
-              if (navigation !== navigationEpoch.current) return;
-              await refresh();
-            });
+            await navigate(navigation, () => invoke('session.switch', { ref: target }));
             return;
           }
-          await run(async () => {
-            const snapshot = await invoke('runtime.start', {
+          await navigate(navigation, () =>
+            invoke('runtime.start', {
               cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
               sessionRef: target,
-            });
-            if (navigation !== navigationEpoch.current) return;
-            dispatch({ type: 'snapshot', snapshot });
-            await refresh();
-          });
+            }),
+          );
         } finally {
           finishNavigation(navigation);
         }
       },
       nameSession: async (name) => {
-        await attempt('session.name', { name }, notice);
+        await attempt('session.name', { name }, notice, viewed());
       },
       fork: async (entryId) => {
+        const target = viewed();
         invalidateRefresh();
-        const text = await attempt('session.fork', { entryId }, notice);
+        const text = await attempt('session.fork', { entryId }, notice, target);
         if (text !== null) {
           dispatch({ type: 'clearTranscript' });
           await refresh();
@@ -416,10 +450,12 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         return text;
       },
       compact: async (instructions) => {
+        const target = viewed();
         await run(async () => {
           const result = await invoke(
             'session.compact',
             instructions ? { instructions } : undefined,
+            target,
           );
           // Rebuild first: the outcome block must outlive the hydration.
           await refresh();
@@ -436,7 +472,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         });
       },
       exportHtml: async () => {
-        const path = await attempt('session.exportHtml', undefined, notice);
+        const path = await attempt('session.exportHtml', undefined, notice, viewed());
         if (path) {
           dispatch({
             type: 'localMessage',
@@ -502,11 +538,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         if (settings) dispatch({ type: 'settings', settings });
       },
       setAutoCompaction: async (enabled) => {
-        await attempt('session.autoCompaction', { enabled }, notice);
+        await attempt('session.autoCompaction', { enabled }, notice, viewed());
         const snapshot = await attempt('runtime.snapshot', undefined, notice);
         if (snapshot) dispatch({ type: 'snapshot', snapshot });
       },
-      loadTree: async () => attempt('agent.tree', undefined, notice),
+      loadTree: async () => attempt('agent.tree', undefined, notice, viewed()),
       loadDiagnostics: async () => {
         const messages = await attempt('diagnostics.list', undefined, notice);
         if (messages) dispatch({ type: 'diagnostics', messages });
@@ -519,7 +555,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       notice,
       refresh,
     };
-  }, [beginNavigation, finishNavigation, invalidateRefresh, notice, refresh]);
+  }, [beginNavigation, finishNavigation, invalidateRefresh, notice, refresh, viewed]);
 
   const value = useMemo<Store>(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

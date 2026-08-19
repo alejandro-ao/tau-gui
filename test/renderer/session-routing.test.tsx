@@ -248,4 +248,154 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).not.toContain('stale tool call');
     expect(view.container.textContent).not.toContain('old.ts');
   });
+
+  it('binds session-scoped calls to the transcript on screen', async () => {
+    const first = agent('first-session');
+    const bridge = installFakeBridge({ agent: first });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    let actions: Actions | null = null;
+
+    function Capture(): ReactNode {
+      actions = useStore().actions;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+    bridge.calls.length = 0;
+    await act(async () => {
+      await storeActions.submit('run the tests');
+      await storeActions.refresh();
+    });
+
+    const target = { runtime: 'tau', sessionId: 'first-session' };
+    for (const action of ['agent.prompt', 'agent.messages', 'agent.stats', 'commands.list']) {
+      const call = bridge.calls.find((entry) => entry.action === action);
+      expect(call, action).toBeDefined();
+      expect(call?.session, action).toEqual(target);
+    }
+  });
+
+  it('refuses a submission made while a session is still opening', async () => {
+    const first = agent('first-session');
+    const second = agent('second-session');
+    const bridge = installFakeBridge({ agent: first });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    let actions: Actions | null = null;
+
+    function Capture(): ReactNode {
+      actions = useStore().actions;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+
+    let resolveSwitch: (() => void) | null = null;
+    bridge.setResult(
+      'session.switch',
+      new Promise<void>((resolve) => {
+        resolveSwitch = resolve;
+      }),
+    );
+    bridge.setResult('runtime.snapshot', { ...bridge.snapshot, state: second });
+    const ref: SessionRef = {
+      id: second.sessionId,
+      name: second.sessionName,
+      messageCount: 1,
+      path: null,
+      cwd: '/work/project',
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    };
+
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+    let navigation: Promise<void> = Promise.resolve();
+    bridge.calls.length = 0;
+    await act(async () => {
+      navigation = storeActions.resumeSession(ref);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await storeActions.submit('must not reach the old session');
+      await Promise.resolve();
+    });
+
+    expect(bridge.calls.some((call) => call.action === 'agent.prompt')).toBe(false);
+
+    await act(async () => {
+      resolveSwitch?.();
+      await navigation;
+    });
+    await act(async () => {
+      await storeActions.submit('now it belongs to the new session');
+    });
+
+    const prompt = bridge.calls.find((call) => call.action === 'agent.prompt');
+    expect(prompt?.session).toEqual({ runtime: 'tau', sessionId: 'second-session' });
+  });
+
+  it('reconciles the view with the runtime when opening a session fails', async () => {
+    const first = agent('first-session');
+    const second = agent('second-session');
+    const bridge = installFakeBridge({ agent: first, status: 'running' });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
+    let actions: Actions | null = null;
+
+    function Capture(): ReactNode {
+      actions = useStore().actions;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+        <Transcript />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+
+    // The runtime refuses the switch and keeps streaming the first session.
+    bridge.setResult('session.switch', Promise.reject(new Error('Unknown session')));
+    bridge.setResult('agent.messages', [assistant('first session answer')]);
+    const ref: SessionRef = {
+      id: second.sessionId,
+      name: second.sessionName,
+      messageCount: 1,
+      path: null,
+      cwd: '/work/project',
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    };
+
+    const storeActions = actions as Actions | null;
+    if (!storeActions) throw new Error('store actions were not captured');
+    await act(async () => {
+      await storeActions.resumeSession(ref);
+    });
+    await view.flush();
+
+    // The transcript is rebuilt from the session the runtime actually holds,
+    // so the stream that keeps arriving belongs to what is on screen.
+    expect(view.container.textContent).toContain('Unknown session');
+    expect(view.container.textContent).toContain('first session answer');
+    const hydrate = bridge.calls.filter((call) => call.action === 'agent.messages').at(-1);
+    expect(hydrate?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+  });
 });

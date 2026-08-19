@@ -58,7 +58,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
 
   const context = {
     settings: { current: settings } as Context['settings'],
-    manager: { active } as unknown as Context['manager'],
+    manager: { active, runtimeFor: () => active } as unknown as Context['manager'],
     window: () => null,
   } as Context;
   return { context, calls };

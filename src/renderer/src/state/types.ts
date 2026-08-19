@@ -173,7 +173,14 @@ export type Action =
   | { type: 'models'; models: Model[] }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
-  | { type: 'hydrate'; messages: AgentMessage[]; now: number }
+  | {
+      type: 'hydrate';
+      messages: AgentMessage[];
+      now: number;
+      /** Transcript the messages were read from; omitted by local replays. */
+      sessionId?: string;
+      runtime?: RuntimeSnapshot['runtime'];
+    }
   | { type: 'localMessage'; block: TranscriptBlock }
   | { type: 'updateBlock'; id: string; patch: Partial<TranscriptBlock> }
   | { type: 'clearTranscript' }

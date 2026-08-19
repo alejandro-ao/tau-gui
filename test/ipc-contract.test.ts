@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { requestSchema } from '../src/shared/ipc.js';
+import { envelopeSchema, requestSchema } from '../src/shared/ipc.js';
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -65,6 +65,10 @@ describe('IPC request validation', () => {
 
   it('rejects settings patches with unknown values', () => {
     expect(
+      requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'pure-black' } })
+        .success,
+    ).toBe(true);
+    expect(
       requestSchema.safeParse({ action: 'settings.update', payload: { theme: 'neon' } }).success,
     ).toBe(false);
     expect(
@@ -77,6 +81,30 @@ describe('IPC request validation', () => {
         payload: {
           runtime: { tau: { binary: 'tau', provider: null, model: null, extraArgs: [] } },
         },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('validates the optional session target on the envelope', () => {
+    const parsed = envelopeSchema.safeParse({
+      action: 'agent.prompt',
+      payload: { text: 'hi' },
+      session: { runtime: 'tau', sessionId: 'abc' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
+
+    expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'zsh', sessionId: 'a' },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: '' },
       }).success,
     ).toBe(false);
   });

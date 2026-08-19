@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
-import { IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL, requestSchema } from '../shared/ipc.js';
+import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
@@ -113,7 +113,7 @@ void app.whenReady().then(() => {
   manager = new RuntimePool(settings, broadcast);
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
-    const parsed = requestSchema.safeParse(raw);
+    const parsed = envelopeSchema.safeParse(raw);
     if (!parsed.success) {
       return { ok: false, error: `Invalid IPC request: ${parsed.error.issues[0]?.message ?? ''}` };
     }

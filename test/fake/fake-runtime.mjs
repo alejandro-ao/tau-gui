@@ -22,6 +22,9 @@ const kind = process.env.FAKE_RUNTIME_KIND === 'pi' ? 'pi' : 'tau';
 const baseDelay = Number(process.env.FAKE_RUNTIME_DELAY_MS ?? '0');
 const switchDelay = Number(process.env.FAKE_RUNTIME_SWITCH_DELAY_MS ?? '0');
 const switchError = process.env.FAKE_RUNTIME_SWITCH_ERROR === '1';
+// Real runtimes mint a unique session id per launch. Tests that need two live
+// processes at once opt in so their default sessions cannot collide.
+const uniqueSession = process.env.FAKE_RUNTIME_UNIQUE_SESSION === '1';
 let stepDelay = baseDelay;
 
 const MODELS = [
@@ -55,9 +58,11 @@ const state = {
   modelIndex: 0,
   thinkingLevel: 'medium',
   autoCompaction: true,
-  sessionId: 'fake-session-1',
+  sessionId: uniqueSession ? `fake-session-p${process.pid}` : 'fake-session-1',
   sessionName: null,
-  sessionFile: `${cwd}/.fake/session-1.jsonl`,
+  sessionFile: uniqueSession
+    ? `${cwd}/.fake/session-p${process.pid}.jsonl`
+    : `${cwd}/.fake/session-1.jsonl`,
   streaming: false,
   messages: [],
   entries: [],

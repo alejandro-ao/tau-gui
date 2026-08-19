@@ -213,4 +213,91 @@ describe('RuntimePool', () => {
     expect((await pool.active.getStats()).toolCalls).toBe(3);
     expect(internals.managers.size).toBe(2);
   });
+
+  it('routes a session-scoped command to that session, not the selected one', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    settings.rememberSession({
+      id: 'other-session',
+      name: 'other',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+    await pool.activateSession('other-session');
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+
+    const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    await pool.runtimeFor(background).prompt({ text: 'hello background' });
+    await waitFor(async () => (await pool!.runtimeFor(background).getState()).messageCount > 0);
+
+    // The prompt reached the background transcript and never the selected one.
+    const selected = await pool.active.getState();
+    expect(selected.sessionId).toBe('other-session');
+    expect(selected.messageCount).toBe(0);
+    const messages = await pool.runtimeFor(background).getMessages();
+    expect(
+      messages.some((message) => message.role === 'user' && message.text === 'hello background'),
+    ).toBe(true);
+  });
+
+  it('refuses a command aimed at a session no runtime owns', () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    expect(() => pool!.runtimeFor({ runtime: 'tau', sessionId: 'ghost' })).toThrow(
+      'Session is no longer available: ghost',
+    );
+  });
+
+  it('gives a new session its own process while a run is still streaming', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    await pool.active.prompt({ text: 'slow work' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+
+    const busy = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
+    try {
+      await pool.newSession();
+    } finally {
+      delete process.env['FAKE_RUNTIME_UNIQUE_SESSION'];
+    }
+
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(2);
+    // The streaming transcript kept its own process and finishes its turn.
+    expect(pool.snapshot().state?.sessionId).not.toBe('fake-session-1');
+    await waitFor(async () => !(await pool!.runtimeFor(busy).getState()).isStreaming);
+    const messages = await pool.runtimeFor(busy).getMessages();
+    expect(messages.some((message) => message.role === 'assistant')).toBe(true);
+  });
+
+  it('reuses an idle process for a new session', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+
+    await pool.newSession();
+
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+    expect(pool.snapshot().state?.sessionId).not.toBe('fake-session-1');
+  });
 });
+
+async function waitFor(check: () => boolean | Promise<boolean>, timeout = 5_000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    if (await check()) return;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  throw new Error('Timed out waiting for runtime pool condition');
+}

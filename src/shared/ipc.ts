@@ -35,6 +35,17 @@ export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const runtimeKind = z.enum(['tau', 'pi']);
+
+/**
+ * Transcript a renderer request is bound to. Session-scoped commands carry it
+ * so the main process routes them to the process that owns that transcript,
+ * never to whichever runtime happens to be selected when the call arrives.
+ */
+export const sessionTargetSchema = z.object({
+  runtime: runtimeKind,
+  sessionId: z.string().min(1),
+});
+export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
 
 const runtimeSettings = z.object({
@@ -47,7 +58,7 @@ const runtimeSettings = z.object({
 export const settingsPatchSchema = z
   .object({
     agentRuntime: runtimeKind,
-    theme: z.enum(['tau-dark', 'tau-light', 'high-contrast']),
+    theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
     sidebarPosition: z.enum(['right', 'left', 'off']),
     turnNotification: z.enum(['desktop', 'off']),
     showThinking: z.boolean(),
@@ -149,6 +160,16 @@ export const requestSchema = z.discriminatedUnion('action', [
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
+
+/**
+ * Wire envelope: the action union plus the optional transcript identity the
+ * renderer believes it is acting on.
+ */
+export const envelopeSchema = z.intersection(
+  requestSchema,
+  z.object({ session: sessionTargetSchema.optional() }),
+);
+export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {
   runtime: 'tau' | 'pi';
