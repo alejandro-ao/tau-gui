@@ -262,6 +262,45 @@ describe('Composer key handling', () => {
     expect(bridge.payloads('agent.steer')).toEqual([{ text: 'edited draft' }]);
   });
 
+  it('recalls and resubmits a retained queue through its recovery target', async () => {
+    const { bridge, input } = await renderComposer({});
+    const recoveryTarget = { runtime: 'tau' as const, sessionId: 'retained-session' };
+    bridge.setHandler('queue.pop', () => ({
+      id: 'prompt-retained',
+      kind: 'follow-up',
+      text: 'retained draft',
+    }));
+    act(() => {
+      bridge.emit({
+        type: 'status',
+        snapshot: {
+          ...bridge.snapshot,
+          status: 'stopped',
+          state: null,
+          recoveryTarget,
+        },
+      });
+    });
+
+    await press(input, 'ArrowUp');
+    expect(input.value).toBe('retained draft');
+    expect(bridge.calls.find((call) => call.action === 'queue.pop')?.session).toEqual(
+      recoveryTarget,
+    );
+    expect(bridge.calls.find((call) => call.action === 'queue.resolve')?.session).toEqual(
+      recoveryTarget,
+    );
+
+    await type(input, 'edited retained draft');
+    await press(input, 'Enter');
+    const resubmit = bridge.calls.find((call) => call.action === 'agent.followUp');
+    expect(resubmit).toMatchObject({
+      payload: { text: 'edited retained draft' },
+      session: recoveryTarget,
+    });
+    expect(actions(bridge)).not.toContain('agent.prompt');
+  });
+
   it('restores a claimed duplicate when newer draft input arrives before recall', async () => {
     const { bridge, input, view } = await renderComposer({ status: 'running', agent: AGENT });
     let release: ((item: unknown) => void) | undefined;

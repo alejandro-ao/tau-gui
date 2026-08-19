@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { useCompletion } from '../hooks/useCompletion.js';
 import { useFileDrop } from '../hooks/useFileDrop.js';
-import { isRunning } from '../state/reducer.js';
+import { isRunning, snapshotTarget } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import { ActivitySpinner } from './ActivitySpinner.js';
 import { CompletionPopup } from './completion/CompletionPopup.js';
@@ -59,6 +59,7 @@ export function Composer(): ReactNode {
   const draft = state.draft;
   const submittedBySession = useRef(new Map<string, string>());
   const recallInFlight = useRef(false);
+  const recalledQueue = useRef<{ kind: 'steering' | 'follow-up'; sessionKey: string } | null>(null);
   const draftRevision = useRef(0);
   const input = useRef<HTMLTextAreaElement | null>(null);
   const backdrop = useRef<HTMLDivElement | null>(null);
@@ -78,7 +79,11 @@ export function Composer(): ReactNode {
 
   const running = isRunning(state);
   const capabilities = state.snapshot.capabilities;
-  const sessionKey = `${state.snapshot.runtime}:${state.snapshot.state?.sessionId ?? ''}`;
+  const target = snapshotTarget(state.snapshot);
+  const sessionKey = target
+    ? `${target.runtime}:${target.sessionId}`
+    : `${state.snapshot.runtime}:`;
+  const retainingQueue = Boolean(state.snapshot.recoveryTarget && !state.snapshot.state?.sessionId);
   const viewedSession = useRef(sessionKey);
   viewedSession.current = sessionKey;
   const sessionTransitioning = useRef(state.sessionTransitioning);
@@ -262,11 +267,18 @@ export function Composer(): ReactNode {
         return;
       }
 
-      if (running) {
+      if (running || retainingQueue) {
         setDraft('');
         submittedBySession.current.set(sessionKey, trimmed);
-        if (mode === 'followUp') void actions.followUp(trimmed);
-        else void actions.steer(trimmed);
+        const recalled = recalledQueue.current;
+        recalledQueue.current = null;
+        const retainedKind =
+          retainingQueue && recalled?.sessionKey === sessionKey ? recalled.kind : null;
+        if (retainedKind === 'follow-up' || (!retainedKind && mode === 'followUp')) {
+          void actions.followUp(trimmed);
+        } else {
+          void actions.steer(trimmed);
+        }
         return;
       }
 
@@ -274,7 +286,7 @@ export function Composer(): ReactNode {
       submittedBySession.current.set(sessionKey, trimmed);
       void actions.submit(trimmed);
     },
-    [actions, capabilities.directBash, completion, running, sessionKey, setDraft],
+    [actions, capabilities.directBash, completion, retainingQueue, running, sessionKey, setDraft],
   );
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
@@ -367,6 +379,7 @@ export function Composer(): ReactNode {
               return;
             }
             applyText(item.text, item.text.length);
+            recalledQueue.current = { kind: item.kind, sessionKey };
             await item.resolve('accept');
             return;
           }

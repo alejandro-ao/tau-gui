@@ -54,16 +54,18 @@ export class RuntimePool {
   }
 
   enqueuePrompt(kind: PromptQueueKind, text: string, target?: SessionTarget | null): void {
-    const manager = this.managerFor(target);
-    this.queues.enqueue(targetFor(manager), kind, text);
+    const resolved = this.queueTarget(target);
+    this.queues.enqueue(resolved.target, kind, text);
+    // A retained queue has deliberately outlived its failed process. It remains
+    // editable until restart recreates the exact owner and schedules it.
+    if (!resolved.manager) return;
     // The turn may settle between the renderer observing `running` and this
     // request reaching main. Treat the now-idle process as the settle boundary.
-    if (!isBusy(manager)) void this.schedule(manager);
+    if (!isBusy(resolved.manager)) void this.schedule(resolved.manager);
   }
 
   popPrompt(target?: SessionTarget | null): ReturnType<PromptQueueService['pop']> {
-    const manager = this.managerFor(target);
-    return this.queues.pop(targetFor(manager));
+    return this.queues.pop(this.queueTarget(target).target);
   }
 
   resolvePromptRecall(
@@ -71,20 +73,31 @@ export class RuntimePool {
     outcome: 'accept' | 'restore',
     target?: SessionTarget | null,
   ): boolean {
-    // Resolution is queue-owned and must outlive runtime navigation. An idle
-    // `new session` can replace the old transcript in its process while the
-    // renderer response is in flight, so an explicit target is authoritative
-    // even when no live RuntimeManager owns it anymore.
-    const resolvedTarget = target ?? targetFor(this.managerFor());
-    return this.queues.resolveRecall(resolvedTarget, id, outcome);
+    // Queue ownership outlives process ownership (including navigation and a
+    // failed restart), but resolution is still bound to one validated target.
+    return this.queues.resolveRecall(this.queueTarget(target).target, id, outcome);
   }
 
   queueSnapshot(target?: SessionTarget | null): ReturnType<PromptQueueService['snapshot']> {
-    if (target && this.failedRestart?.target && sameTarget(target, this.failedRestart.target)) {
-      return this.queues.snapshot(target);
+    return this.queues.snapshot(this.queueTarget(target).target);
+  }
+
+  private queueTarget(target?: SessionTarget | null): QueueRoute {
+    if (!target) {
+      if (this.current) return { target: targetFor(this.current), manager: this.current };
+      const retained = this.failedRestart?.target;
+      if (retained) return { target: retained, manager: null };
+      throw new Error('Runtime is not started');
     }
-    const manager = this.managerFor(target);
-    return this.queues.snapshot(targetFor(manager));
+    const manager = this.ownerOf(target);
+    if (manager) return { target: targetFor(manager), manager };
+    if (
+      (this.failedRestart?.target && sameTarget(target, this.failedRestart.target)) ||
+      this.queues.hasTarget(target)
+    ) {
+      return { target, manager: null };
+    }
+    throw new Error(`Session is no longer available: ${target.sessionId}`);
   }
 
   private managerFor(target?: SessionTarget | null): RuntimeManager {
@@ -109,9 +122,15 @@ export class RuntimePool {
   }
 
   snapshot(): RuntimeSnapshot {
-    return (
-      this.current?.snapshot() ?? new RuntimeManager(this.settings, () => undefined).snapshot()
-    );
+    if (this.current) return this.current.snapshot();
+    const snapshot = new RuntimeManager(this.settings, () => undefined).snapshot();
+    if (!this.failedRestart) return snapshot;
+    return {
+      ...snapshot,
+      runtime: this.failedRestart.runtime,
+      cwd: this.failedRestart.cwd,
+      recoveryTarget: this.failedRestart.target,
+    };
   }
 
   /** Trust used to launch the selected process, not the mutable settings value. */
@@ -190,6 +209,10 @@ export class RuntimePool {
         // launch. Keep the detached transcript identity so another restart can
         // resume that same runtime/session and recover its main-owned queue.
         this.failedRestart = identity;
+        // RuntimeManager's terminal status has no session state. Publish the
+        // pool-owned recovery target after cleanup so the renderer can still
+        // bind queue IPC before the next restart attempt.
+        this.broadcast({ type: 'status', snapshot: this.snapshot() });
         throw error;
       }
     });
@@ -529,6 +552,11 @@ export class RuntimePool {
     this.runLifecycles.delete(manager);
     if (this.current === manager) this.current = null;
   }
+}
+
+interface QueueRoute {
+  target: SessionTarget;
+  manager: RuntimeManager | null;
 }
 
 interface RestartIdentity {

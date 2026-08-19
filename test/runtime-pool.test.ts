@@ -2,7 +2,8 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, SessionRef } from '../src/shared/domain.js';
-import type { BridgeEvent } from '../src/shared/ipc.js';
+import type { BridgeEvent, PromptQueueItem, PromptQueueSnapshot } from '../src/shared/ipc.js';
+import { handleRequest } from '../src/main/ipc.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
 import type { RuntimeManager } from '../src/main/services/runtime-manager.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
@@ -352,9 +353,63 @@ describe('RuntimePool', () => {
     expect(replacements).toHaveLength(1);
     expect(replacements[0]!.isStarted).toBe(false);
     expect(internals.managers.size).toBe(0);
-    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual([
-      'drains after retry',
-    ]);
+    expect(pool.snapshot()).toMatchObject({
+      runtime: 'tau',
+      cwd,
+      recoveryTarget: target,
+      state: null,
+    });
+
+    // Exercise the renderer-facing IPC handlers while there is no manager.
+    // Claims retain their stable identity, restores stay in this session, and
+    // an accepted edit can be safely enqueued for the same recovery target.
+    const context = { settings, manager: pool, window: () => null };
+    const retained = (await handleRequest(context, {
+      action: 'queue.snapshot',
+      session: target,
+    })) as PromptQueueSnapshot;
+    expect(retained.followUp.map((item) => item.text)).toEqual(['drains after retry']);
+    const firstClaim = (await handleRequest(context, {
+      action: 'queue.pop',
+      session: target,
+    })) as PromptQueueItem | null;
+    expect(firstClaim).toMatchObject({ text: 'drains after retry' });
+    expect(
+      await handleRequest(context, {
+        action: 'queue.resolve',
+        payload: { id: firstClaim!.id, outcome: 'restore' },
+        session: target,
+      }),
+    ).toBe(true);
+    const secondClaim = (await handleRequest(context, {
+      action: 'queue.pop',
+      session: target,
+    })) as PromptQueueItem | null;
+    expect(secondClaim?.id).toBe(firstClaim?.id);
+    expect(
+      await handleRequest(context, {
+        action: 'queue.resolve',
+        payload: { id: secondClaim!.id, outcome: 'accept' },
+        session: target,
+      }),
+    ).toBe(true);
+    await handleRequest(context, {
+      action: 'agent.followUp',
+      payload: { text: 'edited after failed restart' },
+      session: target,
+    });
+    const edited = (await handleRequest(context, {
+      action: 'queue.snapshot',
+      session: target,
+    })) as PromptQueueSnapshot;
+    expect(edited.followUp).toHaveLength(1);
+    expect(edited.followUp[0]).toMatchObject({ text: 'edited after failed restart' });
+    expect(edited.followUp[0]?.id).not.toBe(firstClaim?.id);
+    const alien = { runtime: 'tau' as const, sessionId: 'another-session' };
+    await expect(
+      handleRequest(context, { action: 'queue.snapshot', session: alien }),
+    ).rejects.toThrow('Session is no longer available');
+    expect(internals.managers.size).toBe(0);
 
     settings.update({
       runtime: {
@@ -367,13 +422,14 @@ describe('RuntimePool', () => {
     expect(restarted.runtime).toBe('tau');
     expect(restarted.cwd).toBe(cwd);
     expect(restarted.state?.sessionId).toBe(target.sessionId);
+    expect(pool.snapshot().recoveryTarget).toBeUndefined();
     expect(replacements).toHaveLength(2);
     expect(internals.managers.has(replacements[0]!)).toBe(false);
     expect(internals.managers.size).toBe(1);
     await waitFor(async () => {
       const messages = await pool!.active.getMessages();
       return messages.some(
-        (message) => message.role === 'user' && message.text === 'drains after retry',
+        (message) => message.role === 'user' && message.text === 'edited after failed restart',
       );
     });
     expect(pool.queueSnapshot(target).followUp).toEqual([]);

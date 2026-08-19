@@ -246,6 +246,8 @@ export interface RuntimeSnapshot {
   cwd: string | null;
   gitBranch: string | null;
   state: AgentState | null;
+  /** Queue address retained while a failed restart leaves no live runtime state. */
+  recoveryTarget?: SessionTarget | null;
 }
 
 export interface FileCompletion {

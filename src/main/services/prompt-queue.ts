@@ -46,6 +46,11 @@ export class PromptQueueService {
     return this.toItem(entry);
   }
 
+  /** Whether main already owns queue state for this exact transcript. */
+  hasTarget(target: SessionTarget): boolean {
+    return this.sessions.has(this.key(target));
+  }
+
   snapshot(target: SessionTarget): PromptQueueSnapshot {
     return this.toSnapshot(target, this.queue(target));
   }
@@ -105,13 +110,17 @@ export class PromptQueueService {
   }
 
   private queue(target: SessionTarget): SessionQueue {
-    const key = `${target.runtime}:${target.sessionId}`;
+    const key = this.key(target);
     let queue = this.sessions.get(key);
     if (!queue) {
       queue = { steering: [], followUp: [], recalled: new Map(), dispatching: false };
       this.sessions.set(key, queue);
     }
     return queue;
+  }
+
+  private key(target: SessionTarget): string {
+    return `${target.runtime}:${target.sessionId}`;
   }
 
   private emit(target: SessionTarget, queue: SessionQueue): void {

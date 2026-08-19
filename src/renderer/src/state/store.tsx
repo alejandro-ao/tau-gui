@@ -23,7 +23,14 @@ import type {
 } from '../../../shared/ipc.js';
 import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
-import { INITIAL_STATE, isRunning, nextBlockId, reducer, windowTitle } from './reducer.js';
+import {
+  INITIAL_STATE,
+  isRunning,
+  nextBlockId,
+  reducer,
+  snapshotTarget,
+  windowTitle,
+} from './reducer.js';
 import type { Action, AppState, ModalKind } from './types.js';
 
 export interface Store {
@@ -126,11 +133,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   }, []);
 
   /** Transcript identity every session-scoped call is bound to. */
-  const viewed = useCallback((): SessionTarget | undefined => {
-    const snapshot = stateRef.current.snapshot;
-    const sessionId = snapshot.state?.sessionId;
-    return sessionId ? { runtime: snapshot.runtime, sessionId } : undefined;
-  }, []);
+  const viewed = useCallback(
+    (): SessionTarget | undefined => snapshotTarget(stateRef.current.snapshot),
+    [],
+  );
 
   /** Reloads everything that describes the current session from the runtime. */
   const refresh = useCallback(
@@ -148,14 +154,20 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         return;
       }
       if (snapshot) dispatch({ type: 'snapshot', snapshot });
-      if (!snapshot || snapshot.status === 'stopped' || snapshot.status === 'failed') return;
+      if (!snapshot) return;
 
       // Every read is bound to the transcript the snapshot just described, so a
       // session switch that starts mid-flight cannot answer with another
-      // session's messages.
-      const target: SessionTarget | undefined = snapshot.state?.sessionId
-        ? { runtime: snapshot.runtime, sessionId: snapshot.state.sessionId }
-        : undefined;
+      // session's messages. Failed restart snapshots retain this address even
+      // though no process can provide agent state.
+      const target = snapshotTarget(snapshot);
+      if (snapshot.status === 'stopped' || snapshot.status === 'failed') {
+        if (target) {
+          const queue = await attempt('queue.snapshot', undefined, notice, target);
+          if (epoch === refreshEpoch.current && queue) dispatch({ type: 'queue', snapshot: queue });
+        }
+        return;
+      }
       const [messages, stats, models, levels, commands, resources, contextFiles, queue] =
         await Promise.all([
           attempt('agent.messages', undefined, notice, target),

@@ -1,6 +1,6 @@
 import type { AgentEvent, AgentMessage, AppSettings } from '../../../shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../../shared/domain.js';
-import type { RuntimeSnapshot } from '../../../shared/ipc.js';
+import type { RuntimeSnapshot, SessionTarget } from '../../../shared/ipc.js';
 import type { Action, AppState, TranscriptBlock } from './types.js';
 
 export const INITIAL_SNAPSHOT: RuntimeSnapshot = {
@@ -13,6 +13,13 @@ export const INITIAL_SNAPSHOT: RuntimeSnapshot = {
   gitBranch: null,
   state: null,
 };
+
+export function snapshotTarget(snapshot: RuntimeSnapshot): SessionTarget | undefined {
+  const sessionId = snapshot.state?.sessionId;
+  return sessionId
+    ? { runtime: snapshot.runtime, sessionId }
+    : (snapshot.recoveryTarget ?? undefined);
+}
 
 export const INITIAL_STATE: AppState = {
   snapshot: INITIAL_SNAPSHOT,
@@ -73,14 +80,16 @@ export function reducer(state: AppState, action: Action): AppState {
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
       return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
-    case 'queue':
+    case 'queue': {
+      const target = snapshotTarget(state.snapshot);
       if (
-        action.snapshot.sessionId !== state.snapshot.state?.sessionId ||
-        action.snapshot.runtime !== state.snapshot.runtime
+        action.snapshot.sessionId !== target?.sessionId ||
+        action.snapshot.runtime !== target.runtime
       ) {
         return state;
       }
       return { ...state, queue: action.snapshot };
+    }
     case 'sessionNavigation':
       if (!action.active) {
         return {
