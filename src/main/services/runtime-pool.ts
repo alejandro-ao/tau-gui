@@ -385,11 +385,11 @@ export class RuntimePool {
       );
     }
     if (event.type === 'agent') {
-      const settled = this.advanceLifecycle(manager, event.event);
+      const terminal = this.advanceLifecycle(manager, event.event);
       if (event.event.type === 'agent_settled') {
         this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
-        if (settled) void this.schedule(manager);
       }
+      if (terminal) void this.schedule(manager);
     }
     // Settings are application-global. Every other transcript event is shown
     // only while that transcript is selected. Session activity is separately
@@ -400,9 +400,10 @@ export class RuntimePool {
   /**
    * Advances the queue's authoritative run gate from normalized stream evidence.
    * RuntimeManager separately protects presentation status; this scheduling
-   * gate accepts a settle only after the current run closed its final
-   * turn and emitted agent_end (or an explicit runtime error). A stale settle
-   * therefore cannot drain another item after a new prompt has started.
+   * gate accepts a normal settle only after the current run closed its final
+   * turn and emitted agent_end, while an explicit runtime error is terminal by
+   * itself. A stale settle therefore cannot drain another item after a new
+   * prompt has started.
    */
   private advanceLifecycle(manager: RuntimeManager, event: AgentEvent): boolean {
     const lifecycle = this.lifecycleFor(manager);
@@ -436,10 +437,16 @@ export class RuntimePool {
         lifecycle.turnEnded = false;
         return false;
       case 'runtime_error':
-        if (lifecycle.phase === 'running') lifecycle.phase = 'ended';
-        return false;
+        if (lifecycle.phase !== 'running' && lifecycle.phase !== 'ended') return false;
+        // A post-acceptance RPC error is the final boundary for this run; no
+        // agent_settled follows. Move directly to ready so retained work can
+        // drain, while a delayed duplicate settle is rejected after handoff.
+        lifecycle.phase = 'ready';
+        lifecycle.turnOpen = false;
+        lifecycle.turnEnded = false;
+        return true;
       case 'agent_settled':
-        if (lifecycle.phase !== 'ready' && lifecycle.phase !== 'ended') return false;
+        if (lifecycle.phase !== 'ended') return false;
         lifecycle.phase = 'ready';
         lifecycle.turnOpen = false;
         lifecycle.turnEnded = false;

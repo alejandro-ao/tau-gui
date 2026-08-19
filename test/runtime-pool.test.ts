@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
-import type { AppSettings, SessionRef } from '../src/shared/domain.js';
+import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent, PromptQueueItem, PromptQueueSnapshot } from '../src/shared/ipc.js';
 import { handleRequest } from '../src/main/ipc.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
@@ -286,6 +286,87 @@ describe('RuntimePool', () => {
       'queued first',
       'queued second',
     ]);
+  });
+
+  it('drains exactly one queued prompt after a post-acceptance runtime error', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    const manager = [...internals.managers][0]!;
+    const emit = (event: AgentEvent): void => {
+      (
+        manager as unknown as {
+          handleEvent: (event: AgentEvent) => void;
+        }
+      ).handleEvent(event);
+    };
+
+    emit({ type: 'agent_start' });
+    pool.enqueuePrompt('follow-up', 'follow second', target);
+    pool.enqueuePrompt('steering', 'priority first', target);
+    emit({ type: 'runtime_error', message: 'provider unavailable (503)' });
+
+    await waitFor(() => prompt.mock.calls.length === 1);
+    expect(prompt.mock.calls[0]?.[0].text).toBe('priority first');
+    expect(pool.snapshot().status).toBe('idle');
+    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual(['follow second']);
+
+    // The failed run has no legitimate settle. A delayed duplicate must not
+    // drain the second item after the error-triggered handoff.
+    emit({ type: 'agent_settled' });
+    await Promise.resolve();
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual(['follow second']);
+
+    emit({ type: 'agent_start' });
+    emit({ type: 'turn_start' });
+    emit({ type: 'turn_end' });
+    emit({ type: 'agent_end', willRetry: false });
+    emit({ type: 'agent_settled' });
+    await waitFor(() => prompt.mock.calls.length === 2);
+    expect(prompt.mock.calls.map(([request]) => request.text)).toEqual([
+      'priority first',
+      'follow second',
+    ]);
+  });
+
+  it('retains a failed error-boundary dispatch and ignores errors with no queue', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const prompt = vi.spyOn(pool.active, 'prompt').mockRejectedValue(new Error('disconnected'));
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    const manager = [...internals.managers][0]!;
+    const emit = (event: AgentEvent): void => {
+      (
+        manager as unknown as {
+          handleEvent: (event: AgentEvent) => void;
+        }
+      ).handleEvent(event);
+    };
+
+    emit({ type: 'agent_start' });
+    pool.enqueuePrompt('steering', 'retain on failure', target);
+    emit({ type: 'runtime_error', message: 'provider unavailable (503)' });
+    await waitFor(() => pool!.queueSnapshot(target).steering.length === 1);
+    expect(prompt).toHaveBeenCalledTimes(1);
+
+    emit({ type: 'agent_settled' });
+    await Promise.resolve();
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(pool.queueSnapshot(target).steering.map((item) => item.text)).toEqual([
+      'retain on failure',
+    ]);
+
+    pool.popPrompt(target);
+    emit({ type: 'agent_start' });
+    emit({ type: 'runtime_error', message: 'another provider error' });
+    await Promise.resolve();
+    expect(prompt).toHaveBeenCalledTimes(1);
   });
 
   it('retains queued work across a runtime restart of the same session', async () => {
