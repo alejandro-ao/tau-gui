@@ -768,6 +768,59 @@ describe('RuntimePool', () => {
     expect(internals.managers.size).toBe(1);
   });
 
+  it('stops a spawned runtime when cancellation arrives during startup', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const internals = pool as unknown as {
+      createManager: () => RuntimeManager;
+      managers: Set<RuntimeManager>;
+      spawned: Set<RuntimeManager>;
+    };
+    const createManager = internals.createManager.bind(pool);
+    const children: RuntimeManager[] = [];
+    let reportStarted = (): void => undefined;
+    let releaseStart = (): void => undefined;
+    const started = new Promise<void>((resolve) => {
+      reportStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    internals.createManager = () => {
+      const manager = createManager();
+      children.push(manager);
+      const start = manager.start.bind(manager);
+      manager.start = async (options) => {
+        const snapshot = await start(options);
+        reportStarted();
+        await release;
+        return snapshot;
+      };
+      return manager;
+    };
+
+    const controller = new AbortController();
+    const spawning = pool.spawnSession(
+      { cwd: process.cwd(), prompt: 'must not run after cancellation' },
+      controller.signal,
+    );
+    const rejection = expect(spawning).rejects.toThrow('Session spawn was cancelled');
+    await started;
+    controller.abort();
+    releaseStart();
+    await rejection;
+
+    expect(children[0]?.isStarted).toBe(false);
+    expect(internals.managers.size).toBe(1);
+    expect(internals.spawned.size).toBe(0);
+    expect(
+      settings.current.recentSessions.some(
+        (session) => session.firstMessage === 'must not run after cancellation',
+      ),
+    ).toBe(false);
+  });
+
   it('does not revive an idle process removed before picker startup fails', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

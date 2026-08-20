@@ -10,20 +10,24 @@ describe('spawn_session tool', () => {
       cwd: '/project/worktree',
     });
     const tool = createSpawnSessionTool('/project/main', spawn);
+    const controller = new AbortController();
 
     const result = await tool.execute(
       'tool-call',
       { prompt: '  implement the feature  ', cwd: '../worktree', name: '  delegated work  ' },
-      undefined,
+      controller.signal,
       undefined,
       {} as never,
     );
 
-    expect(spawn).toHaveBeenCalledWith({
-      cwd: resolve('/project/main', '../worktree'),
-      prompt: 'implement the feature',
-      name: 'delegated work',
-    });
+    expect(spawn).toHaveBeenCalledWith(
+      {
+        cwd: resolve('/project/main', '../worktree'),
+        prompt: 'implement the feature',
+        name: 'delegated work',
+      },
+      controller.signal,
+    );
     expect(result.details).toEqual({
       sessionId: 'child-session',
       sessionFile: '/sessions/child.jsonl',
@@ -52,10 +56,29 @@ describe('spawn_session tool', () => {
       undefined,
       {} as never,
     );
-    expect(spawn).toHaveBeenCalledWith({ cwd: '/project/main', prompt: 'review the code' });
+    expect(spawn).toHaveBeenCalledWith(
+      { cwd: '/project/main', prompt: 'review the code' },
+      undefined,
+    );
 
     await expect(
       tool.execute('tool-call', { prompt: '   ' }, undefined, undefined, {} as never),
     ).rejects.toThrow('cannot be empty');
+  });
+
+  it('rejects a supplied whitespace-only directory without spawning', async () => {
+    const spawn = vi.fn();
+    const tool = createSpawnSessionTool('/project/main', spawn);
+
+    await expect(
+      tool.execute(
+        'tool-call',
+        { prompt: 'review the code', cwd: '   ' },
+        undefined,
+        undefined,
+        {} as never,
+      ),
+    ).rejects.toThrow('working directory cannot be empty');
+    expect(spawn).not.toHaveBeenCalled();
   });
 });

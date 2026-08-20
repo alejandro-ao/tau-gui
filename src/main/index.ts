@@ -118,7 +118,7 @@ void app.whenReady().then(() => {
       ? (kind, sink) => new JsonlAgentRuntime(kind, sink)
       : (_kind, sink) =>
           new EmbeddedPiRuntime(sink, {
-            spawnSession: (request) => manager.spawnSession(request),
+            spawnSession: (request, signal) => manager.spawnSession(request, signal),
           }),
     probeExecutable: useTestRpcRuntime,
   });

@@ -15,7 +15,10 @@ export interface SpawnSessionResult {
   cwd: string;
 }
 
-export type SpawnSessionHandler = (request: SpawnSessionRequest) => Promise<SpawnSessionResult>;
+export type SpawnSessionHandler = (
+  request: SpawnSessionRequest,
+  signal?: AbortSignal,
+) => Promise<SpawnSessionResult>;
 
 /** App-owned Pi tool that delegates session lifecycle to the main-process pool. */
 export function createSpawnSessionTool(sourceCwd: string, spawnSession: SpawnSessionHandler) {
@@ -59,7 +62,7 @@ export function createSpawnSessionTool(sourceCwd: string, spawnSession: SpawnSes
       if (params.name !== undefined && !name) throw new Error('Session name cannot be empty');
 
       const cwd = resolveTargetCwd(sourceCwd, params.cwd);
-      const spawned = await spawnSession({ cwd, prompt, ...(name ? { name } : {}) });
+      const spawned = await spawnSession({ cwd, prompt, ...(name ? { name } : {}) }, signal);
       return {
         content: [
           {
@@ -76,6 +79,7 @@ export function createSpawnSessionTool(sourceCwd: string, spawnSession: SpawnSes
 function resolveTargetCwd(sourceCwd: string, input?: string): string {
   if (!input) return resolve(sourceCwd);
   const trimmed = input.trim();
+  if (!trimmed) throw new Error('Session working directory cannot be empty');
   if (trimmed === '~') return homedir();
   if (trimmed.startsWith('~/') || trimmed.startsWith('~\\')) {
     return resolve(homedir(), trimmed.slice(2));

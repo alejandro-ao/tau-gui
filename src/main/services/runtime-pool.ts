@@ -243,9 +243,14 @@ export class RuntimePool {
    * return immediately while activity and completion remain visible in the
    * sidebar.
    */
-  async spawnSession(request: SpawnSessionRequest): Promise<SpawnSessionResult> {
+  async spawnSession(
+    request: SpawnSessionRequest,
+    signal?: AbortSignal,
+  ): Promise<SpawnSessionResult> {
+    throwIfSpawnAborted(signal);
     const cwd = await existingDirectory(request.cwd);
     return this.enqueueTransition(async () => {
+      throwIfSpawnAborted(signal);
       if (this.spawned.size >= MAX_SPAWNED_SESSIONS) {
         throw new Error(
           `Cannot spawn more than ${MAX_SPAWNED_SESSIONS} background sessions at once`,
@@ -255,10 +260,12 @@ export class RuntimePool {
       const manager = this.createManager();
       try {
         await manager.start({ cwd, runtime: 'pi' });
+        throwIfSpawnAborted(signal);
         this.index(manager);
         this.claimSnapshot(manager);
         this.spawned.add(manager);
         if (request.name) await manager.nameSession(request.name);
+        throwIfSpawnAborted(signal);
 
         const target = targetFor(manager);
         this.queues.enqueue(target, 'follow-up', request.prompt);
@@ -677,6 +684,10 @@ function matches(manager: RuntimeManager, target: SessionTarget): boolean {
 
 function sameTarget(left: SessionTarget, right: SessionTarget): boolean {
   return left.runtime === right.runtime && left.sessionId === right.sessionId;
+}
+
+function throwIfSpawnAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('Session spawn was cancelled');
 }
 
 async function existingDirectory(path: string): Promise<string> {
