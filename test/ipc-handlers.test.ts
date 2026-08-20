@@ -48,6 +48,7 @@ interface Calls {
   popped: number;
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
+  resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -67,6 +68,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     popped: 0,
     resolved: [],
     openedDirectories: [],
+    resourceDirectories: [],
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -88,6 +90,20 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
       update(patch: Partial<AppSettings>) {
         appSettings = { ...appSettings, ...patch };
+        return appSettings;
+      },
+      addResourceDirectory(kind: 'skills' | 'prompts', path: string) {
+        calls.resourceDirectories.push({ kind, path });
+        const key = kind === 'skills' ? 'customSkillDirectories' : 'customPromptDirectories';
+        appSettings = { ...appSettings, [key]: [...appSettings[key], path] };
+        return appSettings;
+      },
+      removeResourceDirectory(kind: 'skills' | 'prompts', path: string) {
+        const key = kind === 'skills' ? 'customSkillDirectories' : 'customPromptDirectories';
+        appSettings = {
+          ...appSettings,
+          [key]: appSettings[key].filter((directory) => directory !== path),
+        };
         return appSettings;
       },
     } as Context['settings'],
@@ -145,6 +161,24 @@ describe('directory chooser handler', () => {
     );
     expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
       expect.objectContaining({ properties: ['openDirectory', 'createDirectory'] }),
+    );
+  });
+
+  it('persists a custom resource path only after native chooser selection', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/work/shared-skills'],
+    });
+    const { context, calls } = makeContext();
+
+    await handleRequest(context, {
+      action: 'settings.addResourceDirectory',
+      payload: { kind: 'skills' },
+    });
+
+    expect(calls.resourceDirectories).toEqual([{ kind: 'skills', path: '/work/shared-skills' }]);
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ title: 'Add skills directory' }),
     );
   });
 });

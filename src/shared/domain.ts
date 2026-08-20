@@ -49,6 +49,9 @@ export interface RuntimeLaunchConfig {
   sessionRef?: string | null;
   extraArgs: string[];
   projectTrust: ProjectTrust;
+  /** User-selected resource directories, passed directly to Pi's loader. */
+  customSkillDirectories?: string[];
+  customPromptDirectories?: string[];
 }
 
 /* ------------------------------------------------------------------ models */
@@ -401,6 +404,10 @@ export interface AppSettings {
   cwd: string | null;
   /** GUI-managed directories shown in the sessions rail, newest first. */
   workingDirectories: string[];
+  /** Additional directories scanned by Pi for executable skill packages. */
+  customSkillDirectories: string[];
+  /** Additional directories scanned by Pi for Markdown prompt templates. */
+  customPromptDirectories: string[];
   projectTrust: ProjectTrust;
   runtime: Record<RuntimeKind, RuntimeSettings>;
   /**
@@ -422,6 +429,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   showThinking: true,
   cwd: null,
   workingDirectories: [],
+  customSkillDirectories: [],
+  customPromptDirectories: [],
   projectTrust: 'default',
   runtime: {
     tau: { binary: 'tau', provider: null, model: null, extraArgs: [] },

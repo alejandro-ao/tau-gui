@@ -73,6 +73,8 @@ function seedSettings(
     runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
     scopedModels: { tau: [], pi: [] },
     recentSessions: [],
+    customSkillDirectories: [],
+    customPromptDirectories: [],
     ...overrides,
     workingDirectories: overrides.workingDirectories ?? [projectDir],
   };

@@ -29,13 +29,37 @@ describe('EmbeddedPiRuntime', () => {
       join(project, 'a', 'b', 'c', 'd', 'e'),
     ];
     const cwd = contextDirectories.at(-1)!;
-    const agentDir = join(root, 'agent');
+    const agentDir = join(root, 'home', '.pi', 'agent');
+    const home = join(root, 'home');
+    const customSkills = join(root, 'shared-skills');
+    const customPrompts = join(root, 'shared-prompts');
+    mkdirSync(join(project, '.git'), { recursive: true });
     mkdirSync(join(cwd, '.pi', 'prompts'), { recursive: true });
+    mkdirSync(join(project, '.pi', 'prompts'), { recursive: true });
+    mkdirSync(join(project, '.agents', 'prompts'), { recursive: true });
     mkdirSync(join(agentDir, 'skills', 'review'), { recursive: true });
+    mkdirSync(join(home, '.pi', 'prompts'), { recursive: true });
+    mkdirSync(join(home, '.agents', 'skills', 'global-agent'), { recursive: true });
+    mkdirSync(join(home, '.agents', 'prompts'), { recursive: true });
+    mkdirSync(join(customSkills, 'shared'), { recursive: true });
+    mkdirSync(customPrompts, { recursive: true });
     writeFileSync(join(cwd, '.pi', 'prompts', 'check.md'), '# Check\nReview this project.\n');
+    writeFileSync(join(project, '.pi', 'prompts', 'root.md'), '# Root prompt\n');
+    writeFileSync(join(project, '.agents', 'prompts', 'agent-prompt.md'), '# Agent prompt\n');
+    writeFileSync(join(customPrompts, 'shared.md'), '# Shared prompt\n');
+    writeFileSync(join(home, '.pi', 'prompts', 'home-pi.md'), '# Home Pi prompt\n');
+    writeFileSync(join(home, '.agents', 'prompts', 'home-agent.md'), '# Home agent prompt\n');
     const skillText =
       '---\nname: review\ndescription: Review code\n---\n# Réview 🧪\nUse exact instructions.\n';
     writeFileSync(join(agentDir, 'skills', 'review', 'SKILL.md'), skillText);
+    writeFileSync(
+      join(home, '.agents', 'skills', 'global-agent', 'SKILL.md'),
+      '---\nname: global-agent\ndescription: Global agent skill\n---\n# Global\n',
+    );
+    writeFileSync(
+      join(customSkills, 'shared', 'SKILL.md'),
+      '---\nname: shared\ndescription: Shared skill\n---\n# Shared\n',
+    );
     const globalContext = join(agentDir, 'AGENTS.md');
     writeFileSync(globalContext, '# Global instructions\n');
     for (const directory of contextDirectories) {
@@ -50,7 +74,7 @@ describe('EmbeddedPiRuntime', () => {
         status: (status) => statuses.push(status),
         diagnostic: () => undefined,
       },
-      { agentDir },
+      { agentDir, home },
     );
     active = runtime;
 
@@ -60,6 +84,8 @@ describe('EmbeddedPiRuntime', () => {
       cwd,
       extraArgs: [],
       projectTrust: 'default',
+      customSkillDirectories: [customSkills],
+      customPromptDirectories: [customPrompts],
     });
 
     const state = await runtime.getState();
@@ -68,7 +94,12 @@ describe('EmbeddedPiRuntime', () => {
     expect(statuses).toEqual(expect.arrayContaining(['starting', 'idle']));
 
     const resources = await runtime.getResources();
-    expect(resources.prompts.map((prompt) => prompt.name)).toContain('check');
+    expect(resources.prompts.map((prompt) => prompt.name)).toEqual(
+      expect.arrayContaining(['check', 'root', 'agent-prompt', 'home-pi', 'home-agent', 'shared']),
+    );
+    expect(resources.skills.map((skill) => skill.name)).toEqual(
+      expect.arrayContaining(['review', 'global-agent', 'shared']),
+    );
     const review = resources.skills.find((skill) => skill.name === 'review');
     expect(review?.estimatedTokens).toBe(estimateTextTokens(skillText));
 

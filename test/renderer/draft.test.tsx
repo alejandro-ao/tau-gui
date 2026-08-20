@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../src/shared/domain.js';
 import { query, type Mounted } from './harness.js';
 import { click, composer, press, renderApp, type } from './ui.js';
 
@@ -40,6 +41,29 @@ describe('composer draft persistence', () => {
     expect(bridge.payloads('settings.update')).toEqual([]);
     expect(composer(view).value).toBe('draft in embedded pi');
     expect(document.documentElement.dataset['theme']).toBe('high-contrast');
+  });
+
+  it('adds custom resource directories and restarts Pi so they are loaded', async () => {
+    const { view, bridge } = await renderApp({});
+    mounted = view;
+    bridge.setResult('settings.addResourceDirectory', {
+      ...DEFAULT_SETTINGS,
+      customSkillDirectories: ['/shared/skills'],
+    });
+
+    await press(window, 'k', { ctrlKey: true });
+    const picker = query<HTMLInputElement>(view.container, '.picker-input');
+    await type(picker, '/settings');
+    await press(picker, 'Enter');
+    const add = [...view.container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'add…',
+    );
+    if (!add) throw new Error('Missing add skills directory button');
+    await click(add);
+    await view.flush();
+
+    expect(bridge.payloads('settings.addResourceDirectory')).toEqual([{ kind: 'skills' }]);
+    expect(bridge.payloads('runtime.restart')).toEqual([undefined]);
   });
 
   it('survives a session switch', async () => {

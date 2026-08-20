@@ -127,6 +127,8 @@ export class RuntimeManager {
       sessionRef: options.sessionRef ?? null,
       extraArgs: runtimeSettings.extraArgs,
       projectTrust: settings.projectTrust,
+      customSkillDirectories: settings.customSkillDirectories,
+      customPromptDirectories: settings.customPromptDirectories,
     };
 
     // Executable probing remains only for the injected JSONL fake used by

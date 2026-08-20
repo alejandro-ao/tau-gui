@@ -52,6 +52,15 @@ describe('mergeSettings', () => {
     expect(merged.workingDirectories).toEqual(['/work/saved', '/work/current', '/work/older']);
   });
 
+  it('repairs and deduplicates custom resource directories', () => {
+    const merged = mergeSettings({
+      customSkillDirectories: ['/shared/skills', '/shared/skills', '', 7],
+      customPromptDirectories: ['/shared/prompts', 'bad\npath'],
+    });
+    expect(merged.customSkillDirectories).toEqual(['/shared/skills']);
+    expect(merged.customPromptDirectories).toEqual(['/shared/prompts']);
+  });
+
   it('repairs scoped model lists and keeps runtimes isolated', () => {
     const merged = mergeSettings({
       scopedModels: { tau: ['fake:a', 'fake:a', 7, ''], pi: ['pi:b'], zeta: ['x'] },
@@ -84,6 +93,18 @@ describe('SettingsStore', () => {
       theme: 'tau-light',
       cwd: '/tmp/project',
     });
+  });
+
+  it('atomically adds and removes chooser-selected resource directories', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.addResourceDirectory('skills', '/shared/skills');
+    store.addResourceDirectory('skills', '/shared/skills');
+    store.addResourceDirectory('prompts', '/shared/prompts');
+    expect(store.current.customSkillDirectories).toEqual(['/shared/skills']);
+    expect(store.current.customPromptDirectories).toEqual(['/shared/prompts']);
+    store.removeResourceDirectory('skills', '/shared/skills');
+    expect(new SettingsStore(file).current.customSkillDirectories).toEqual([]);
   });
 
   it('atomically persists chooser-selected working directories', () => {

@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type {
+  AppSettings,
   ModelRef,
   RuntimeKind,
   SessionRef,
@@ -71,6 +72,8 @@ export interface Actions {
   compact: (instructions?: string) => Promise<void>;
   exportHtml: (destination?: string) => Promise<void>;
   openDirectory: () => Promise<void>;
+  addResourceDirectory: (kind: 'skills' | 'prompts') => Promise<void>;
+  removeResourceDirectory: (kind: 'skills' | 'prompts', path: string) => Promise<void>;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
   probeRuntime: (kind: RuntimeKind, binary: string) => Promise<RuntimeProbe | null>;
   /** Persists the runtime choice, then restarts it without losing the draft. */
@@ -346,6 +349,18 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       }
     };
 
+    const reloadResourceSettings = async (settings: AppSettings | null): Promise<void> => {
+      if (!settings) return;
+      dispatch({ type: 'settings', settings });
+      invalidateRefresh();
+      await run(async () => {
+        const snapshot = await invoke('runtime.restart');
+        dispatch({ type: 'snapshot', snapshot });
+        dispatch({ type: 'clearTranscript' });
+        await refresh();
+      });
+    };
+
     return {
       start: async (cwd, sessionRef) => {
         invalidateRefresh();
@@ -596,6 +611,16 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       openDirectory: chooseDirectoryAndStart,
+      addResourceDirectory: async (kind) => {
+        await reloadResourceSettings(
+          await attempt('settings.addResourceDirectory', { kind }, notice),
+        );
+      },
+      removeResourceDirectory: async (kind, path) => {
+        await reloadResourceSettings(
+          await attempt('settings.removeResourceDirectory', { kind, path }, notice),
+        );
+      },
       probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);

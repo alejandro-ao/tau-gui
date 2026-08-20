@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
 import { open } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import {
   SessionManager,
   createAgentSessionFromServices,
@@ -66,10 +67,12 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private unsubscribe: (() => void) | null = null;
   private sink: RuntimeSink;
   private readonly agentDir: string;
+  private readonly home: string;
 
-  constructor(sink: RuntimeSink, options: { agentDir?: string } = {}) {
+  constructor(sink: RuntimeSink, options: { agentDir?: string; home?: string } = {}) {
     this.sink = sink;
     this.agentDir = options.agentDir ?? getAgentDir();
+    this.home = options.home ?? homedir();
   }
 
   get running(): boolean {
@@ -81,6 +84,23 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.sink.status('starting');
 
     const agentDir = this.agentDir;
+    const projectRoot = findProjectRoot(config.cwd);
+    const additionalSkillPaths = uniquePaths([
+      join(agentDir, 'skills'),
+      join(this.home, '.pi', 'skills'),
+      join(this.home, '.agents', 'skills'),
+      join(projectRoot, '.pi', 'skills'),
+      join(projectRoot, '.agents', 'skills'),
+      ...(config.customSkillDirectories ?? []),
+    ]);
+    const additionalPromptTemplatePaths = uniquePaths([
+      join(agentDir, 'prompts'),
+      join(this.home, '.pi', 'prompts'),
+      join(this.home, '.agents', 'prompts'),
+      join(projectRoot, '.pi', 'prompts'),
+      join(projectRoot, '.agents', 'prompts'),
+      ...(config.customPromptDirectories ?? []),
+    ]);
     const createRuntime = async ({
       cwd,
       sessionManager,
@@ -94,7 +114,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
         agentDir,
         // Extensions execute arbitrary Node.js. Keep them disabled until the
         // desktop extension trust/UI contract tracked in issue #17 lands.
-        resourceLoaderOptions: { noExtensions: true },
+        resourceLoaderOptions: {
+          noExtensions: true,
+          additionalSkillPaths,
+          additionalPromptTemplatePaths,
+        },
       });
       const requested =
         config.provider && config.model
@@ -368,6 +392,20 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       diagnostics,
     };
   }
+}
+
+function findProjectRoot(cwd: string): string {
+  let current = resolve(cwd);
+  while (true) {
+    if (existsSync(join(current, '.git'))) return current;
+    const parent = dirname(current);
+    if (parent === current) return resolve(cwd);
+    current = parent;
+  }
+}
+
+function uniquePaths(paths: string[]): string[] {
+  return [...new Set(paths.map((path) => resolve(path)))].filter((path) => existsSync(path));
 }
 
 async function estimateSkillTokens(path: string): Promise<number> {

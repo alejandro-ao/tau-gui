@@ -69,8 +69,12 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
   `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
   Runtime-reported built-ins are deduplicated against GUI handlers.
 - Skills and prompt templates come from the embedded Pi SDK's authoritative
-  resource loader, including Pi's global and project resource locations.
-  `/skills` and `/prompts` open searchable pickers, and selected invocations are
+  resource loader. The desktop adapter supplies project-root and home
+  `.pi`/`.agents` skill and prompt locations (including the standard
+  `~/.pi/agent` directories), plus separately persisted user-selected skill and
+  prompt directories. Changing a custom directory restarts the active session so
+  Pi reloads the actual expansion catalog. `/skills` and `/prompts` open searchable
+  pickers, and selected invocations are
   sent through Pi for authoritative expansion. Slash completion mirrors Pi's
   categories: typing `/` lists builtins and custom prompt templates under
   separate headings; individual skills are offered only once `/skill:` has been

@@ -86,7 +86,8 @@
 - `process.env` is passed to the child process but never sent to the renderer or
   written to logs.
 - Settings persisted by the GUI contain only binary paths, provider/model names,
-  UI preferences, and session references.
+  UI preferences, session references, and resource-directory paths explicitly
+  selected through Electron's native folder chooser.
 
 ## Filesystem
 
@@ -101,4 +102,7 @@
   error.
 - Dropped file paths are only relativized for display; the renderer receives no
   filesystem handles.
+- Pi reads skills and prompt templates in the main process. Project-root and home
+  `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
+  must be selected explicitly. Only bounded catalog metadata crosses IPC.
 - Session JSONL files are never read by the GUI; all session data comes from RPC.

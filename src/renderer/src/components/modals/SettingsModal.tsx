@@ -42,6 +42,58 @@ export function SettingsModal(): ReactNode {
           </button>
         </div>
 
+        <span className="settings-directory-label">skill directories</span>
+        <div className="settings-resource-directories">
+          {settings.customSkillDirectories.map((path) => (
+            <div className="settings-resource-directory" key={path}>
+              <span className="dim" title={path}>
+                {path}
+              </span>
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={`Remove skill directory ${path}`}
+                onClick={() => void actions.removeResourceDirectory('skills', path)}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void actions.addResourceDirectory('skills')}
+          >
+            add…
+          </button>
+        </div>
+
+        <span className="settings-directory-label">prompt directories</span>
+        <div className="settings-resource-directories">
+          {settings.customPromptDirectories.map((path) => (
+            <div className="settings-resource-directory" key={path}>
+              <span className="dim" title={path}>
+                {path}
+              </span>
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={`Remove prompt directory ${path}`}
+                onClick={() => void actions.removeResourceDirectory('prompts', path)}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void actions.addResourceDirectory('prompts')}
+          >
+            add…
+          </button>
+        </div>
+
         <label htmlFor="setting-theme">theme</label>
         <select
           id="setting-theme"
@@ -88,8 +140,9 @@ export function SettingsModal(): ReactNode {
         />
       </div>
       <p className="modal-note">
-        Pi runs inside Electron&apos;s main process. Models, credentials, sessions, and resources
-        stay outside renderer state.
+        Pi scans skills and prompts from project-root and home <code>.pi</code>/<code>.agents</code>
+        locations. Additional directories are loaded after selection and the active session is
+        restarted automatically.
       </p>
       <p className="modal-note">
         Third-party Pi extensions remain disabled until the desktop extension trust and UI contract

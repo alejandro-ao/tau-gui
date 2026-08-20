@@ -35,6 +35,16 @@ export async function handleRequest(
       return settings.update(request.payload);
     case 'settings.toggleScopedModel':
       return settings.toggleScopedModel(request.payload.runtime, request.payload);
+    case 'settings.addResourceDirectory': {
+      const kind = request.payload.kind;
+      const path = await pickDirectory(
+        context,
+        kind === 'skills' ? 'Add skills directory' : 'Add prompt templates directory',
+      );
+      return path ? settings.addResourceDirectory(kind, path) : null;
+    }
+    case 'settings.removeResourceDirectory':
+      return settings.removeResourceDirectory(request.payload.kind, request.payload.path);
     case 'settings.rememberWorkingDirectory':
       return settings.rememberWorkingDirectory(request.payload.cwd);
     case 'settings.forgetSession':
@@ -190,17 +200,8 @@ export async function handleRequest(
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();
       return completePaths(cwd, request.payload.query, request.payload.limit);
     }
-    case 'fs.pickDirectory': {
-      const window = context.window();
-      const options = {
-        title: 'Open project directory',
-        properties: ['openDirectory' as const, 'createDirectory' as const],
-      };
-      const result = window
-        ? await dialog.showOpenDialog(window, options)
-        : await dialog.showOpenDialog(options);
-      return result.canceled ? null : (result.filePaths[0] ?? null);
-    }
+    case 'fs.pickDirectory':
+      return pickDirectory(context, 'Open project directory');
     case 'fs.relativize': {
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();
       return request.payload.paths.map((path) => toDisplayPath(cwd, path));
@@ -247,4 +248,16 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {
+  const options = {
+    title,
+    properties: ['openDirectory' as const, 'createDirectory' as const],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }

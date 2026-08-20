@@ -218,6 +218,24 @@ describe('IPC request validation', () => {
         },
       }).success,
     ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { customSkillDirectories: ['/shared/skills'] },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.addResourceDirectory',
+        payload: { kind: 'skills' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.removeResourceDirectory',
+        payload: { kind: 'prompts', path: 'bad\npath' },
+      }).success,
+    ).toBe(false);
   });
 
   it('validates the optional session target on the envelope', () => {
