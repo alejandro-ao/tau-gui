@@ -4,16 +4,21 @@ import { launchApp, waitForSettled, type AppHandle } from './helpers.js';
 let handle: AppHandle;
 
 test.beforeAll(async () => {
-  handle = await launchApp();
+  // Exercise hidden mode even in Linux CI, where the rest of the suite uses
+  // its isolated Xvfb display to avoid hidden-renderer timer throttling.
+  handle = await launchApp({ env: { TAU_GUI_E2E_HIDDEN: '1' } });
 });
 
 test.afterAll(async () => {
   await handle.close();
 });
 
-test('window opens, connects to the runtime, and reports session context', async () => {
-  const { page } = handle;
+test('hidden window loads, connects to the runtime, and reports session context', async () => {
+  const { app, page } = handle;
 
+  expect(
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.isVisible()),
+  ).toBe(false);
   expect(page.url()).toContain('index.html');
   await expect(page.locator('.app')).toBeVisible();
   await waitForSettled(page);

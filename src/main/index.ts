@@ -26,6 +26,12 @@ if (isolatedUserData) {
   app.setPath('userData', isolatedUserData);
 }
 
+// Playwright drives the renderer through CDP and does not need a native window
+// on the desktop. Keep this hook coupled to isolated test data so setting the
+// flag by itself can never hide a normal application launch.
+const hideWindowForTests =
+  isolatedUserData !== undefined && process.env['TAU_GUI_E2E_HIDDEN'] === '1';
+
 // Identical to the document meta CSP injected at build time (src/shared/csp.ts).
 const CSP = buildCsp(isDev);
 
@@ -67,10 +73,13 @@ function createWindow(): BrowserWindow {
       nodeIntegrationInWorker: false,
       webviewTag: false,
       spellcheck: false,
+      // Hidden windows are normally throttled, which can make streaming and
+      // timing assertions unnecessarily slow in the end-to-end suite.
+      backgroundThrottling: !hideWindowForTests,
     },
   });
 
-  window.once('ready-to-show', () => window.show());
+  if (!hideWindowForTests) window.once('ready-to-show', () => window.show());
   window.on('focus', () => broadcast({ type: 'focus', focused: true }));
   window.on('blur', () => broadcast({ type: 'focus', focused: false }));
   window.on('closed', () => {
