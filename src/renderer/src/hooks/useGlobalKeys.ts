@@ -11,6 +11,7 @@ export interface GlobalKeyHandlers {
   cycleThinking: () => void;
   toggleThinking: () => void;
   newSession: () => void;
+  newSessionFromDirectoryPicker: () => void;
   restart: () => void;
 }
 
@@ -76,9 +77,9 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
           current.toggleThinking();
           return;
         case 'n':
-          if (!event.shiftKey) return;
           event.preventDefault();
-          current.newSession();
+          if (event.shiftKey) current.newSessionFromDirectoryPicker();
+          else current.newSession();
           return;
         case 'r':
           event.preventDefault();

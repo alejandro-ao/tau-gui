@@ -31,10 +31,14 @@ export function App(): ReactNode {
         cycleModel: () => void actions.cycleModel(),
         cycleThinking: () => void actions.cycleThinking(),
         toggleThinking: () => void actions.updateSettings({ showThinking: !showThinking }),
-        newSession: () => void actions.newSessionFromDirectoryPicker(),
+        newSession: () => {
+          if (state.sessionTransitioning) return;
+          void actions.newSession();
+        },
+        newSessionFromDirectoryPicker: () => void actions.newSessionFromDirectoryPicker(),
         restart: () => void actions.restart(),
       }),
-      [actions, showThinking, state.modal, toggleSidebar],
+      [actions, showThinking, state.modal, state.sessionTransitioning, toggleSidebar],
     ),
   );
 

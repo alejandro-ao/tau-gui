@@ -17,6 +17,7 @@ const SHORTCUTS: { keys: string; description: string }[] = [
   { keys: 'Shift+Tab', description: 'cycle thinking level' },
   { keys: 'Ctrl+T', description: 'toggle thinking visibility' },
   { keys: 'Ctrl+B', description: 'toggle the session sidebar' },
+  { keys: 'Ctrl+N', description: 'start a new session in the current directory' },
   { keys: 'Shift+Ctrl+N', description: 'choose a directory for a new session' },
   { keys: 'Ctrl+R', description: 'restart the runtime' },
   { keys: '/', description: 'slash command completion in the composer' },
