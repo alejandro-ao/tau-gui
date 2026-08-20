@@ -24,6 +24,10 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
   (`Shift+Cmd+N` on macOS) opens the native folder chooser; `/new` starts in the
   active session's directory without prompting.
 - Prompt and watch text, thinking, and tool activity stream live.
+- Let an agent start independent background sessions with the app-owned
+  `spawn_session` tool. A target may be the current directory or another existing
+  directory/worktree; spawned work appears in the sessions rail without changing
+  the transcript being viewed.
 - Cancel (`Esc`), steer (`Enter` while running), or queue follow-ups
   (`Alt+Enter`) without waiting for the current run.
 - Inspect exact tool commands, arguments, output, and patches through collapsed

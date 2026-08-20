@@ -7,6 +7,9 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
 - Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- The app injects a trusted `spawn_session` SDK tool that creates an independently
+  running session in the current directory or another existing directory. The
+  main-process runtime pool owns its queue, lifecycle, and sidebar activity.
 - Removed runtime/binary/provider/argument/trust controls from the active settings UI and migrated persisted runtime selection to Pi.
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.

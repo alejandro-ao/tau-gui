@@ -75,7 +75,16 @@ describe('EmbeddedPiRuntime', () => {
         status: (status) => statuses.push(status),
         diagnostic: () => undefined,
       },
-      { agentDir, home },
+      {
+        agentDir,
+        home,
+        spawnSession: ({ cwd: spawnedCwd }) =>
+          Promise.resolve({
+            sessionId: 'spawned-session',
+            sessionFile: null,
+            cwd: spawnedCwd,
+          }),
+      },
     );
     active = runtime;
 
@@ -93,6 +102,10 @@ describe('EmbeddedPiRuntime', () => {
     expect(state.sessionId).not.toBe('');
     expect(state.sessionFile).toContain(agentDir);
     expect(statuses).toEqual(expect.arrayContaining(['starting', 'idle']));
+    const internals = runtime as unknown as {
+      runtime: { session: { getToolDefinition: (name: string) => unknown } };
+    };
+    expect(internals.runtime.session.getToolDefinition('spawn_session')).toBeDefined();
 
     const resources = await runtime.getResources();
     const parsedResources = resourceCatalogSchema.safeParse(resources);

@@ -116,7 +116,10 @@ void app.whenReady().then(() => {
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
       ? (kind, sink) => new JsonlAgentRuntime(kind, sink)
-      : (_kind, sink) => new EmbeddedPiRuntime(sink),
+      : (_kind, sink) =>
+          new EmbeddedPiRuntime(sink, {
+            spawnSession: (request) => manager.spawnSession(request),
+          }),
     probeExecutable: useTestRpcRuntime,
   });
 

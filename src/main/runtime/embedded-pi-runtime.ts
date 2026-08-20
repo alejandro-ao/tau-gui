@@ -43,6 +43,7 @@ import {
   normalizeTree,
 } from './normalize.js';
 import { CAPABILITIES } from './spec.js';
+import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
 
 const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   ...CAPABILITIES.pi,
@@ -68,11 +69,20 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private sink: RuntimeSink;
   private readonly agentDir: string;
   private readonly home: string;
+  private readonly spawnSession: SpawnSessionHandler | null;
 
-  constructor(sink: RuntimeSink, options: { agentDir?: string; home?: string } = {}) {
+  constructor(
+    sink: RuntimeSink,
+    options: {
+      agentDir?: string;
+      home?: string;
+      spawnSession?: SpawnSessionHandler;
+    } = {},
+  ) {
     this.sink = sink;
     this.agentDir = options.agentDir ?? getAgentDir();
     this.home = options.home ?? homedir();
+    this.spawnSession = options.spawnSession ?? null;
   }
 
   get running(): boolean {
@@ -128,6 +138,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
         services,
         sessionManager,
         model: requested,
+        customTools: this.spawnSession
+          ? [createSpawnSessionTool(cwd, this.spawnSession)]
+          : undefined,
       });
       return { ...created, services, diagnostics: services.diagnostics };
     };
