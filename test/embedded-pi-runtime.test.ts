@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -63,6 +63,51 @@ describe('EmbeddedPiRuntime', () => {
 
       expect(snapshot.state?.sessionId).toBe('external-session');
       expect(snapshot.state?.sessionFile).toBe(externalSession);
+      expect(settings.current.recentSessions).toEqual([]);
+    } finally {
+      await manager.stop();
+    }
+  });
+
+  it('does not catalog an external session reached through an AO symlink alias', async () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-embedded-pi-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    const agentDir = join(root, 'home', '.pi', 'agent');
+    const sessionRoot = join(root, 'home', '.ao-agent');
+    const sessions = join(sessionRoot, 'sessions');
+    const outside = join(root, 'pi', 'sessions', 'external.jsonl');
+    const alias = join(sessions, 'external-alias.jsonl');
+    mkdirSync(project, { recursive: true });
+    mkdirSync(sessions, { recursive: true });
+    mkdirSync(dirname(outside), { recursive: true });
+    writeFileSync(
+      outside,
+      `${JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: 'external-alias-session',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        cwd: project,
+      })}\n`,
+    );
+    symlinkSync(outside, alias);
+    const settings = new SettingsStore(join(root, 'settings.json'));
+    const manager = new RuntimeManager(settings, () => undefined, {
+      probeExecutable: false,
+      sessionRoot,
+      runtimeFactory: (_kind, sink) =>
+        new EmbeddedPiRuntime(sink, { agentDir, sessionRoot, home: join(root, 'home') }),
+    });
+
+    try {
+      const snapshot = await manager.start({
+        cwd: project,
+        runtime: 'pi',
+        sessionRef: alias,
+      });
+      expect(snapshot.state?.sessionId).toBe('external-alias-session');
       expect(settings.current.recentSessions).toEqual([]);
     } finally {
       await manager.stop();

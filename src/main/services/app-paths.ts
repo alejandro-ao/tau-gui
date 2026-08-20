@@ -1,11 +1,16 @@
 import {
   chmodSync,
-  copyFileSync,
+  closeSync,
   constants,
-  existsSync,
+  fsyncSync,
   lstatSync,
+  linkSync,
   mkdirSync,
+  openSync,
+  readFileSync,
   realpathSync,
+  unlinkSync,
+  writeSync,
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, parse, relative, resolve, sep } from 'node:path';
@@ -73,7 +78,7 @@ export function ensurePrivateDirectory(path: string): void {
     }
   }
 
-  assertPathWithoutSymlink(current);
+  assertStablePathComponents(resolved);
   for (const directory of missing.reverse()) {
     mkdirSync(directory, { mode: 0o700 });
     // Check immediately after creation. Never chmod a symlink target.
@@ -115,6 +120,34 @@ export function assertPathWithoutSymlink(path: string): void {
     }
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+/** Reject stable aliases in an owned path, allowing only macOS system aliases. */
+export function assertStablePathComponents(path: string): void {
+  let current = resolve(path);
+  while (true) {
+    try {
+      const info = lstatSync(current);
+      if (info.isSymbolicLink() && !isKnownSystemAlias(current)) {
+        throw new Error(`Storage path cannot contain a symlink: ${current}`);
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
+    const parent = dirname(current);
+    if (parent === current) return;
+    current = parent;
+  }
+}
+
+function isKnownSystemAlias(path: string): boolean {
+  if (process.platform !== 'darwin') return false;
+  if (!['/var', '/tmp', '/etc'].includes(path)) return false;
+  try {
+    return realpathSync(path) === `/private${path}`;
+  } catch {
+    return false;
   }
 }
 
@@ -181,24 +214,94 @@ export function legacyUserDataDirectories(appDataDir: string, userDataDir: strin
   );
 }
 
+const NO_FOLLOW = (constants as { O_NOFOLLOW?: number }).O_NOFOLLOW ?? 0;
+
+function copySettingsFile(source: string, destination: string, destinationRoot: string): boolean {
+  const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
+  let sourceHandle: number | undefined;
+  let temporaryHandle: number | undefined;
+  try {
+    assertPathWithinRoot(source, dirname(source));
+    assertPathWithinRoot(destination, destinationRoot);
+    sourceHandle = openSync(source, constants.O_RDONLY | NO_FOLLOW);
+    const bytes = readFileSync(sourceHandle);
+    closeSync(sourceHandle);
+    sourceHandle = undefined;
+
+    assertPathWithinRoot(source, dirname(source));
+    assertPathWithinRoot(destination, destinationRoot);
+    temporaryHandle = openSync(
+      temporary,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | NO_FOLLOW,
+      0o600,
+    );
+    let offset = 0;
+    while (offset < bytes.length) offset += writeSync(temporaryHandle, bytes, offset);
+    fsyncSync(temporaryHandle);
+    closeSync(temporaryHandle);
+    temporaryHandle = undefined;
+
+    // Hard-link installation is atomic and never replaces a deliberate
+    // destination collision. Rename would overwrite on POSIX.
+    assertPathWithinRoot(destination, destinationRoot);
+    linkSync(temporary, destination);
+    unlinkSync(temporary);
+    try {
+      chmodSync(destination, 0o600);
+    } catch {
+      // Windows and some mounted filesystems do not support chmod.
+    }
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'EEXIST') return false;
+    throw error;
+  } finally {
+    if (sourceHandle !== undefined) closeSync(sourceHandle);
+    if (temporaryHandle !== undefined) closeSync(temporaryHandle);
+    try {
+      unlinkSync(temporary);
+    } catch {
+      // Cleanup is best effort; the validated destination was never replaced.
+    }
+  }
+}
+
 /** Copy the old Electron settings file once; never replace new user choices. */
 export function migrateLegacySettings(userDataDir: string, appDataDir: string): boolean {
   const destination = join(userDataDir, 'settings.json');
-  if (existsSync(destination)) return false;
+  // Electron normally creates both paths, but validate them here too because
+  // this function is also used by startup tests and before SettingsStore opens
+  // the destination. Stable links are never accepted as ownership boundaries.
+  validateStoragePath(userDataDir);
+  validateStoragePath(appDataDir);
+  assertStablePathComponents(userDataDir);
+  assertStablePathComponents(appDataDir);
+  assertPathWithinRoot(destination, userDataDir);
+
+  try {
+    const destinationInfo = lstatSync(destination);
+    if (destinationInfo.isSymbolicLink()) {
+      throw new Error(`Settings path cannot contain a symlink: ${destination}`);
+    }
+    if (destinationInfo.isFile()) return false;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+
   for (const legacyDir of legacyUserDataDirectories(appDataDir, userDataDir)) {
     const source = join(legacyDir, 'settings.json');
-    if (!existsSync(source)) continue;
     try {
-      mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
-      copyFileSync(source, destination, constants.COPYFILE_EXCL);
-      try {
-        chmodSync(destination, 0o600);
-      } catch {
-        // Windows and some mounted filesystems do not support chmod.
-      }
-      return true;
-    } catch {
-      // Another candidate may still be available after an interrupted copy.
+      const legacyRoot = resolve(legacyDir).startsWith(`${resolve(appDataDir)}${sep}`)
+        ? appDataDir
+        : dirname(userDataDir);
+      assertPathWithinRoot(legacyDir, legacyRoot);
+      assertPathWithinRoot(source, legacyRoot);
+      if (!lstatSync(source).isFile()) continue;
+      if (copySettingsFile(source, destination, userDataDir)) return true;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      // A candidate can be unavailable during first launch. Do not weaken the
+      // ownership checks or replace a destination selected by another process.
     }
   }
   return false;

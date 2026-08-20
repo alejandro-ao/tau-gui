@@ -41,8 +41,11 @@ At startup AO migrates only sessions referenced by its legacy recent-session
 catalog from the old Pi session path. Copies use Pi's public `SessionManager`
 listing API and filesystem copy operations; AO never parses or rewrites session
 JSONL. Copies are non-destructive, collision-safe, retryable, and references
-are rewritten only after the destination is verified. A failed migration keeps
-the legacy reference so the session remains recoverable. Deliberately opened
+are rewritten only after the destination is verified. Copies use a same-directory
+temporary file, opaque-byte verification, fsync/close, and atomic no-overwrite
+installation; stale temporary files are removed so interrupted copies can retry.
+A failed migration keeps the legacy reference so the session remains recoverable.
+Deliberately opened
 Pi CLI paths remain valid and are not added to AO's catalog implicitly.
 
 Production uses the embedded Pi adapter. It already has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, resources, system prompts, tools, and provider authentication. Desktop flows are still capability-gated until each surface has bounded domain types and tests.

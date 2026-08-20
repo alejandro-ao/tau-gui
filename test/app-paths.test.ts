@@ -1,9 +1,10 @@
-import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  ensurePrivateDirectory,
   migrateLegacySettings,
   resolveAppStoragePaths,
   environmentValue,
@@ -51,6 +52,92 @@ describe('AO app paths', () => {
           env: { AO_AGENT_DIR: alias },
         }),
       ).toThrow(/symlink/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlinked AO user-data root before creating it', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const outside = join(root, 'outside');
+      const alias = join(root, 'user-data');
+      mkdirSync(outside);
+      symlinkSync(outside, alias);
+      expect(() => ensurePrivateDirectory(alias)).toThrow(/symlink/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlinked AO user-data parent before creating children', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const outside = join(root, 'outside');
+      const alias = join(root, 'alias');
+      mkdirSync(outside);
+      symlinkSync(outside, alias);
+      expect(() => ensurePrivateDirectory(join(alias, 'child'))).toThrow(/symlink/);
+      expect(existsSync(join(outside, 'child'))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlinked legacy settings source without copying its target', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const appData = join(root, 'Application Support');
+      const oldData = join(appData, 'Tau GUI');
+      const newData = join(appData, 'AO');
+      const outside = join(root, 'outside-settings.json');
+      mkdirSync(oldData, { recursive: true });
+      mkdirSync(newData, { recursive: true });
+      writeFileSync(outside, '{"outside":true}\n');
+      symlinkSync(outside, join(oldData, 'settings.json'));
+      expect(migrateLegacySettings(newData, appData)).toBe(false);
+      expect(readFileSync(outside, 'utf8')).toContain('outside');
+      expect(() => readFileSync(join(newData, 'settings.json'))).toThrow();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a symlinked destination settings file without following it', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const appData = join(root, 'Application Support');
+      const oldData = join(appData, 'Tau GUI');
+      const newData = join(appData, 'AO');
+      const outside = join(root, 'outside-settings.json');
+      mkdirSync(oldData, { recursive: true });
+      mkdirSync(newData, { recursive: true });
+      writeFileSync(join(oldData, 'settings.json'), '{"legacy":true}\n');
+      writeFileSync(outside, '{"outside":true}\n');
+      symlinkSync(outside, join(newData, 'settings.json'));
+      expect(() => migrateLegacySettings(newData, appData)).toThrow(/symlink/);
+      expect(readFileSync(outside, 'utf8')).toContain('outside');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('migrates a legacy settings sibling of an overridden user-data path', () => {
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const appData = join(root, 'unrelated-app-data');
+      const oldData = join(root, 'Tau GUI');
+      const newData = join(root, 'AO');
+      mkdirSync(appData, { recursive: true });
+      mkdirSync(oldData, { recursive: true });
+      mkdirSync(newData, { recursive: true });
+      writeFileSync(join(oldData, 'settings.json'), '{"cwd":"/sibling"}\n');
+      expect(migrateLegacySettings(newData, appData)).toBe(true);
+      expect(readFileSync(join(newData, 'settings.json'), 'utf8')).toContain('/sibling');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

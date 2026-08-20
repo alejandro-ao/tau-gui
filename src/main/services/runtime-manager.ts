@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { join, resolve, sep } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   AgentEvent,
@@ -17,6 +17,7 @@ import {
 } from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
+import { assertPathWithinRoot } from './app-paths.js';
 import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -380,9 +381,16 @@ export class RuntimeManager {
 
   private ownsSession(path: string | null): boolean {
     if (!this.sessionRoot || !path) return true;
-    const candidate = resolve(path);
     const root = join(this.sessionRoot, 'sessions');
-    return candidate.startsWith(`${root}${sep}`);
+    // Lexical prefixes classify symlink aliases as AO-owned. Physical
+    // containment plus component checks keep an explicitly opened external
+    // transcript out of AO's catalog, even when its alias is below this root.
+    try {
+      assertPathWithinRoot(path, root);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private setStatus(status: RuntimeStatus, detail: string | null = null): void {

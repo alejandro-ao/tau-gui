@@ -33,6 +33,8 @@ export interface LaunchOptions {
   projectDir?: string;
   /** Use production's embedded Pi SDK instead of the deterministic RPC fake. */
   embeddedPi?: boolean;
+  /** Leave AO settings absent so startup migration can be exercised. */
+  seedSettings?: boolean;
   /** Skip waiting for the runtime connection (crash/failure scenarios). */
   waitForRuntime?: boolean;
 }
@@ -97,7 +99,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
   mkdirSync(userDataDir, { recursive: true });
   mkdirSync(projectDir, { recursive: true });
   seedProject(projectDir);
-  seedSettings(userDataDir, projectDir, marker, options.settings ?? {});
+  if (options.seedSettings !== false) {
+    seedSettings(userDataDir, projectDir, marker, options.settings ?? {});
+  }
 
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {

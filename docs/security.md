@@ -44,7 +44,15 @@
 
 Pi's standard `getAgentDir()` path remains independent and owns authentication,
 models, skills, and prompts. AO-created session files are copied during legacy
-migration without parsing or rewriting their JSONL contents.
+migration without parsing or rewriting their JSONL contents. Configured AO/user-data roots and legacy settings paths reject stable symlink components; migration
+uses exclusive same-directory temporary files, fsync/close, opaque-byte
+verification, and atomic no-overwrite installation. Explicit session aliases are
+physically checked before AO catalogs them. Node/Electron do not expose a
+portable descriptor-relative, no-follow traversal API on every supported
+platform, so these checks are fail-closed for stable configuration and are not a
+sandbox against a concurrent same-user attacker replacing a checked component;
+operations revalidate boundaries immediately around filesystem use and use
+`O_NOFOLLOW` where Node provides it.
 
 ## IPC
 

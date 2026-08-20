@@ -12,7 +12,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
-import { migrateLegacySessions } from '../src/main/services/session-migration.js';
+import {
+  migrateLegacySessions,
+  SESSION_MIGRATION_TEMP_PREFIX,
+} from '../src/main/services/session-migration.js';
 import { SettingsStore } from '../src/main/services/settings.js';
 
 const roots: string[] = [];
@@ -35,6 +38,13 @@ describe('migrateLegacySessions', () => {
     const manager = SessionManager.create(cwd, legacyProjectDir);
     const id = manager.getSessionId();
     mkdirSync(legacy, { recursive: true });
+    mkdirSync(join(target, `--${safeCwd}--`), { recursive: true });
+    const staleTemporary = join(
+      target,
+      `--${safeCwd}--`,
+      `${SESSION_MIGRATION_TEMP_PREFIX}session.jsonl-interrupted.tmp`,
+    );
+    writeFileSync(staleTemporary, 'partial transcript\n');
     const source = join(legacyProjectDir, `2026-01-01T00-00-00-000Z_${id}.jsonl`);
     writeFileSync(
       source,
@@ -56,6 +66,7 @@ describe('migrateLegacySessions', () => {
     expect(destination).toBeTruthy();
     expect(existsSync(source)).toBe(true);
     expect(existsSync(destination!)).toBe(true);
+    expect(existsSync(staleTemporary)).toBe(false);
     expect(readFileSync(destination!, 'utf8')).toBe(readFileSync(source, 'utf8'));
 
     const second = await migrateLegacySessions(settings, legacy, target);

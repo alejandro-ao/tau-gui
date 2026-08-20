@@ -1,5 +1,4 @@
 import { app, BrowserWindow, ipcMain, shell, session as electronSession } from 'electron';
-import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
@@ -37,8 +36,17 @@ const isolatedUserData = environmentValue(
   LEGACY_USER_DATA_DIR_ENV,
 );
 if (isolatedUserData) {
-  mkdirSync(isolatedUserData, { recursive: true });
+  // Validate/create the complete app-owned path before Electron opens its
+  // settings database. This rejects stable symlink aliases in the root and
+  // missing-path ancestors without following them.
+  ensurePrivateDirectory(isolatedUserData);
   app.setPath('userData', isolatedUserData);
+}
+// Test-only appData relocation keeps legacy-settings E2E fixtures isolated.
+const isolatedAppData = process.env['AO_TEST_APP_DATA_DIR'];
+if (isolatedAppData) {
+  ensurePrivateDirectory(isolatedAppData);
+  app.setPath('appData', isolatedAppData);
 }
 
 // Playwright drives the renderer through CDP and does not need a native window
