@@ -71,8 +71,10 @@ docs/             architecture, UI principles, RPC reference, roadmap status
   runtime injected through settings, covering startup, streaming, cancellation,
   steering/follow-ups, tool expansion, errors, model selection, sessions, modal
   focus, runtime crash/restart, shell mode, and preload isolation. Each launch
-  gets a throwaway `userData` directory through the `TAU_GUI_USER_DATA_DIR`
-  main-process hook, so developer settings are never touched.
+  gets throwaway `userData` and AO session directories through the
+  `AO_USER_DATA_DIR` and `AO_AGENT_DIR` main-process hooks, so developer
+  settings and sessions are never touched. The deprecated `TAU_GUI_*` aliases
+  remain supported during the transition.
 - **Visual regression** — `e2e/visual.spec.ts` compares fixed-size screenshots
   of every theme, transcript role, tool state, diff, picker, layout, and sidebar
   mode. It is gated behind `VISUAL=1` because baselines are platform-specific;

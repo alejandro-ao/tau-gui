@@ -54,7 +54,7 @@ test('a settled turn notifies while the window is unfocused', async () => {
 
   await expect.poll(() => notifications(app), { timeout: 10_000 }).toHaveLength(1);
   const [first] = await notifications(app);
-  expect(first?.title).toContain('τ | ');
+  expect(first?.title).toContain('AO | ');
   expect(first?.body).toContain('Hello from the tau');
 });
 

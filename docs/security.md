@@ -29,12 +29,30 @@
 - `setWindowOpenHandler` denying all popups and routing `https:` links to the OS
 - `will-navigate` blocked except for the dev server URL
 
-## Test-only hooks
+## Application data and test hooks
 
-- `TAU_GUI_USER_DATA_DIR` (read once at startup in `src/main/index.ts`)
-  redirects the Electron `userData` tree so end-to-end runs never read or write
-  real settings. It only relocates app-owned storage; it grants no additional
-  capability to the renderer and is ignored when unset.
+- `AO_USER_DATA_DIR` (read once at startup in `src/main/index.ts`) redirects the
+  Electron `userData` tree so end-to-end runs never read or write real settings.
+  `TAU_GUI_USER_DATA_DIR` remains a deprecated alias, and the AO value wins.
+- `AO_AGENT_DIR` redirects AO-owned session storage, defaulting to
+  `~/.ao-agent`; `TAU_GUI_AGENT_DIR` is its deprecated alias. This path is
+  never passed to Pi as its agent directory.
+- `AO_TEST_RPC_RUNTIME` enables only the deterministic test adapter;
+  `TAU_GUI_TEST_RPC_RUNTIME` remains a deprecated alias. These hooks relocate
+  or select main-process test services; they grant no additional renderer
+  capability and are ignored when unset.
+
+Pi's standard `getAgentDir()` path remains independent and owns authentication,
+models, skills, and prompts. AO-created session files are copied during legacy
+migration without parsing or rewriting their JSONL contents. Configured AO/user-data roots and legacy settings paths reject stable symlink components; migration
+uses exclusive same-directory temporary files, fsync/close, opaque-byte
+verification, and atomic no-overwrite installation. Explicit session aliases are
+physically checked before AO catalogs them. Node/Electron do not expose a
+portable descriptor-relative, no-follow traversal API on every supported
+platform, so these checks are fail-closed for stable configuration and are not a
+sandbox against a concurrent same-user attacker replacing a checked component;
+operations revalidate boundaries immediately around filesystem use and use
+`O_NOFOLLOW` where Node provides it.
 
 ## IPC
 
@@ -66,7 +84,7 @@
   extensions by default, to recover crash isolation previously supplied by a
   subprocess.
 - Strict JSONL framing/backpressure code remains available only to the explicit
-  deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
+  deterministic test adapter (`AO_TEST_RPC_RUNTIME=1`), never through user
   settings.
 
 ## Untrusted content
@@ -105,4 +123,7 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- Session JSONL files are never read by the GUI; all session data comes from RPC.
+- Session JSONL files are never parsed or rewritten by AO; session data comes
+  from Pi's public SessionManager API and normalized runtime calls. Deliberate
+  Pi session opening/import remains path-based and does not implicitly catalog
+  every Pi session.

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { open, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   SessionManager,
@@ -68,6 +68,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private unsubscribe: (() => void) | null = null;
   private sink: RuntimeSink;
   private readonly agentDir: string;
+  private readonly sessionRoot: string;
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
 
@@ -75,6 +76,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     sink: RuntimeSink,
     options: {
       agentDir?: string;
+      /** AO-owned session root; intentionally independent from Pi agentDir. */
+      sessionRoot?: string;
       home?: string;
       spawnSession?: SpawnSessionHandler;
     } = {},
@@ -82,6 +85,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.sink = sink;
     this.agentDir = options.agentDir ?? getAgentDir();
     this.home = options.home ?? homedir();
+    this.sessionRoot = resolve(options.sessionRoot ?? join(this.home, '.ao-agent'));
     this.spawnSession = options.spawnSession ?? null;
   }
 
@@ -146,8 +150,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     };
 
     const sessionManager = config.sessionRef
-      ? await openSession(config.sessionRef, config.cwd, agentDir)
-      : SessionManager.create(config.cwd, sessionDirFor(config.cwd, agentDir));
+      ? await openSession(config.sessionRef, config.cwd, this.sessionRoot)
+      : SessionManager.create(config.cwd, sessionDirFor(config.cwd, this.sessionRoot));
     const runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: config.cwd,
       agentDir,
@@ -331,7 +335,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async switchSession(ref: string): Promise<void> {
-    const info = await findSession(ref, this.agentDir);
+    const info = await findSession(ref, this.sessionRoot);
     await this.host.switchSession(info?.path ?? ref);
   }
 
@@ -486,22 +490,40 @@ function slashPath(path: string): string {
   return path.split(sep).join('/');
 }
 
-async function findSession(ref: string, agentDir: string) {
-  const sessions = await SessionManager.listAll(join(agentDir, 'sessions'));
-  return sessions.find((session) => session.id === ref || session.path === ref);
+async function findSession(ref: string, sessionRoot: string) {
+  const root = join(sessionRoot, 'sessions');
+  const direct = await SessionManager.listAll(root);
+  const match = direct.find((session) => session.id === ref || session.path === ref);
+  if (match) return match;
+  try {
+    const directories = await readdir(root, { withFileTypes: true });
+    for (const directory of directories) {
+      if (!directory.isDirectory()) continue;
+      const sessions = await SessionManager.listAll(join(root, directory.name));
+      const nested = sessions.find((session) => session.id === ref || session.path === ref);
+      if (nested) return nested;
+    }
+  } catch {
+    // A missing session root is handled by the caller as a normal not-found.
+  }
+  return undefined;
 }
 
-async function openSession(ref: string, cwd: string, agentDir: string): Promise<SessionManager> {
-  if (existsSync(ref)) return SessionManager.open(ref, dirname(ref), cwd);
-  const info = await findSession(ref, agentDir);
+async function openSession(ref: string, cwd: string, sessionRoot: string): Promise<SessionManager> {
+  if (existsSync(ref)) return SessionManager.open(ref, sessionDirFor(cwd, sessionRoot), cwd);
+  const info = await findSession(ref, sessionRoot);
   if (!info) throw new Error(`Pi session not found: ${ref}`);
-  return SessionManager.open(info.path, dirname(info.path), info.cwd || cwd);
+  return SessionManager.open(
+    info.path,
+    sessionDirFor(info.cwd || cwd, sessionRoot),
+    info.cwd || cwd,
+  );
 }
 
 /** Pi accepts a host-selected session directory through its public SDK. */
-function sessionDirFor(cwd: string, agentDir: string): string {
+function sessionDirFor(cwd: string, sessionRoot: string): string {
   const safePath = `--${resolve(cwd)
     .replace(/^[/\\]/, '')
     .replace(/[/\\:]/g, '-')}--`;
-  return join(resolve(agentDir), 'sessions', safePath);
+  return join(resolve(sessionRoot), 'sessions', safePath);
 }

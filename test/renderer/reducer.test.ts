@@ -702,8 +702,8 @@ describe('view state', () => {
         pendingMessageCount: 0,
       },
     };
-    expect(windowTitle(idle, idle.settings)).toBe('τ | refactor');
+    expect(windowTitle(idle, idle.settings)).toBe('AO | refactor');
     const running: AppState = { ...idle, snapshot: { ...idle.snapshot, status: 'running' } };
-    expect(windowTitle(running, running.settings)).toBe('τ | refactor | running');
+    expect(windowTitle(running, running.settings)).toBe('AO | refactor | running');
   });
 });

@@ -290,8 +290,8 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     const preview = state.lastCompletionPreview;
     if (!preview) return;
     if (state.windowFocused || state.settings.turnNotification !== 'desktop') return;
-    const name = state.agent?.sessionName ?? 'Tau session';
-    void invoke('ui.notify', { title: `τ | ${name}`, body: preview.slice(0, 200) }).catch(
+    const name = state.agent?.sessionName ?? 'AO session';
+    void invoke('ui.notify', { title: `AO | ${name}`, body: preview.slice(0, 200) }).catch(
       () => undefined,
     );
   }, [

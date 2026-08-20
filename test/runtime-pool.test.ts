@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import { resolve } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
@@ -48,6 +49,25 @@ afterEach(async () => {
 });
 
 describe('RuntimePool', () => {
+  it('propagates the AO session root through startup, new, restart, and spawn managers', async () => {
+    const settings = makeSettings();
+    const sessionRoot = '/tmp/ao-runtime-pool-sessions';
+    pool = new RuntimePool(settings, () => undefined, { sessionRoot });
+
+    await pool.start();
+    await pool.newSession();
+    await pool.restart();
+    await pool.spawnSession({ cwd: process.cwd(), prompt: 'background' });
+
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    expect(internals.managers.size).toBeGreaterThanOrEqual(2);
+    for (const manager of internals.managers) {
+      expect((manager as unknown as { sessionRoot: string | null }).sessionRoot).toBe(
+        resolve(sessionRoot),
+      );
+    }
+  });
+
   it('shares concurrent startup requests without replacing the launched process', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

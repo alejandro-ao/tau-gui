@@ -1,4 +1,4 @@
-# Tau GUI
+# AO
 
 A self-contained, terminal-inspired Electron coding-agent application powered
 by an embedded, pinned Pi SDK. Its desktop experience remains modeled after
@@ -16,6 +16,24 @@ The first slice of the Pi embedding migration is implemented and tracked in
 operations now use Pi's SDK directly; remaining Pi-native sessions, auth,
 extension UI, and removal of the legacy deterministic RPC test adapter are
 tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
+
+## Storage ownership
+
+AO-created sessions default to `~/.ao-agent/sessions/`. Pi's standard agent
+directory remains independent at `~/.pi/agent/` for authentication, models,
+skills, prompts, and other Pi services. Set `AO_AGENT_DIR` to override AO's data
+root; the deprecated `TAU_GUI_AGENT_DIR` alias remains supported temporarily,
+and `AO_AGENT_DIR` wins when both are set.
+
+AO migrates sessions referenced by its legacy catalog non-destructively. It copies
+referenced files, leaves originals in place, and does not import unreferenced Pi
+CLI sessions. Existing Pi session paths can still be deliberately opened or
+imported. Session files remain owned by Pi's `SessionManager`; AO never parses or
+rewrites session JSONL.
+
+Changing the Electron application identity from Tau GUI to AO also migrates the
+old settings file when the new AO settings file does not exist. Existing AO
+settings always take precedence.
 
 ## What works
 

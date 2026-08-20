@@ -1,15 +1,15 @@
 # Electron end-to-end tests
 
-Playwright drives the **built** app (`out/main/index.js`) through
+Playwright drives the **built** AO app (`out/main/index.js`) through
 `_electron.launch`. Every launch is isolated and credential-free. Local launches
 are hidden from the desktop so test runs do not steal focus or open visible
 windows.
 
 ## How the harness works
 
-- `helpers.ts` creates a temporary `userData` directory per launch and passes it
-  to the main process through the `TAU_GUI_USER_DATA_DIR` environment hook
-  (`src/main/index.ts`). Developer settings are never read or written.
+- `helpers.ts` creates temporary `userData` and AO session directories per launch
+  through `AO_USER_DATA_DIR` and `AO_AGENT_DIR` (`src/main/index.ts`). Developer
+  settings, Pi agent data, and sessions are never read or written.
 - For local runs, the harness also sets `TAU_GUI_E2E_HIDDEN=1`. The app keeps
   its native `BrowserWindow` hidden and disables background throttling while
   Playwright continues to drive the renderer through CDP. The hidden mode is

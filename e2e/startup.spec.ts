@@ -1,5 +1,9 @@
 import { expect, test } from '@playwright/test';
-import { launchApp, waitForSettled, type AppHandle } from './helpers.js';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { FAKE_RUNTIME, launchApp, waitForSettled, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
 
@@ -38,6 +42,42 @@ test('hidden window loads, connects to the runtime, and reports session context'
 
   await expect(page.getByTestId('composer')).toHaveAttribute('data-status', 'idle');
   await expect(page.getByRole('log', { name: 'transcript' })).toContainText('No messages yet');
+});
+
+test('startup migrates a legacy settings file into the AO user-data directory', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'ao-startup-migration-'));
+  const userDataDir = join(root, 'AO');
+  const projectDir = join(root, 'project');
+  const appDataDir = join(root, 'app-data');
+  const legacyDir = join(appDataDir, 'Tau GUI');
+  mkdirSync(legacyDir, { recursive: true });
+  const legacySettings = {
+    ...DEFAULT_SETTINGS,
+    agentRuntime: 'pi' as const,
+    cwd: projectDir,
+    runtime: {
+      ...DEFAULT_SETTINGS.runtime,
+      pi: { ...DEFAULT_SETTINGS.runtime.pi, binary: FAKE_RUNTIME },
+    },
+  };
+  writeFileSync(join(legacyDir, 'settings.json'), `${JSON.stringify(legacySettings)}\n`);
+
+  const migrated = await launchApp({
+    userDataDir,
+    projectDir,
+    seedSettings: false,
+    env: { AO_TEST_APP_DATA_DIR: appDataDir },
+  });
+  try {
+    await waitForSettled(migrated.page);
+    const persisted = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8')) as {
+      cwd: string;
+    };
+    expect(persisted.cwd).toBe(projectDir);
+  } finally {
+    await migrated.close();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test('the runtime is idle and the composer is focused for typing', async () => {

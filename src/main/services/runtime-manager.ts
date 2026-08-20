@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type {
   AgentEvent,
@@ -16,6 +17,7 @@ import {
 } from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
+import { assertPathWithinRoot } from './app-paths.js';
 import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -36,6 +38,8 @@ export interface RuntimeManagerOptions {
   runtimeFactory?: RuntimeFactory;
   /** The legacy test adapter needs executable discovery; embedded Pi does not. */
   probeExecutable?: boolean;
+  /** AO-owned session root; external Pi sessions are not added to AO's catalog. */
+  sessionRoot?: string;
 }
 
 export class RuntimeManager {
@@ -59,6 +63,7 @@ export class RuntimeManager {
 
   private readonly runtimeFactory: RuntimeFactory;
   private readonly probeExecutable: boolean;
+  private readonly sessionRoot: string | null;
 
   constructor(
     private readonly settings: SettingsStore,
@@ -67,6 +72,7 @@ export class RuntimeManager {
   ) {
     this.runtimeFactory = options.runtimeFactory ?? legacyRpcRuntimeFactory;
     this.probeExecutable = options.probeExecutable ?? true;
+    this.sessionRoot = options.sessionRoot ? resolve(options.sessionRoot) : null;
   }
 
   get kind(): RuntimeKind {
@@ -356,7 +362,7 @@ export class RuntimeManager {
 
   private rememberCurrentSession(touch: boolean, minimumMessageCount = 0): void {
     const state = this.state;
-    if (!state?.sessionId) return;
+    if (!state?.sessionId || !this.ownsSession(state.sessionFile)) return;
     this.settings.rememberSession(
       {
         id: state.sessionId,
@@ -371,6 +377,20 @@ export class RuntimeManager {
       touch,
     );
     this.broadcast({ type: 'settings', settings: this.settings.current });
+  }
+
+  private ownsSession(path: string | null): boolean {
+    if (!this.sessionRoot || !path) return true;
+    const root = join(this.sessionRoot, 'sessions');
+    // Lexical prefixes classify symlink aliases as AO-owned. Physical
+    // containment plus component checks keep an explicitly opened external
+    // transcript out of AO's catalog, even when its alias is below this root.
+    try {
+      assertPathWithinRoot(path, root);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   private setStatus(status: RuntimeStatus, detail: string | null = null): void {

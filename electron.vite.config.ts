@@ -11,7 +11,7 @@ import { CSP_META_PLACEHOLDER, buildCsp } from './src/shared/csp.js';
  */
 function cspMetaPlugin(): Plugin {
   return {
-    name: 'tau-gui-csp-meta',
+    name: 'ao-csp-meta',
     transformIndexHtml(html, context) {
       const isDev = Boolean(context.server);
       return html.replaceAll(CSP_META_PLACEHOLDER, buildCsp(isDev));

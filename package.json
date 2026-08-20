@@ -1,7 +1,7 @@
 {
-  "name": "tau-gui",
+  "name": "ao",
   "version": "0.1.0",
-  "description": "Terminal-inspired Electron desktop frontend for Tau and Pi coding-agent runtimes",
+  "description": "AO desktop coding-agent application powered by the embedded Pi SDK",
   "private": true,
   "license": "UNLICENSED",
   "author": {
@@ -28,7 +28,7 @@
     "test:e2e": "npm run build && playwright test",
     "test:visual": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts",
     "test:visual:update": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts --update-snapshots",
-    "test:smoke:real": "npm run build && TAU_GUI_REAL_RUNTIME=1 playwright test e2e/smoke.real.spec.ts",
+    "test:smoke:real": "npm run build && AO_REAL_RUNTIME=1 playwright test e2e/smoke.real.spec.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {

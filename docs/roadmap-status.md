@@ -1,6 +1,6 @@
 # Roadmap status
 
-Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration is [issue #17](https://github.com/alejandro-ao/tau-gui/issues/17).
+Issue #1 is the historical Tau/Pi RPC roadmap. AO is the current desktop product. The active architecture migration is [issue #17](https://github.com/alejandro-ao/tau-gui/issues/17).
 
 ## Embedded Pi migration — initial slice ✅
 
@@ -111,7 +111,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Drag/drop path insertion with quoting.
 - Native completion notifications (only while the window is unfocused and
   `turnNotification` is `desktop`, keyed on a settle counter so repeated
-  identical answers still notify) and `τ | session [| running]` window titles.
+  identical answers still notify) and `AO | session [| running]` window titles.
   Both are covered by renderer tests and an Electron end-to-end test.
 - Hotkey reference modal.
 
@@ -163,7 +163,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
   runtime.
 - Screenshot regression for themes, roles, tool states, diffs, pickers, and
   layouts behind `VISUAL=1` (`e2e/README.md`), plus an optional real-runtime
-  startup smoke behind `TAU_GUI_REAL_RUNTIME=1`.
+  startup smoke behind `AO_REAL_RUNTIME=1` (with deprecated `TAU_GUI_REAL_RUNTIME` alias).
 
 ## Phase 6 — missing RPC surfaces ⏳ upstream
 
@@ -198,7 +198,7 @@ with conformance tests:
 
 - A real `tau --mode rpc` session completes a coding turn in the packaged
   renderer, including a built-in `read` tool call
-  (`TAU_GUI_REAL_RUNTIME=1 TAU_GUI_REAL_PROMPT=1 npx playwright test e2e/smoke.real.spec.ts`).
+  (`AO_REAL_RUNTIME=1 AO_REAL_PROMPT=1 npx playwright test e2e/smoke.real.spec.ts`).
 - A real `pi --mode rpc` session starts, reports state, and its extension UI
   requests are dismissed instead of stalling the stream.
 - `npm run package` produces an unsigned macOS arm64 app bundle.
