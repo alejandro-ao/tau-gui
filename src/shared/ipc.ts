@@ -51,6 +51,13 @@ const safePathText = z
     'Path contains control characters',
   );
 
+/**
+ * Pi walks AGENTS.md files from the working directory through its ancestors and
+ * may also load the global agent file. Keep the metadata channel bounded
+ * without assuming Tau's former fixed set of four locations.
+ */
+export const MAX_CONTEXT_FILES = 64;
+
 /** Metadata only: AGENTS.md contents never cross IPC. */
 export const contextFilesSchema = z
   .array(
@@ -61,7 +68,7 @@ export const contextFilesSchema = z
       })
       .strict(),
   )
-  .max(4);
+  .max(MAX_CONTEXT_FILES);
 export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 
 /**

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import {
   SessionManager,
   createAgentSessionFromServices,
@@ -9,8 +9,10 @@ import {
   type AgentSession,
   type AgentSessionRuntime,
 } from '@earendil-works/pi-coding-agent';
-import { basename, dirname, join, resolve } from 'node:path';
-import type { ContextFile } from '../../shared/ipc.js';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { MAX_CONTEXT_FILES, type ContextFile } from '../../shared/ipc.js';
+import { RESOURCE_LIMITS } from '../../shared/resources.js';
+import { estimateTextTokens } from '../../shared/token-estimate.js';
 import type {
   AgentMessage,
   AgentState,
@@ -327,11 +329,15 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   getContextFiles(): Promise<ContextFile[]> {
+    const cwd = this.host.cwd;
     return Promise.resolve(
       this.session.resourceLoader
         .getAgentsFiles()
-        .agentsFiles.slice(0, 4)
-        .map((file) => ({ label: basename(file.path), path: file.path })),
+        .agentsFiles.slice(0, MAX_CONTEXT_FILES)
+        .map((file) => ({
+          label: contextFileLabel(file.path, cwd, this.agentDir),
+          path: file.path,
+        })),
     );
   }
 
@@ -349,9 +355,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
           description: skill.description || null,
           origin: skill.sourceInfo.source,
           disableModelInvocation: skill.disableModelInvocation,
-          // The file stays main-process-owned. Size gives a deterministic,
-          // bounded approximation without sending its contents over IPC.
-          estimatedTokens: await estimateFileTokens(skill.filePath),
+          // The file stays main-process-owned. Preserve the sidebar's
+          // provider-neutral estimate of one token per four characters.
+          estimatedTokens: await estimateSkillTokens(skill.filePath),
         })),
       ),
       prompts: promptsResult.prompts.map((prompt) => ({
@@ -364,13 +370,50 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 }
 
-async function estimateFileTokens(path: string): Promise<number> {
+async function estimateSkillTokens(path: string): Promise<number> {
+  let handle;
   try {
-    const info = await stat(path);
-    return info.isFile() ? Math.ceil(Math.min(info.size, 1_000_000) / 4) : 0;
+    handle = await open(path, 'r');
+    const info = await handle.stat();
+    if (!info.isFile()) return 0;
+    const length = Math.min(info.size, RESOURCE_LIMITS.fileBytes);
+    const buffer = Buffer.alloc(length);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const result = await handle.read(buffer, bytesRead, buffer.length - bytesRead, bytesRead);
+      if (result.bytesRead === 0) break;
+      bytesRead += result.bytesRead;
+    }
+    return estimateTextTokens(buffer.subarray(0, bytesRead).toString('utf8'));
   } catch {
     return 0;
+  } finally {
+    await handle?.close();
   }
+}
+
+function contextFileLabel(path: string, cwd: string, agentDir: string): string {
+  const absolute = resolve(path);
+  const globalPath = relative(resolve(agentDir), absolute);
+  let label: string;
+  if (
+    globalPath &&
+    globalPath !== '..' &&
+    !globalPath.startsWith(`..${sep}`) &&
+    !isAbsolute(globalPath)
+  ) {
+    label = `~/.pi/agent/${slashPath(globalPath)}`;
+  } else if (!globalPath) {
+    label = '~/.pi/agent';
+  } else {
+    const projectPath = slashPath(relative(resolve(cwd), absolute));
+    label = projectPath.startsWith('.') ? projectPath : `./${projectPath}`;
+  }
+  return label.length <= 256 ? label : `…${label.slice(-255)}`;
+}
+
+function slashPath(path: string): string {
+  return path.split(sep).join('/');
 }
 
 async function findSession(ref: string, agentDir: string) {

@@ -68,19 +68,18 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
   prompting because RPC `prompt` does not execute TUI commands. Arguments work for
   `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
   Runtime-reported built-ins are deduplicated against GUI handlers.
-- Tau skills and prompt templates are discovered from the same user/project
-  `.tau` and `.agents` directories with the same precedence and reserved-name
-  rules as Tau. `/skills` and `/prompts` open searchable pickers, and selected
-  invocations are sent through Tau's prompt RPC for authoritative expansion.
-  Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
-  commands (including the `/skill:` prefix) under a `Commands` heading with
-  custom prompt templates under `Custom prompts`; individual skills are offered
-  only once `/skill:` has been typed. The sidebar summarizes the aggregate skill
-  footprint as an approximate token count (for example, `~2k tokens`), using a
-  deterministic one-token-per-four-characters estimate over each `SKILL.md`.
-  Only metadata, including that numeric estimate, crosses IPC; resource contents
-  remain in Tau/main-process filesystem access. Project resources are omitted
-  unless launch-time project trust is explicitly approved.
+- Skills and prompt templates come from the embedded Pi SDK's authoritative
+  resource loader, including Pi's global and project resource locations.
+  `/skills` and `/prompts` open searchable pickers, and selected invocations are
+  sent through Pi for authoritative expansion. Slash completion mirrors Pi's
+  categories: typing `/` lists builtins and custom prompt templates under
+  separate headings; individual skills are offered only once `/skill:` has been
+  typed.
+  The sidebar summarizes the aggregate skill footprint as an approximate token
+  count (for example, `~2k tokens`), preserving the deterministic
+  one-token-per-four-characters estimate over each `SKILL.md`. Only bounded
+  metadata, including that numeric estimate, crosses IPC; resource contents
+  remain in main-process filesystem access.
 - A leading `/skill:<name>` or custom-prompt token in the draft is highlighted as a
   coloured pill, drawn by a mirrored backdrop behind the composer textarea
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
@@ -125,9 +124,10 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
 - Session details plus a focused sidebar with activity counts, usage/cache, and
   discovered context files. The cache hit figure is derived from reported token
-  counts, so it is shown as an estimate (`~`). Context lists existing
-  `AGENTS.md` metadata from fixed user/project `.tau` and `.agents` locations;
-  discovery stays in the main process and project paths require explicit trust.
+  counts, so it is shown as an estimate (`~`). Context lists the actual
+  `AGENTS.md` files loaded by Pi, including its global agent file and the files
+  discovered while walking up from the session working directory. Discovery
+  stays in the main process; only bounded labels and paths cross IPC.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the
