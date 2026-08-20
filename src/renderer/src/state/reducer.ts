@@ -32,6 +32,7 @@ export const INITIAL_STATE: AppState = {
   resources: { skills: [], prompts: [], diagnostics: [] },
   contextFiles: [],
   blocks: [],
+  retained: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
   queue: { runtime: 'tau', sessionId: '', steering: [], followUp: [] },
@@ -115,6 +116,7 @@ export function reducer(state: AppState, action: Action): AppState {
         stats: null,
         contextFiles: [],
         blocks: [],
+        retained: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
         queue: {
@@ -176,12 +178,44 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return {
         ...state,
-        blocks: hydrateBlocks(action.messages, action.now),
+        blocks: mergeRetained(state.retained, hydrateBlocks(action.messages, action.now)),
         streamingAssistantId: null,
         streamingThinkingId: null,
       };
     case 'localMessage':
       return { ...state, blocks: [...state.blocks, action.block] };
+    case 'retainTranscript':
+      // `state.blocks` already contains any previously retained history, so a
+      // second compaction simply extends the retained transcript.
+      return { ...state, retained: state.blocks };
+    case 'compactionSummary': {
+      // Runtimes persist the summary as a transcript entry, so hydration may
+      // have rendered it already. Enrich that block instead of duplicating it.
+      const existing = state.blocks.findLast(
+        (block) => block.kind === 'compaction' && block.summary === action.summary,
+      );
+      if (existing) {
+        return {
+          ...state,
+          blocks: state.blocks.map((block) =>
+            block.id === existing.id ? { ...block, detail: action.detail } : block,
+          ),
+        };
+      }
+      return {
+        ...state,
+        blocks: [
+          ...state.blocks,
+          {
+            kind: 'compaction',
+            id: nextBlockId('compaction'),
+            summary: action.summary,
+            detail: action.detail,
+            timestamp: action.now,
+          },
+        ],
+      };
+    }
     case 'updateBlock':
       return {
         ...state,
@@ -193,6 +227,7 @@ export function reducer(state: AppState, action: Action): AppState {
       return {
         ...state,
         blocks: [],
+        retained: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
         queue: { runtime: state.snapshot.runtime, sessionId: '', steering: [], followUp: [] },
@@ -485,6 +520,53 @@ function lastAssistantText(state: AppState): string | null {
     if (block && block.kind === 'assistant' && block.text.trim()) return block.text.trim();
   }
   return null;
+}
+
+/**
+ * Merges a hydrated transcript on top of history retained across a compaction.
+ *
+ * Compaction replaces older entries with a summary and keeps a tail, so the
+ * hydrated transcript is `[summary, ...keptEntries]` while the retained one
+ * ends with those same kept entries. The longest matching tail is treated as
+ * the overlap, and only the retained blocks before it are prepended, so nothing
+ * is rendered twice.
+ */
+export function mergeRetained(
+  retained: TranscriptBlock[],
+  hydrated: TranscriptBlock[],
+): TranscriptBlock[] {
+  if (retained.length === 0) return hydrated;
+  const retainedKeys = retained.map(blockFingerprint);
+  const hydratedKeys = hydrated.map(blockFingerprint);
+  const max = Math.min(retainedKeys.length, hydratedKeys.length);
+  for (let overlap = max; overlap > 0; overlap -= 1) {
+    let matches = true;
+    for (let offset = 1; offset <= overlap; offset += 1) {
+      if (retainedKeys.at(-offset) !== hydratedKeys.at(-offset)) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return [...retained.slice(0, retained.length - overlap), ...hydrated];
+  }
+  return [...retained, ...hydrated];
+}
+
+/** Content identity of a block, used to detect the retained/hydrated overlap. */
+function blockFingerprint(block: TranscriptBlock): string {
+  switch (block.kind) {
+    case 'tool':
+      return `tool:${block.toolCallId}:${block.name}`;
+    case 'shell':
+      return `shell:${block.command}`;
+    case 'compaction':
+    case 'branch':
+      return `${block.kind}:${block.summary}`;
+    case 'custom':
+      return `custom:${block.customType}:${block.text}`;
+    default:
+      return `${block.kind}:${block.text}`;
+  }
 }
 
 /**

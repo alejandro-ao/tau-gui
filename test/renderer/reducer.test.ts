@@ -707,3 +707,99 @@ describe('view state', () => {
     expect(windowTitle(running, running.settings)).toBe('τ | refactor | running');
   });
 });
+
+describe('compaction retention', () => {
+  const conversation: TranscriptBlock[] = [
+    { kind: 'user', id: 'user-1', text: 'first question', timestamp: 1 },
+    {
+      kind: 'assistant',
+      id: 'assistant-1',
+      text: 'first answer',
+      streaming: false,
+      aborted: false,
+      timestamp: 2,
+    },
+    { kind: 'user', id: 'user-2', text: 'second question', timestamp: 3 },
+    {
+      kind: 'assistant',
+      id: 'assistant-2',
+      text: 'second answer',
+      streaming: false,
+      aborted: false,
+      timestamp: 4,
+    },
+  ];
+
+  const seeded: AppState = { ...INITIAL_STATE, blocks: conversation };
+
+  it('keeps pre-compaction messages visible when the kept tail is hydrated', () => {
+    const retained = reducer(seeded, { type: 'retainTranscript' });
+    expect(retained.retained).toEqual(conversation);
+
+    // The runtime replaces the dropped entries with a summary and keeps a tail.
+    const hydrated = reducer(retained, {
+      type: 'hydrate',
+      now: 10,
+      messages: [
+        { role: 'compactionSummary', summary: 'earlier work', tokensBefore: 900, timestamp: 5 },
+        { role: 'user', text: 'second question', images: [], timestamp: 3 },
+        { ...assistant('second answer'), timestamp: 4 },
+      ],
+    });
+
+    expect(
+      hydrated.blocks.map((block) =>
+        block.kind === 'compaction' ? 'compaction' : 'text' in block ? block.text : block.kind,
+      ),
+    ).toEqual(['first question', 'first answer', 'compaction', 'second question', 'second answer']);
+  });
+
+  it('prepends the whole retained transcript when nothing was kept', () => {
+    const retained = reducer(seeded, { type: 'retainTranscript' });
+    const hydrated = reducer(retained, {
+      type: 'hydrate',
+      now: 10,
+      messages: [
+        { role: 'compactionSummary', summary: 'everything', tokensBefore: 900, timestamp: 5 },
+      ],
+    });
+    expect(hydrated.blocks).toHaveLength(conversation.length + 1);
+    expect(hydrated.blocks.at(-1)).toMatchObject({ kind: 'compaction', summary: 'everything' });
+  });
+
+  it('enriches the hydrated summary instead of duplicating it', () => {
+    const retained = reducer(seeded, { type: 'retainTranscript' });
+    const hydrated = reducer(retained, {
+      type: 'hydrate',
+      now: 10,
+      messages: [
+        { role: 'compactionSummary', summary: 'earlier work', tokensBefore: 900, timestamp: 5 },
+      ],
+    });
+    const settled = reducer(hydrated, {
+      type: 'compactionSummary',
+      summary: 'earlier work',
+      detail: '900 → ~120 tokens',
+      now: 11,
+    });
+    const summaries = settled.blocks.filter((block) => block.kind === 'compaction');
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0]).toMatchObject({ detail: '900 → ~120 tokens' });
+  });
+
+  it('appends a summary block when the runtime does not persist one', () => {
+    const settled = reducer(seeded, {
+      type: 'compactionSummary',
+      summary: 'local only',
+      detail: null,
+      now: 11,
+    });
+    expect(settled.blocks.at(-1)).toMatchObject({ kind: 'compaction', summary: 'local only' });
+  });
+
+  it('drops retained history when the session is cleared or switched', () => {
+    const retained = reducer(seeded, { type: 'retainTranscript' });
+    expect(reducer(retained, { type: 'clearTranscript' }).retained).toEqual([]);
+    expect(reducer(retained, { type: 'sessionNavigation', active: true }).retained).toEqual([]);
+  });
+});

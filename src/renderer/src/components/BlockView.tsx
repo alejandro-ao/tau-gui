@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Markdown } from '../markdown.js';
-import type { ShellBlock, TranscriptBlock } from '../state/types.js';
+import type { ShellBlock, SummaryBlock, TranscriptBlock } from '../state/types.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
 import { ToolBlockView } from './ToolBlockView.js';
@@ -89,16 +89,52 @@ export function BlockView({
 
     case 'compaction':
     case 'branch':
-      return (
-        <BlockFrame
-          kind={block.kind}
-          label={block.kind === 'branch' ? 'branch summary' : 'compaction'}
-        >
-          <Markdown text={block.summary} />
-          {block.detail ? <p className="summary-detail">{block.detail}</p> : null}
-        </BlockFrame>
-      );
+      return <SummaryBlockView block={block} expanded={expanded} onToggle={onToggle} />;
   }
+}
+
+/**
+ * Summaries are context bookkeeping rather than conversation, so they render
+ * collapsed behind a one-line header and only expand on demand. The messages
+ * they summarise stay in the transcript, so the summary must not dominate it.
+ */
+function SummaryBlockView({
+  block,
+  expanded,
+  onToggle,
+}: {
+  block: SummaryBlock;
+  expanded: boolean;
+  onToggle: () => void;
+}): ReactNode {
+  const label = block.kind === 'branch' ? 'branch summary' : 'compaction summary';
+  return (
+    <article className={`block block-${block.kind}`}>
+      <div className="role-bar" aria-hidden="true" />
+      <div className="block-body">
+        <button
+          type="button"
+          className="summary-header"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span className="summary-label">{label}</span>
+          {block.detail ? <span className="summary-detail">{block.detail}</span> : null}
+          <span className="summary-chevron" aria-hidden="true">
+            {expanded ? '▾' : '▸'}
+          </span>
+        </button>
+        {expanded ? (
+          <div className="summary-body">
+            <Markdown text={block.summary} />
+            <div className="block-actions">
+              <CopyButton text={block.summary} label="summary" />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </article>
+  );
 }
 
 function BlockFrame({

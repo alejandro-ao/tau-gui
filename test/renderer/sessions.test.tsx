@@ -33,8 +33,13 @@ describe('session and context flows', () => {
     await runSlash(view, '/compact');
 
     expect(bridge.calls.map((call) => call.action)).toContain('session.compact');
-    expect(view.container.textContent).toContain('compacted earlier turns');
+    // The summary starts collapsed so the conversation stays readable.
+    expect(view.container.textContent).toContain('compaction summary');
     expect(view.container.textContent).toContain('120000 → ~20000 tokens');
+    expect(view.container.textContent).not.toContain('compacted earlier turns');
+
+    await click(query(view.container, '.summary-header'));
+    expect(view.container.textContent).toContain('compacted earlier turns');
   });
 
   it('reports the export destination in the transcript', async () => {

@@ -135,6 +135,12 @@ export interface AppState {
   resources: ResourceCatalog;
   contextFiles: ContextFile[];
   blocks: TranscriptBlock[];
+  /**
+   * Transcript captured before a user-triggered compaction. The runtime only
+   * returns the entries it kept, so hydration is merged on top of this history
+   * to keep the compacted conversation readable.
+   */
+  retained: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
   streamingThinkingId: string | null;
@@ -196,6 +202,8 @@ export type Action =
       runtime?: RuntimeSnapshot['runtime'];
     }
   | { type: 'localMessage'; block: TranscriptBlock }
+  | { type: 'retainTranscript' }
+  | { type: 'compactionSummary'; summary: string; detail: string | null; now: number }
   | { type: 'updateBlock'; id: string; patch: Partial<TranscriptBlock> }
   | { type: 'clearTranscript' }
   | { type: 'toggleExpandAll' }

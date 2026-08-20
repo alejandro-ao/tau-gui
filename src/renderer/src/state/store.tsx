@@ -561,17 +561,17 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             instructions ? { instructions } : undefined,
             target,
           );
+          // Compaction only shrinks the runtime's context: the conversation the
+          // user already read stays on screen, with the hydrated tail merged
+          // back on top of it.
+          dispatch({ type: 'retainTranscript' });
           // Rebuild first: the outcome block must outlive the hydration.
           await refresh();
           dispatch({
-            type: 'localMessage',
-            block: {
-              kind: 'compaction',
-              id: nextBlockId('compaction'),
-              summary: result.summary,
-              detail: `${result.tokensBefore} → ~${result.estimatedTokensAfter} tokens`,
-              timestamp: Date.now(),
-            },
+            type: 'compactionSummary',
+            summary: result.summary,
+            detail: `${result.tokensBefore} → ~${result.estimatedTokensAfter} tokens`,
+            now: Date.now(),
           });
         });
       },
