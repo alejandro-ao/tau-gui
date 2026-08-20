@@ -84,14 +84,14 @@ describe('window title', () => {
 
     bridge.calls.length = 0;
     await emit(bridge, view, { type: 'status', snapshot: { ...bridge.snapshot, state: AGENT } });
-    expect(titles(bridge)).toEqual(['τ | refactor']);
+    expect(titles(bridge)).toEqual(['AO | refactor']);
 
     bridge.calls.length = 0;
     await emit(bridge, view, {
       type: 'status',
       snapshot: { ...bridge.snapshot, status: 'running', state: AGENT },
     });
-    expect(titles(bridge)).toEqual(['τ | refactor | running']);
+    expect(titles(bridge)).toEqual(['AO | refactor | running']);
   });
 
   it('does not re-title on unrelated dispatches', async () => {
@@ -116,7 +116,7 @@ describe('completion notifications', () => {
 
     bridge.calls.length = 0;
     await runTurn(bridge, view, 'all done');
-    expect(bridge.payloads('ui.notify')).toEqual([{ title: 'τ | refactor', body: 'all done' }]);
+    expect(bridge.payloads('ui.notify')).toEqual([{ title: 'AO | refactor', body: 'all done' }]);
 
     // An identical answer must still notify: the guard is the settle counter.
     await runTurn(bridge, view, 'all done');

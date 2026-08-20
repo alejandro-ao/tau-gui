@@ -1,13 +1,10 @@
 /**
  * Optional smoke test against a real installed runtime.
  *
- * Skipped unless `TAU_GUI_REAL_RUNTIME=1`. By default it only starts the runtime
+ * Skipped unless `AO_REAL_RUNTIME=1`. By default it only starts the runtime
  * and reads state, so it never sends a prompt and never spends provider credit.
- * Set `TAU_GUI_REAL_PROMPT=1` as well to additionally complete one real coding
- * turn (this does spend provider credit). Point it at another binary or runtime
- * with:
- *
- *   TAU_GUI_REAL_RUNTIME=1 TAU_GUI_REAL_BINARY=/path/to/tau npx playwright test e2e/smoke.real.spec.ts
+ * Set `AO_REAL_PROMPT=1` as well to additionally complete one real coding turn.
+ * Deprecated TAU_GUI_REAL_* aliases remain supported by the release tooling.
  */
 import { expect, test } from '@playwright/test';
 import {
@@ -19,15 +16,18 @@ import {
   type AppHandle,
 } from './helpers.js';
 
-const enabled = process.env['TAU_GUI_REAL_RUNTIME'] === '1';
-const binary = process.env['TAU_GUI_REAL_BINARY'] ?? 'tau';
-const kind = process.env['TAU_GUI_REAL_KIND'] === 'pi' ? 'pi' : 'tau';
-const promptEnabled = enabled && process.env['TAU_GUI_REAL_PROMPT'] === '1';
-const promptText = process.env['TAU_GUI_REAL_PROMPT_TEXT'] ?? 'Reply with exactly: pong';
-const promptExpectation = process.env['TAU_GUI_REAL_PROMPT_EXPECT'] ?? 'pong';
+const env = (current: string, legacy: string): string | undefined =>
+  process.env[current] ?? process.env[legacy];
+const enabled = env('AO_REAL_RUNTIME', 'TAU_GUI_REAL_RUNTIME') === '1';
+const binary = env('AO_REAL_BINARY', 'TAU_GUI_REAL_BINARY') ?? 'tau';
+const kind = env('AO_REAL_KIND', 'TAU_GUI_REAL_KIND') === 'pi' ? 'pi' : 'tau';
+const promptEnabled = enabled && env('AO_REAL_PROMPT', 'TAU_GUI_REAL_PROMPT') === '1';
+const promptText =
+  env('AO_REAL_PROMPT_TEXT', 'TAU_GUI_REAL_PROMPT_TEXT') ?? 'Reply with exactly: pong';
+const promptExpectation = env('AO_REAL_PROMPT_EXPECT', 'TAU_GUI_REAL_PROMPT_EXPECT') ?? 'pong';
 
 test.describe('real runtime smoke', () => {
-  test.skip(!enabled, 'set TAU_GUI_REAL_RUNTIME=1 to run against an installed runtime');
+  test.skip(!enabled, 'set AO_REAL_RUNTIME=1 to run against an installed runtime');
 
   let handle: AppHandle;
 
@@ -61,7 +61,7 @@ test.describe('real runtime smoke', () => {
   });
 
   test('completes one real turn', async () => {
-    test.skip(!promptEnabled, 'set TAU_GUI_REAL_PROMPT=1 to spend provider credit');
+    test.skip(!promptEnabled, 'set AO_REAL_PROMPT=1 to spend provider credit');
     test.setTimeout(180_000);
     const { page } = handle;
 

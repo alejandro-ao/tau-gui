@@ -1,5 +1,6 @@
-appId: com.alejandroao.tau-gui
-productName: Tau GUI
+appId: com.alejandroao.ao
+productName: AO
+executableName: AO
 copyright: Copyright © 2026
 directories:
   output: release

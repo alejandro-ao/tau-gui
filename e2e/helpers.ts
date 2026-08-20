@@ -2,7 +2,7 @@
  * Shared Electron end-to-end harness.
  *
  * Every launch gets its own userData directory (through the main-process
- * `TAU_GUI_USER_DATA_DIR` hook) and a seeded `settings.json` that points the
+ * `AO_USER_DATA_DIR` hook) and a seeded `settings.json` that points the
  * runtime at `test/fake/fake-runtime.mjs`, so tests never touch a developer's
  * real settings and never need provider credentials.
  */
@@ -92,8 +92,8 @@ function seedProject(projectDir: string): void {
 export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle> {
   launchCounter += 1;
   const marker = `e2e-${process.pid}-${launchCounter}-${Date.now()}`;
-  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'tau-gui-userdata-'));
-  const projectDir = options.projectDir ?? mkdtempSync(join(tmpdir(), 'tau-gui-project-'));
+  const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'ao-userdata-'));
+  const projectDir = options.projectDir ?? mkdtempSync(join(tmpdir(), 'ao-project-'));
   mkdirSync(userDataDir, { recursive: true });
   mkdirSync(projectDir, { recursive: true });
   seedProject(projectDir);
@@ -107,7 +107,8 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
     if (key === 'ELECTRON_RENDERER_URL' || key === 'NODE_ENV_ELECTRON_VITE') continue;
     if (typeof value === 'string') env[key] = value;
   }
-  env['TAU_GUI_USER_DATA_DIR'] = userDataDir;
+  env['AO_USER_DATA_DIR'] = userDataDir;
+  env['AO_AGENT_DIR'] = join(userDataDir, 'ao-agent');
   // CDP can drive a hidden BrowserWindow, so keep local test runs from
   // repeatedly stealing focus or covering the developer's desktop. Linux CI
   // already runs inside Xvfb and leaves the window visible there because some
@@ -116,7 +117,7 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
   // Most E2E tests use the explicit JSONL fake so no provider credentials or
   // network access are required. A focused smoke test exercises embedded Pi.
   if (options.embeddedPi) env['PI_CODING_AGENT_DIR'] = join(userDataDir, 'pi-agent');
-  else env['TAU_GUI_TEST_RPC_RUNTIME'] = '1';
+  else env['AO_TEST_RPC_RUNTIME'] = '1';
   env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = '1';
   Object.assign(env, options.env ?? {});
 

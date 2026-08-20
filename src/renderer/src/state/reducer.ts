@@ -746,7 +746,7 @@ export function isRunning(state: AppState): boolean {
 export function windowTitle(state: AppState, settings: AppSettings): string {
   const name =
     state.agent?.sessionName ?? shortenPath(state.snapshot.cwd ?? settings.cwd) ?? 'session';
-  return isRunning(state) ? `τ | ${name} | running` : `τ | ${name}`;
+  return isRunning(state) ? `AO | ${name} | running` : `AO | ${name}`;
 }
 
 export function shortenPath(path: string | null): string | null {
