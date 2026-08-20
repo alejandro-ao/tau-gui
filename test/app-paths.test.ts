@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,6 +32,28 @@ describe('AO app paths', () => {
     expect(paths.agentDir).toBe('/home/user/.pi/agent');
     expect(paths.sessionRoot).toBe('/tmp/ao-data');
     expect(paths.sessionDir).toBe('/tmp/ao-data/sessions');
+  });
+
+  it('rejects a symlinked configured AO root', () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-paths-'));
+    try {
+      const realRoot = join(root, 'real-agent');
+      const alias = join(root, 'configured-agent');
+      const piAgent = join(root, 'pi-agent');
+      mkdirSync(realRoot, { recursive: true });
+      mkdirSync(piAgent, { recursive: true });
+      symlinkSync(realRoot, alias);
+
+      expect(() =>
+        resolveAppStoragePaths({
+          agentDir: piAgent,
+          env: { AO_AGENT_DIR: alias },
+        }),
+      ).toThrow(/symlink/);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('migrates old Electron settings without replacing existing AO settings', () => {

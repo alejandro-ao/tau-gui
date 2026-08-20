@@ -1,6 +1,14 @@
-import { chmodSync, copyFileSync, existsSync, mkdirSync, constants } from 'node:fs';
+import {
+  chmodSync,
+  copyFileSync,
+  constants,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  realpathSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, parse, resolve } from 'node:path';
+import { dirname, join, parse, relative, resolve, sep } from 'node:path';
 
 export const AO_AGENT_DIR_ENV = 'AO_AGENT_DIR';
 export const LEGACY_AGENT_DIR_ENV = 'TAU_GUI_AGENT_DIR';
@@ -49,9 +57,31 @@ export function resolveAppStoragePaths(options: {
 
 /** Create app-owned directories with private permissions where supported. */
 export function ensurePrivateDirectory(path: string): void {
-  mkdirSync(path, { recursive: true, mode: 0o700 });
+  const resolved = validateStoragePath(path);
+  const missing: string[] = [];
+  let current = resolved;
+  while (true) {
+    try {
+      lstatSync(current);
+      break;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      missing.push(current);
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      current = parent;
+    }
+  }
+
+  assertPathWithoutSymlink(current);
+  for (const directory of missing.reverse()) {
+    mkdirSync(directory, { mode: 0o700 });
+    // Check immediately after creation. Never chmod a symlink target.
+    assertPathWithoutSymlink(directory);
+  }
   try {
-    chmodSync(path, 0o700);
+    assertPathWithoutSymlink(resolved);
+    chmodSync(resolved, 0o700);
   } catch {
     // Windows and some mounted filesystems do not support chmod.
   }
@@ -63,7 +93,83 @@ export function validateStoragePath(path: string): string {
   if (resolved === parse(resolved).root) {
     throw new Error('Storage path must not be a filesystem root');
   }
+  // A configured root itself may not be an alias. Ancestor aliases such as
+  // macOS /tmp are canonicalized below, while symlinks inside the root are
+  // rejected by assertPathWithinRoot at each filesystem operation.
+  assertPathWithoutSymlink(resolved);
+  try {
+    if (!lstatSync(resolved).isDirectory()) {
+      throw new Error(`Storage path is not a directory: ${path}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
   return resolved;
+}
+
+/** Reject a symlink at the requested path without following it. */
+export function assertPathWithoutSymlink(path: string): void {
+  try {
+    if (lstatSync(resolve(path)).isSymbolicLink()) {
+      throw new Error(`Storage path cannot contain a symlink: ${path}`);
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+}
+
+/**
+ * Check physical containment and reject symlinks in the owned portion of a
+ * path. OS-level aliases above the configured root are canonicalized safely.
+ */
+export function assertPathWithinRoot(path: string, root: string): void {
+  const candidate = resolve(path);
+  const base = resolve(root);
+  const lexicalRelative = relative(base, candidate);
+  if (lexicalRelative.startsWith(`..${sep}`) || lexicalRelative === '..') {
+    throw new Error(`Path escapes storage root: ${path}`);
+  }
+  assertSymlinksAbsentBetween(candidate, base);
+  const physicalCandidate = physicalPath(candidate);
+  const physicalBase = physicalPath(base);
+  if (
+    physicalCandidate !== physicalBase &&
+    !physicalCandidate.startsWith(`${physicalBase}${sep}`)
+  ) {
+    throw new Error(`Path escapes storage root: ${path}`);
+  }
+}
+
+function assertSymlinksAbsentBetween(path: string, root: string): void {
+  let current = path;
+  while (true) {
+    assertPathWithoutSymlink(current);
+    if (current === root) return;
+    const parent = dirname(current);
+    if (parent === current || (parent !== root && !parent.startsWith(`${root}${sep}`))) {
+      throw new Error(`Path escapes storage root: ${path}`);
+    }
+    current = parent;
+  }
+}
+
+/** Resolve existing ancestors physically and preserve missing suffixes. */
+function physicalPath(path: string): string {
+  const resolved = resolve(path);
+  const missing: string[] = [];
+  let current = resolved;
+  while (true) {
+    try {
+      const physical = realpathSync(current);
+      return join(physical, ...missing.reverse());
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      missing.push(relative(parent, current));
+      current = parent;
+    }
+  }
 }
 
 /** Candidate names used by Electron before the Tau GUI → AO application rename. */

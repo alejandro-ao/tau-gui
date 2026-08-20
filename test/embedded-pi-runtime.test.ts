@@ -1,9 +1,11 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EmbeddedPiRuntime } from '../src/main/runtime/embedded-pi-runtime.js';
-import type { RuntimeStatus } from '../src/shared/domain.js';
+import { RuntimeManager } from '../src/main/services/runtime-manager.js';
+import { SettingsStore } from '../src/main/services/settings.js';
+import { DEFAULT_SETTINGS, type RuntimeStatus } from '../src/shared/domain.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
@@ -17,6 +19,56 @@ afterEach(async () => {
 });
 
 describe('EmbeddedPiRuntime', () => {
+  it('opens an explicit external Pi session without cataloging it as AO-owned', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ao-embedded-pi-'));
+    roots.push(root);
+    const project = join(root, 'project');
+    const agentDir = join(root, 'home', '.pi', 'agent');
+    const sessionRoot = join(root, 'home', '.ao-agent');
+    const externalSession = join(root, 'pi', 'sessions', 'external.jsonl');
+    mkdirSync(project, { recursive: true });
+    mkdirSync(dirname(externalSession), { recursive: true });
+    writeFileSync(
+      externalSession,
+      `${JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: 'external-session',
+        timestamp: '2026-01-01T00:00:00.000Z',
+        cwd: project,
+      })}\n`,
+    );
+    const settings = new SettingsStore(join(root, 'settings.json'));
+    settings.update({
+      ...DEFAULT_SETTINGS,
+      cwd: project,
+      runtime: {
+        ...DEFAULT_SETTINGS.runtime,
+        pi: { ...DEFAULT_SETTINGS.runtime.pi, binary: '/not-used' },
+      },
+    });
+    const manager = new RuntimeManager(settings, () => undefined, {
+      probeExecutable: false,
+      sessionRoot,
+      runtimeFactory: (_kind, sink) =>
+        new EmbeddedPiRuntime(sink, { agentDir, sessionRoot, home: join(root, 'home') }),
+    });
+
+    try {
+      const snapshot = await manager.start({
+        cwd: project,
+        runtime: 'pi',
+        sessionRef: externalSession,
+      });
+
+      expect(snapshot.state?.sessionId).toBe('external-session');
+      expect(snapshot.state?.sessionFile).toBe(externalSession);
+      expect(settings.current.recentSessions).toEqual([]);
+    } finally {
+      await manager.stop();
+    }
+  });
+
   it('starts without an external executable and exposes Pi-owned resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-embedded-pi-'));
     roots.push(root);

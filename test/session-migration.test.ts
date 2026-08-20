@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { migrateLegacySessions } from '../src/main/services/session-migration.js';
@@ -52,6 +61,96 @@ describe('migrateLegacySessions', () => {
     const second = await migrateLegacySessions(settings, legacy, target);
     expect(second.migrated).toBe(0);
     expect(settings.current.recentSessions[0]?.path).toBe(destination);
+  });
+
+  it('retains a same-size same-mtime collision and leaves the catalog unchanged', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'ao-session-migration-'));
+    roots.push(root);
+    const legacy = join(root, 'pi', 'sessions');
+    const target = join(root, 'ao', 'sessions');
+    const source = join(legacy, 'project', 'session.jsonl');
+    const destination = join(target, 'project', 'session.jsonl');
+    mkdirSync(dirname(source), { recursive: true });
+    mkdirSync(dirname(destination), { recursive: true });
+    writeFileSync(source, 'source-1234\n');
+    writeFileSync(destination, 'other-5678\n');
+    const timestamp = new Date('2026-01-01T00:00:00.000Z');
+    utimesSync(source, timestamp, timestamp);
+    utimesSync(destination, timestamp, timestamp);
+    const settings = new SettingsStore(join(root, 'settings.json'));
+    settings.rememberSession({
+      id: 'collision-id',
+      name: null,
+      path: source,
+      cwd: null,
+      runtime: 'pi',
+      lastSeen: 1,
+    });
+
+    const result = await migrateLegacySessions(settings, legacy, target);
+
+    expect(result).toEqual({ migrated: 0, retained: 1, skipped: 0 });
+    expect(readFileSync(destination, 'utf8')).toBe('other-5678\n');
+    expect(settings.current.recentSessions[0]?.path).toBe(source);
+  });
+
+  it('rejects a symlinked source without reading outside the legacy root', async () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-session-migration-'));
+    roots.push(root);
+    const legacy = join(root, 'pi', 'sessions');
+    const target = join(root, 'ao', 'sessions');
+    const outside = join(root, 'outside.jsonl');
+    const source = join(legacy, 'project', 'session.jsonl');
+    mkdirSync(dirname(source), { recursive: true });
+    writeFileSync(outside, 'outside content\n');
+    symlinkSync(outside, source);
+    const settings = new SettingsStore(join(root, 'settings.json'));
+    settings.rememberSession({
+      id: 'symlink-id',
+      name: null,
+      path: source,
+      cwd: null,
+      runtime: 'pi',
+      lastSeen: 1,
+    });
+
+    const result = await migrateLegacySessions(settings, legacy, target);
+
+    expect(result).toEqual({ migrated: 0, retained: 0, skipped: 0 });
+    expect(readFileSync(outside, 'utf8')).toBe('outside content\n');
+    expect(existsSync(join(target, 'project', 'session.jsonl'))).toBe(false);
+    expect(settings.current.recentSessions[0]?.path).toBe(source);
+  });
+
+  it('rejects a symlinked destination parent without writing outside AO storage', async () => {
+    if (process.platform === 'win32') return;
+    const root = mkdtempSync(join(tmpdir(), 'ao-session-migration-'));
+    roots.push(root);
+    const legacy = join(root, 'pi', 'sessions');
+    const target = join(root, 'ao', 'sessions');
+    const source = join(legacy, 'project', 'session.jsonl');
+    const outside = join(root, 'outside');
+    mkdirSync(dirname(source), { recursive: true });
+    mkdirSync(outside, { recursive: true });
+    mkdirSync(target, { recursive: true });
+    writeFileSync(source, 'source content\n');
+    symlinkSync(outside, join(target, 'project'));
+    const settings = new SettingsStore(join(root, 'settings.json'));
+    settings.rememberSession({
+      id: 'destination-symlink-id',
+      name: null,
+      path: source,
+      cwd: null,
+      runtime: 'pi',
+      lastSeen: 1,
+    });
+
+    const result = await migrateLegacySessions(settings, legacy, target);
+
+    expect(result).toEqual({ migrated: 0, retained: 0, skipped: 1 });
+    expect(existsSync(join(outside, 'session.jsonl'))).toBe(false);
+    expect(settings.current.recentSessions[0]?.path).toBe(source);
   });
 
   it('does not import an unreferenced Pi session', async () => {
