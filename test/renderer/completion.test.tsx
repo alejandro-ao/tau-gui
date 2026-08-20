@@ -64,6 +64,45 @@ describe('slash command completion', () => {
     expect(composer(view).value).toBe('');
   });
 
+  it('keeps the top-ranked match selected as the query narrows', async () => {
+    const { view } = await renderApp({ capabilities: { sessionTree: true } });
+    mounted = view;
+    const input = composer(view);
+    // Typing incrementally is what users actually do, and it is what regressed:
+    // a stale selection carried over from an earlier query when the previously
+    // highlighted command still fuzzily matched the longer one.
+    for (const draft of ['/', '/t', '/tr', '/tre', '/tree']) {
+      await type(input, draft);
+      const labels = texts(view.container, '.completion-label');
+      expect(selectedOption(view.container)).toContain(labels[0]);
+    }
+    // The reported case: /tree must win over /new, /name and /commands.
+    expect(texts(view.container, '.completion-label')[0]).toBe('/tree');
+    expect(selectedOption(view.container)).toContain('/tree');
+
+    // Enter therefore runs the command the user is looking at.
+    await press(input, 'Enter');
+    expect(view.container.querySelector('[data-modal-name="tree"]')).not.toBeNull();
+  });
+
+  it('keeps arrow-key selection until the query changes', async () => {
+    const { view, input } = await open();
+    await type(input, '/s');
+    const top = selectedOption(view.container);
+    await press(input, 'ArrowDown');
+    const moved = selectedOption(view.container);
+    expect(moved).not.toBe(top);
+
+    // Re-rendering for an unrelated reason must not snap the highlight back.
+    await press(input, 'ArrowRight');
+    expect(selectedOption(view.container)).toBe(moved);
+
+    // Typing a new character is a new query, so ranking takes over again.
+    await type(input, '/se');
+    const labels = texts(view.container, '.completion-label');
+    expect(selectedOption(view.container)).toContain(labels[0]);
+  });
+
   it('completes the draft text with Tab without running the command', async () => {
     const { view, input } = await open();
     await type(input, '/mode');

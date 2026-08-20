@@ -145,17 +145,24 @@ export function useCompletion(
   const kind: 'slash' | 'path' | null =
     dismissed || items.length === 0 ? null : slash !== null ? 'slash' : path ? 'path' : null;
 
-  // Selection is kept by id so async refreshes do not move the highlight.
+  // Slash completions are computed synchronously from state; the best fuzzy
+  // match always sits at index 0 so reset selection to the top when the items
+  // list changes (new query typed). Do not depend on `index` — user navigation
+  // via ArrowDown/ArrowUp must not be overridden.
+  // Path completions arrive asynchronously from the main process; preserve the
+  // selection by id so debounced refreshes do not move the highlight.
   useEffect(() => {
-    const current = selectedId.current;
-    const found = current === null ? -1 : items.findIndex((item) => item.id === current);
-    if (found >= 0) {
-      if (found !== index) setIndex(found);
-      return;
+    if (kind !== 'slash') {
+      const current = selectedId.current;
+      const found = current === null ? -1 : items.findIndex((item) => item.id === current);
+      if (found >= 0) {
+        setIndex(found);
+        return;
+      }
     }
-    if (index !== 0) setIndex(0);
+    setIndex(0);
     selectedId.current = items[0]?.id ?? null;
-  }, [items, index]);
+  }, [items, kind]);
 
   const select = useCallback(
     (next: number) => {
