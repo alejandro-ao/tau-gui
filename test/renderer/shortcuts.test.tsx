@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { query, type FakeBridge, type Mounted } from './harness.js';
-import { composer, press, renderApp, type } from './ui.js';
+import { composer, press, renderApp, settle, type } from './ui.js';
 
 let mounted: Mounted | null = null;
 
@@ -62,6 +62,34 @@ describe('global shortcuts', () => {
     expect(query(view.container, '.app')).toBeTruthy();
   });
 
+  it('starts a new session in the active session context with Ctrl+N', async () => {
+    const { view, bridge } = await renderApp({
+      agent: {
+        model: null,
+        thinkingLevel: 'off',
+        isStreaming: false,
+        isCompacting: false,
+        sessionFile: '/work/project/.session.jsonl',
+        sessionId: 'session-1',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        pendingMessageCount: 0,
+      },
+    });
+    mounted = view;
+    await settle(view);
+
+    await press(window, 'n', { ctrlKey: true });
+
+    expect(actionsOf(bridge)).toContain('session.new');
+    expect(bridge.calls.find((call) => call.action === 'session.new')?.session).toEqual({
+      runtime: 'tau',
+      sessionId: 'session-1',
+    });
+    expect(actionsOf(bridge)).not.toContain('runtime.openSession');
+  });
+
   it('accepts Cmd as the accelerator on darwin', async () => {
     // The fake bridge reports platform 'darwin'.
     const { view, bridge } = await renderApp({});
@@ -84,7 +112,9 @@ describe('global shortcuts', () => {
     mounted = view;
     await press(window, 'k', { ctrlKey: true });
     bridge.calls.length = 0;
+    await press(window, 'n', { ctrlKey: true });
     await press(window, 'n', { ctrlKey: true, shiftKey: true });
+    await press(window, 'n', { ctrlKey: true, altKey: true });
     await press(window, 'Tab', { shiftKey: true });
     expect(actionsOf(bridge)).toEqual([]);
   });
