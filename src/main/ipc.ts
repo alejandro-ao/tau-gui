@@ -35,6 +35,16 @@ export async function handleRequest(
       return settings.update(request.payload);
     case 'settings.toggleScopedModel':
       return settings.toggleScopedModel(request.payload.runtime, request.payload);
+    case 'settings.addResourceDirectory': {
+      const kind = request.payload.kind;
+      const path = await pickDirectory(
+        context,
+        kind === 'skills' ? 'Add skills directory' : 'Add prompt templates directory',
+      );
+      return path ? settings.addResourceDirectory(kind, path) : null;
+    }
+    case 'settings.removeResourceDirectory':
+      return settings.removeResourceDirectory(request.payload.kind, request.payload.path);
     case 'settings.rememberWorkingDirectory':
       return settings.rememberWorkingDirectory(request.payload.cwd);
     case 'settings.forgetSession':
@@ -158,18 +168,26 @@ export async function handleRequest(
     case 'commands.list':
       return runtime().listCommands();
     case 'resources.list': {
+      const active = runtime();
+      if (active.getResources) {
+        return resourceCatalogSchema.parse(await active.getResources());
+      }
+      // Deterministic legacy RPC tests do not embed Pi; retain their bounded
+      // metadata-only scanner until the test harness moves to injected sessions.
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
         return { skills: [], prompts: [], diagnostics: [] };
       }
       const catalog = await discoverTauResources(snapshot.cwd, {
-        // Bind discovery to the active process's launch-time trust. Mutable
-        // settings may change without restarting that process.
         includeProject: manager.effectiveProjectTrust === 'approve-once',
       });
       return resourceCatalogSchema.parse(catalog);
     }
     case 'context.list': {
+      const active = runtime();
+      if (active.getContextFiles) {
+        return contextFilesSchema.parse(await active.getContextFiles());
+      }
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
       const files = await discoverContextFiles(snapshot.cwd, {
@@ -182,17 +200,8 @@ export async function handleRequest(
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();
       return completePaths(cwd, request.payload.query, request.payload.limit);
     }
-    case 'fs.pickDirectory': {
-      const window = context.window();
-      const options = {
-        title: 'Open project directory',
-        properties: ['openDirectory' as const, 'createDirectory' as const],
-      };
-      const result = window
-        ? await dialog.showOpenDialog(window, options)
-        : await dialog.showOpenDialog(options);
-      return result.canceled ? null : (result.filePaths[0] ?? null);
-    }
+    case 'fs.pickDirectory':
+      return pickDirectory(context, 'Open project directory');
     case 'fs.relativize': {
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();
       return request.payload.paths.map((path) => toDisplayPath(cwd, path));
@@ -239,4 +248,16 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {
+  const options = {
+    title,
+    properties: ['openDirectory' as const, 'createDirectory' as const],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }

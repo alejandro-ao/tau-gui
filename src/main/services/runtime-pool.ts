@@ -1,9 +1,13 @@
+import { realpath, stat } from 'node:fs/promises';
 import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
-import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
+import type { AgentRuntime } from '../runtime/agent-runtime.js';
+import type { SpawnSessionRequest, SpawnSessionResult } from '../runtime/spawn-session-tool.js';
 import type { SettingsStore } from './settings.js';
 import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
-import { RuntimeManager } from './runtime-manager.js';
+import { RuntimeManager, type RuntimeManagerOptions } from './runtime-manager.js';
+
+const MAX_SPAWNED_SESSIONS = 8;
 
 /**
  * Owns one runtime process per live session and routes IPC to the session the
@@ -17,6 +21,8 @@ export class RuntimePool {
   private readonly owners = new Map<string, RuntimeManager>();
   /** Queue scheduling state is independent of RuntimeManager's presentation status. */
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
+  /** App-tool-created runtimes retained for sidebar navigation and bounded recursion. */
+  private readonly spawned = new Set<RuntimeManager>();
   private current: RuntimeManager | null = null;
   private starting: Promise<RuntimeSnapshot> | null = null;
   /** Identity retained while a failed replacement leaves no live session owner. */
@@ -28,13 +34,14 @@ export class RuntimePool {
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
+    private readonly managerOptions: RuntimeManagerOptions = {},
   ) {
     this.queues = new PromptQueueService(broadcast, (message) =>
       broadcast({ type: 'diagnostic', message }),
     );
   }
 
-  get active(): JsonlAgentRuntime {
+  get active(): AgentRuntime {
     if (!this.current) throw new Error('Runtime is not started');
     return this.current.active;
   }
@@ -49,7 +56,7 @@ export class RuntimePool {
    * Routing by identity keeps every command attached to the transcript the
    * renderer acted on, even when it is running in the background.
    */
-  runtimeFor(target?: SessionTarget | null): JsonlAgentRuntime {
+  runtimeFor(target?: SessionTarget | null): AgentRuntime {
     return this.managerFor(target).active;
   }
 
@@ -120,7 +127,11 @@ export class RuntimePool {
 
   snapshot(): RuntimeSnapshot {
     if (this.current) return this.current.snapshot();
-    const snapshot = new RuntimeManager(this.settings, () => undefined).snapshot();
+    const snapshot = new RuntimeManager(
+      this.settings,
+      () => undefined,
+      this.managerOptions,
+    ).snapshot();
     if (!this.failedRestart) return snapshot;
     return {
       ...snapshot,
@@ -226,6 +237,52 @@ export class RuntimePool {
     );
   }
 
+  /**
+   * Starts an independent Pi session without changing the transcript being
+   * viewed. Its first prompt enters the main-owned queue, so the tool can
+   * return immediately while activity and completion remain visible in the
+   * sidebar.
+   */
+  async spawnSession(
+    request: SpawnSessionRequest,
+    signal?: AbortSignal,
+  ): Promise<SpawnSessionResult> {
+    throwIfSpawnAborted(signal);
+    const cwd = await existingDirectory(request.cwd);
+    return this.enqueueTransition(async () => {
+      throwIfSpawnAborted(signal);
+      if (this.spawned.size >= MAX_SPAWNED_SESSIONS) {
+        throw new Error(
+          `Cannot spawn more than ${MAX_SPAWNED_SESSIONS} background sessions at once`,
+        );
+      }
+
+      const manager = this.createManager();
+      try {
+        await manager.start({ cwd, runtime: 'pi' });
+        throwIfSpawnAborted(signal);
+        this.index(manager);
+        this.claimSnapshot(manager);
+        this.spawned.add(manager);
+        if (request.name) await manager.nameSession(request.name);
+        throwIfSpawnAborted(signal);
+
+        const target = targetFor(manager);
+        this.queues.enqueue(target, 'follow-up', request.prompt);
+        void this.schedule(manager);
+        const state = manager.snapshot().state;
+        return {
+          sessionId: target.sessionId,
+          sessionFile: state?.sessionFile ?? null,
+          cwd,
+        };
+      } catch (error) {
+        await this.remove(manager);
+        throw error;
+      }
+    });
+  }
+
   /** Selects an existing process or launches a new process for the session. */
   async activateSession(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(() => this.activateSessionNow(ref, cwd));
@@ -328,6 +385,7 @@ export class RuntimePool {
     this.removeOwnership(manager);
     this.managers.delete(manager);
     this.runLifecycles.delete(manager);
+    this.spawned.delete(manager);
     this.current = null;
     return snapshot;
   }
@@ -339,6 +397,7 @@ export class RuntimePool {
     this.owners.clear();
     this.managers.clear();
     this.runLifecycles.clear();
+    this.spawned.clear();
     await Promise.allSettled(managers.map((manager) => manager.stop()));
   }
 
@@ -367,7 +426,11 @@ export class RuntimePool {
   }
 
   private createManager(): RuntimeManager {
-    const manager = new RuntimeManager(this.settings, (event) => this.handleEvent(manager, event));
+    const manager = new RuntimeManager(
+      this.settings,
+      (event) => this.handleEvent(manager, event),
+      this.managerOptions,
+    );
     this.managers.add(manager);
     this.runLifecycles.set(manager, freshLifecycle(null));
     return manager;
@@ -554,6 +617,7 @@ export class RuntimePool {
     this.removeOwnership(manager);
     this.managers.delete(manager);
     this.runLifecycles.delete(manager);
+    this.spawned.delete(manager);
     if (this.current === manager) this.current = null;
   }
 }
@@ -620,4 +684,20 @@ function matches(manager: RuntimeManager, target: SessionTarget): boolean {
 
 function sameTarget(left: SessionTarget, right: SessionTarget): boolean {
   return left.runtime === right.runtime && left.sessionId === right.sessionId;
+}
+
+function throwIfSpawnAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new Error('Session spawn was cancelled');
+}
+
+async function existingDirectory(path: string): Promise<string> {
+  let resolved: string;
+  try {
+    resolved = await realpath(path);
+    const info = await stat(resolved);
+    if (!info.isDirectory()) throw new Error('not a directory');
+  } catch {
+    throw new Error(`Session working directory does not exist or is not a directory: ${path}`);
+  }
+  return resolved;
 }

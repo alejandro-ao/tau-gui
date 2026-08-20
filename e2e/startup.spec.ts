@@ -24,7 +24,7 @@ test('window opens, connects to the runtime, and reports session context', async
   await expect(sidebar.locator('.sidebar-title')).toContainText('untitled session');
   await expect(sidebar).toContainText('activity');
   await expect(sidebar.locator('.version-mark')).toContainText('τ = 2π');
-  await expect(sidebar.locator('.version-mark')).toContainText('tau');
+  await expect(sidebar.locator('.version-mark')).toContainText('pi');
 
   // Status row reports the working directory and the active model.
   const status = page.getByTestId('status-row');

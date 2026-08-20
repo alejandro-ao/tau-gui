@@ -47,6 +47,8 @@ function settings(patch: Partial<AppSettings> = {}): AppSettings {
     runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
     scopedModels: { tau: [], pi: [] },
     recentSessions: [],
+    customSkillDirectories: [],
+    customPromptDirectories: [],
     ...patch,
     workingDirectories: patch.workingDirectories ?? [VISUAL_PROJECT],
   };

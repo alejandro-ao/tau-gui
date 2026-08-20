@@ -1,29 +1,21 @@
 # Tau GUI
 
-A terminal-inspired Electron desktop frontend for the Tau and Pi coding-agent
-runtimes.
+A self-contained, terminal-inspired Electron coding-agent application powered
+by an embedded, pinned Pi SDK. Its desktop experience remains modeled after
+Tau's Textual TUI — transcript-first, no permanent header or shortcut footer,
+vertical role bars, and keyboard-first pickers.
 
-Tau GUI launches either runtime over its strict JSONL RPC mode and presents one
-shared desktop experience modeled after Tau's Textual TUI — transcript-first, no
-permanent header or shortcut footer, vertical role bars, keyboard-first pickers.
-
-```json
-{
-  "agent_runtime": "tau"
-}
-```
-
-Switching `agent_runtime` to `pi` preserves the ordinary coding-agent workflow.
-Renderer components never branch on which runtime is attached.
+Pi runs in Electron's main process behind validated preload IPC. Renderer
+components never import Pi or gain Node, process, credential, or filesystem
+access.
 
 ## Status
 
-Phases 0–5 of [issue #1](https://github.com/alejandro-ao/tau-gui/issues/1) are
-implemented: foundation, usable chat, Tau visual parity, interaction parity,
-models/context/sessions, and Tau/Pi interchangeability. Phase 6 waits on upstream
-RPC surfaces; Phase 7 packaging is configured but signing, updates, and
-clean-machine release smoke tests still need credentials and hardware. See
-[docs/roadmap-status.md](docs/roadmap-status.md).
+The first slice of the Pi embedding migration is implemented and tracked in
+[issue #17](https://github.com/alejandro-ao/tau-gui/issues/17). Ordinary runtime
+operations now use Pi's SDK directly; remaining Pi-native sessions, auth,
+extension UI, and removal of the legacy deterministic RPC test adapter are
+tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
 
 ## What works
 
@@ -32,6 +24,10 @@ clean-machine release smoke tests still need credentials and hardware. See
   (`Shift+Cmd+N` on macOS) opens the native folder chooser; `/new` starts in the
   active session's directory without prompting.
 - Prompt and watch text, thinking, and tool activity stream live.
+- Let an agent start independent background sessions with the app-owned
+  `spawn_session` tool. A target may be the current directory or another existing
+  directory/worktree; spawned work appears in the sessions rail without changing
+  the transcript being viewed.
 - Cancel (`Esc`), steer (`Enter` while running), or queue follow-ups
   (`Alt+Enter`) without waiting for the current run.
 - Inspect exact tool commands, arguments, output, and patches through collapsed
@@ -43,8 +39,9 @@ clean-machine release smoke tests still need credentials and hardware. See
 - Compact, name, branch, resume, and export sessions.
 - Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file
   completion, drag/drop paths, three themes, and native completion notifications.
-- Discover Tau custom prompts and skills from user/project `.tau` and `.agents`
-  directories; browse with `/prompts` or `/skills`, then invoke them from the composer.
+- Discover Pi skills and custom prompts from project-root and home `.pi`/`.agents`
+  locations, plus user-selected skill or prompt directories; browse with `/prompts`
+  or `/skills`, then invoke them from the composer.
 
 Optional protocol surfaces that one runtime lacks are shown disabled with the
 reason. Nothing is faked.
@@ -56,9 +53,9 @@ Electron renderer      React UI, normalized reducer state, virtualized transcrip
         ↓ typed, zod-validated IPC
 Electron preload       narrow context-isolated bridge (invoke + subscribe)
         ↓ Electron IPC
-Electron main          runtime manager, settings, filesystem, notifications, diagnostics
-        ↓ strict LF-only JSONL
-Runtime subprocess     tau --mode rpc | pi --mode rpc
+Electron main          app services + normalized embedded-Pi adapter
+        ↓ direct typed SDK calls/events
+Pinned Pi SDK           sessions, models, resources, tools, providers
 ```
 
 The renderer has no Node integration, spawns nothing, never reads credentials or
@@ -71,8 +68,8 @@ session files, and consumes only normalized application-domain events. Details:
 ## Requirements
 
 - Node.js 22+ for development.
-- An installed `tau` and/or `pi` binary on `PATH` (settings can point at an
-  absolute path; the settings dialog has a `detect` check).
+- Provider credentials configured through Pi's standard agent directory for real
+  model requests. No separately installed Tau or Pi executable is required.
 
 ## Quick start
 

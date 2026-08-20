@@ -84,18 +84,16 @@ export function useCompletion(
         section: 'Commands',
       }));
     // `/skill:` is an expansion prefix, not a GUI command: accepting it keeps
-    // completion open so the skill list takes over, like Tau's skill command.
-    if (state.snapshot.runtime === 'tau') {
-      commandItems.push({
-        id: 'skill:invoke',
-        label: '/skill:',
-        detail: 'Expand a loaded skill into your prompt',
-        badge: 'skill',
-        insert: '/skill:',
-        keepOpen: true,
-        section: 'Commands',
-      });
-    }
+    // completion open so Pi's skill list takes over.
+    commandItems.push({
+      id: 'skill:invoke',
+      label: '/skill:',
+      detail: 'Expand a loaded skill into your prompt',
+      badge: 'skill',
+      insert: '/skill:',
+      keepOpen: true,
+      section: 'Commands',
+    });
     const promptItems: CompletionItem[] = state.resources.prompts.map((prompt) => ({
       id: `prompt:${prompt.name}`,
       label: `/${prompt.name}`,
@@ -111,7 +109,7 @@ export function useCompletion(
       ...fuzzyFilter(commandItems, query, haystack),
       ...fuzzyFilter(promptItems, query, haystack),
     ];
-  }, [commands, slash, state.resources, state.snapshot.runtime]);
+  }, [commands, slash, state.resources]);
 
   const pathItems = useMemo<CompletionItem[]>(
     () =>

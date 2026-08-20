@@ -106,8 +106,9 @@ describe('slash command completion', () => {
     expect(actionsOf(bridge)).not.toContain('agent.prompt');
   });
 
-  it('completes skills and sends explicit invocations to Tau', async () => {
+  it('completes skills and sends explicit invocations to embedded Pi', async () => {
     const { view, bridge } = await renderApp({
+      runtime: 'pi',
       results: {
         'resources.list': {
           skills: [
@@ -169,8 +170,9 @@ describe('slash command completion', () => {
     expect(view.container.querySelector('[data-modal-name="model"]')).toBeNull();
   });
 
-  it('lists builtin commands by default with custom prompts in their own section', async () => {
+  it('lists Pi skill prefix and custom prompts in their own section', async () => {
     const { view } = await renderApp({
+      runtime: 'pi',
       results: {
         'resources.list': {
           skills: [

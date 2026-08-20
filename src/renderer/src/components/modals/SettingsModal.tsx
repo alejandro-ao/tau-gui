@@ -1,38 +1,17 @@
-import { useState, type ReactNode } from 'react';
-import type { RuntimeKind, RuntimeSettings } from '../../../../shared/domain.js';
-import type { RuntimeProbe } from '../../../../shared/ipc.js';
+import type { ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
 import { Modal } from './Modal.js';
 
-const TRUST_EXPLANATION =
-  'Project trust controls ambient resource loading at launch (approve-once maps to --approve, decline-once to --no-approve). It is not a sandbox and does not isolate the runtime from your machine.';
-
-/** GUI-owned settings. Runtime settings are stored per runtime kind. */
+/** GUI-owned settings. Agent/provider settings are owned by embedded Pi. */
 export function SettingsModal(): ReactNode {
   const { state, actions } = useStore();
   const settings = state.settings;
-  const kind = settings.agentRuntime;
-  const runtime = settings.runtime[kind];
-  const [extraArgs, setExtraArgs] = useState(runtime.extraArgs.join(' '));
-  const [probe, setProbe] = useState<RuntimeProbe | null>(null);
-
-  const detect = (): void => {
-    void actions.probeRuntime(kind, runtime.binary).then(setProbe);
-  };
-
-  const patchRuntime = (patch: Partial<RuntimeSettings>): void => {
-    const next: Record<RuntimeKind, RuntimeSettings> = {
-      ...settings.runtime,
-      [kind]: { ...runtime, ...patch },
-    };
-    void actions.updateSettings({ runtime: next });
-  };
 
   return (
     <Modal
       name="settings"
       title="settings"
-      subtitle="stored separately from Tau/Pi TUI configuration"
+      subtitle="desktop preferences · agent engine: embedded Pi"
       onClose={() => actions.openModal(null)}
       footer={
         <button
@@ -45,81 +24,8 @@ export function SettingsModal(): ReactNode {
       }
     >
       <div className="settings-grid">
-        <label htmlFor="setting-runtime">runtime</label>
-        <select
-          id="setting-runtime"
-          value={kind}
-          onChange={(event) => void actions.switchRuntime(event.target.value as RuntimeKind)}
-        >
-          <option value="tau">tau</option>
-          <option value="pi">pi</option>
-        </select>
-
-        <label htmlFor="setting-binary">binary</label>
-        <input
-          id="setting-binary"
-          type="text"
-          spellCheck={false}
-          value={runtime.binary}
-          onChange={(event) => {
-            setProbe(null);
-            patchRuntime({ binary: event.target.value || kind });
-          }}
-        />
-
-        <span />
-        <div className="settings-inline">
-          <button
-            type="button"
-            className="ghost-button"
-            onClick={detect}
-            data-testid="detect-runtime"
-          >
-            detect
-          </button>
-          {probe ? (
-            <span
-              className={probe.error ? 'settings-hint error' : 'settings-hint'}
-              data-testid="detect-result"
-            >
-              {probe.error ??
-                `${probe.resolved ?? runtime.binary}${probe.version ? ` · ${probe.version}` : ''}`}
-            </span>
-          ) : null}
-        </div>
-
-        <label htmlFor="setting-provider">provider</label>
-        <input
-          id="setting-provider"
-          type="text"
-          spellCheck={false}
-          value={runtime.provider ?? ''}
-          placeholder="runtime default"
-          onChange={(event) => patchRuntime({ provider: event.target.value || null })}
-        />
-
-        <label htmlFor="setting-model">model</label>
-        <input
-          id="setting-model"
-          type="text"
-          spellCheck={false}
-          value={runtime.model ?? ''}
-          placeholder="runtime default"
-          onChange={(event) => patchRuntime({ model: event.target.value || null })}
-        />
-
-        <label htmlFor="setting-args">extra args</label>
-        <input
-          id="setting-args"
-          type="text"
-          spellCheck={false}
-          value={extraArgs}
-          placeholder="passed to the runtime as an argument array"
-          onChange={(event) => setExtraArgs(event.target.value)}
-          onBlur={() =>
-            patchRuntime({ extraArgs: extraArgs.split(/\s+/).filter((part) => part.length > 0) })
-          }
-        />
+        <span>agent engine</span>
+        <span data-testid="embedded-runtime">Pi SDK · bundled with the app</span>
 
         <label htmlFor="setting-cwd">project</label>
         <div className="settings-inline">
@@ -136,16 +42,57 @@ export function SettingsModal(): ReactNode {
           </button>
         </div>
 
-        <label htmlFor="setting-trust">project trust</label>
-        <select
-          id="setting-trust"
-          value={settings.projectTrust}
-          onChange={(event) => void actions.updateSettings({ projectTrust: event.target.value })}
-        >
-          <option value="default">default (runtime decides)</option>
-          <option value="approve-once">approve-once (--approve)</option>
-          <option value="decline-once">decline-once (--no-approve)</option>
-        </select>
+        <span className="settings-directory-label">skill directories</span>
+        <div className="settings-resource-directories">
+          {settings.customSkillDirectories.map((path) => (
+            <div className="settings-resource-directory" key={path}>
+              <span className="dim" title={path}>
+                {path}
+              </span>
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={`Remove skill directory ${path}`}
+                onClick={() => void actions.removeResourceDirectory('skills', path)}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void actions.addResourceDirectory('skills')}
+          >
+            add…
+          </button>
+        </div>
+
+        <span className="settings-directory-label">prompt directories</span>
+        <div className="settings-resource-directories">
+          {settings.customPromptDirectories.map((path) => (
+            <div className="settings-resource-directory" key={path}>
+              <span className="dim" title={path}>
+                {path}
+              </span>
+              <button
+                type="button"
+                className="ghost-button"
+                aria-label={`Remove prompt directory ${path}`}
+                onClick={() => void actions.removeResourceDirectory('prompts', path)}
+              >
+                remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            className="ghost-button"
+            onClick={() => void actions.addResourceDirectory('prompts')}
+          >
+            add…
+          </button>
+        </div>
 
         <label htmlFor="setting-theme">theme</label>
         <select
@@ -192,10 +139,14 @@ export function SettingsModal(): ReactNode {
           onChange={(event) => void actions.updateSettings({ showThinking: event.target.checked })}
         />
       </div>
-      <p className="modal-note">{TRUST_EXPLANATION}</p>
       <p className="modal-note">
-        Changing the runtime restarts the agent process. Your composer draft and every GUI setting
-        are preserved.
+        Pi scans skills and prompts from project-root and home <code>.pi</code>/<code>.agents</code>
+        locations. Additional directories are loaded after selection and the active session is
+        restarted automatically.
+      </p>
+      <p className="modal-note">
+        Third-party Pi extensions remain disabled until the desktop extension trust and UI contract
+        is implemented.
       </p>
     </Modal>
   );

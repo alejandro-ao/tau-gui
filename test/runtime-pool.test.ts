@@ -709,6 +709,118 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().cwd).toBe(chosen);
   });
 
+  it('spawns a queued background session without changing the viewed transcript', async () => {
+    const settings = makeSettings();
+    const events: BridgeEvent[] = [];
+    pool = new RuntimePool(settings, (event) => events.push(event));
+    process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
+    try {
+      await pool.start();
+      const viewedId = pool.snapshot().state?.sessionId;
+
+      const spawned = await pool.spawnSession({
+        cwd: process.cwd(),
+        prompt: 'background work',
+        name: 'delegated task',
+      });
+
+      expect(pool.snapshot().state?.sessionId).toBe(viewedId);
+      expect(spawned.sessionId).not.toBe(viewedId);
+      expect(spawned.cwd).toBe(process.cwd());
+      expect(settings.current.recentSessions).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            id: spawned.sessionId,
+            name: 'delegated task',
+            runtime: 'pi',
+          }),
+        ]),
+      );
+
+      const target = { runtime: 'pi', sessionId: spawned.sessionId } as const;
+      await waitFor(async () => {
+        const messages = await pool!.runtimeFor(target).getMessages();
+        return messages.some(
+          (message) => message.role === 'user' && message.text === 'background work',
+        );
+      });
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'sessionActivity' && event.activity.sessionId === spawned.sessionId,
+        ),
+      ).toBe(true);
+    } finally {
+      delete process.env['FAKE_RUNTIME_UNIQUE_SESSION'];
+    }
+  });
+
+  it('rejects a background session whose working directory does not exist', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+
+    await expect(
+      pool.spawnSession({ cwd: '/definitely/missing/tau-gui-cwd', prompt: 'work' }),
+    ).rejects.toThrow('does not exist or is not a directory');
+
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
+
+  it('stops a spawned runtime when cancellation arrives during startup', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const internals = pool as unknown as {
+      createManager: () => RuntimeManager;
+      managers: Set<RuntimeManager>;
+      spawned: Set<RuntimeManager>;
+    };
+    const createManager = internals.createManager.bind(pool);
+    const children: RuntimeManager[] = [];
+    let reportStarted = (): void => undefined;
+    let releaseStart = (): void => undefined;
+    const started = new Promise<void>((resolve) => {
+      reportStarted = resolve;
+    });
+    const release = new Promise<void>((resolve) => {
+      releaseStart = resolve;
+    });
+    internals.createManager = () => {
+      const manager = createManager();
+      children.push(manager);
+      const start = manager.start.bind(manager);
+      manager.start = async (options) => {
+        const snapshot = await start(options);
+        reportStarted();
+        await release;
+        return snapshot;
+      };
+      return manager;
+    };
+
+    const controller = new AbortController();
+    const spawning = pool.spawnSession(
+      { cwd: process.cwd(), prompt: 'must not run after cancellation' },
+      controller.signal,
+    );
+    const rejection = expect(spawning).rejects.toThrow('Session spawn was cancelled');
+    await started;
+    controller.abort();
+    releaseStart();
+    await rejection;
+
+    expect(children[0]?.isStarted).toBe(false);
+    expect(internals.managers.size).toBe(1);
+    expect(internals.spawned.size).toBe(0);
+    expect(
+      settings.current.recentSessions.some(
+        (session) => session.firstMessage === 'must not run after cancellation',
+      ),
+    ).toBe(false);
+  });
+
   it('does not revive an idle process removed before picker startup fails', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

@@ -51,6 +51,13 @@ const safePathText = z
     'Path contains control characters',
   );
 
+/**
+ * Pi walks AGENTS.md files from the working directory through its ancestors and
+ * may also load the global agent file. Keep the metadata channel bounded
+ * without assuming Tau's former fixed set of four locations.
+ */
+export const MAX_CONTEXT_FILES = 64;
+
 /** Metadata only: AGENTS.md contents never cross IPC. */
 export const contextFilesSchema = z
   .array(
@@ -61,7 +68,7 @@ export const contextFilesSchema = z
       })
       .strict(),
   )
-  .max(4);
+  .max(MAX_CONTEXT_FILES);
 export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 
 /**
@@ -100,17 +107,26 @@ export const settingsPatchSchema = z
     turnNotification: z.enum(['desktop', 'off']),
     showThinking: z.boolean(),
     cwd: z.string().nullable(),
-    workingDirectories: z.array(z.string().min(1)).max(100),
+    workingDirectories: z.array(safePathText).max(100),
     projectTrust,
     runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
     scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
   })
+  .strict()
   .partial();
 
 export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('settings.get') }),
   z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
   z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
+  z.object({
+    action: z.literal('settings.addResourceDirectory'),
+    payload: z.object({ kind: z.enum(['skills', 'prompts']) }).strict(),
+  }),
+  z.object({
+    action: z.literal('settings.removeResourceDirectory'),
+    payload: z.object({ kind: z.enum(['skills', 'prompts']), path: safePathText }).strict(),
+  }),
   z.object({
     action: z.literal('settings.rememberWorkingDirectory'),
     payload: z.object({ cwd: z.string().min(1) }).strict(),
@@ -281,6 +297,8 @@ export interface IpcResultMap {
   'settings.get': AppSettings;
   'settings.update': AppSettings;
   'settings.toggleScopedModel': AppSettings;
+  'settings.addResourceDirectory': AppSettings | null;
+  'settings.removeResourceDirectory': AppSettings;
   'settings.rememberWorkingDirectory': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;

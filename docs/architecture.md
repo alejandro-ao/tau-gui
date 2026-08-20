@@ -1,6 +1,6 @@
 # Architecture
 
-Tau GUI is a desktop frontend, not an embedded terminal. It recreates Tau's terminal-inspired interface with native web layout while driving coding-agent runtimes as subprocesses.
+Tau GUI is a self-contained desktop coding-agent application, not an embedded terminal. It recreates Tau's terminal-inspired interface with native web layout while embedding Pi's SDK behind Electron's main-process boundary.
 
 ## Layers
 
@@ -13,14 +13,14 @@ Preload
        ↓ Electron IPC
 Main process
   per-session prompt scheduler, runtime pool/managers, settings, filesystem, notifications
-       ↓ runtime adapter + strict JSONL
-Runtime processes
-  one `tau --mode rpc` or `pi --mode rpc` process per live session
+       ↓ normalized embedded-Pi adapter
+Pinned Pi SDK
+  one AgentSession/AgentSessionRuntime owner per live desktop session
 ```
 
 ## Core rule
 
-The renderer never consumes raw runtime events. Runtime adapters normalize wire messages into stable application-domain types. This allows the runtime to be selected through configuration without spreading Tau/Pi branches through UI components.
+The renderer never consumes Pi SDK objects or raw Pi events. The embedded adapter normalizes them into stable application-domain types. This preserves a narrow, validated IPC contract and keeps credentials, environment data, tools, extensions, and filesystem access out of the sandboxed renderer.
 
 ## Session boundary
 
@@ -32,6 +32,8 @@ Editable prompts entered during a running turn are owned by a per-session main-p
 
 Session-scoped commands are addressed, not implied. Every renderer request may carry the `{ runtime, sessionId }` transcript it was issued for, and the pool routes prompts, steering, aborts, reads, model/thinking changes, naming, forking, compaction, export, and direct shell commands to the process that owns that session. Session-scoped IPC is not serialized against lifecycle transitions, so resolving through "whatever is selected right now" lets a switch already in flight redirect a prompt or a transcript read into the wrong session. Authoritative reads are bound to the same identity and rejected by the reducer when they describe another transcript, and submissions are refused while a session is still opening because their transcript is not yet known. An empty session never reuses a runtime that is mid-run: `new_session` swaps the session underneath the live agent, so the remainder of that turn would be written into the new transcript and both would be corrupted; busy runtimes stay in the background and the new session gets its own process. A failed activation is reconciled instead of silently leaving the cleared view attached to a still-streaming background runtime.
 
-## Initial runtime limitations
+## Migration state
 
-The common RPC surface supports text prompting, streaming, tools, steering, follow-ups, cancellation, model/thinking controls, direct bash, compaction, session inspection, tree/fork, naming, and HTML export. Optional behavior such as image prompts, cancellable direct bash, queue/retry controls, cloning, extension dialogs, login/logout, resource reload, and system-prompt/tool inspection must be capability-gated until both runtime adapters support it.
+Production uses the embedded Pi adapter. It already has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, resources, system prompts, tools, and provider authentication. Desktop flows are still capability-gated until each surface has bounded domain types and tests.
+
+The JSONL adapter remains only as an explicitly enabled deterministic E2E/contract-test harness (`TAU_GUI_TEST_RPC_RUNTIME=1`). It is not selected by application settings and is scheduled for removal once tests inject fake Pi sessions/services directly. Third-party Pi extensions are disabled in the embedded loader until extension trust and desktop UI contracts are implemented.

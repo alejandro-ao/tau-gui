@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import { DEFAULT_SETTINGS } from '../../src/shared/domain.js';
 import { query, type Mounted } from './harness.js';
 import { click, composer, press, renderApp, type } from './ui.js';
 
@@ -24,28 +24,46 @@ describe('composer draft persistence', () => {
     expect(composer(view).value).toBe('half written prompt');
   });
 
-  it('survives a runtime switch and keeps GUI settings', async () => {
+  it('presents bundled Pi without a runtime selector and keeps GUI settings', async () => {
     const { view, bridge } = await renderApp({ settings: { theme: 'high-contrast' } });
     mounted = view;
-    await type(composer(view), 'draft across runtimes');
+    await type(composer(view), 'draft in embedded pi');
 
     await press(window, 'k', { ctrlKey: true });
     const picker = query<HTMLInputElement>(view.container, '.picker-input');
     await type(picker, '/settings');
     await press(picker, 'Enter');
-    const select = query<HTMLSelectElement>(view.container, '#setting-runtime');
-    await act(async () => {
-      select.value = 'pi';
-      select.dispatchEvent(new Event('change', { bubbles: true }));
-      await Promise.resolve();
+
+    expect(view.container.querySelector('#setting-runtime')).toBeNull();
+    expect(query(view.container, '[data-testid="embedded-runtime"]').textContent).toContain(
+      'Pi SDK',
+    );
+    expect(bridge.payloads('settings.update')).toEqual([]);
+    expect(composer(view).value).toBe('draft in embedded pi');
+    expect(document.documentElement.dataset['theme']).toBe('high-contrast');
+  });
+
+  it('adds custom resource directories and restarts Pi so they are loaded', async () => {
+    const { view, bridge } = await renderApp({});
+    mounted = view;
+    bridge.setResult('settings.addResourceDirectory', {
+      ...DEFAULT_SETTINGS,
+      customSkillDirectories: ['/shared/skills'],
     });
+
+    await press(window, 'k', { ctrlKey: true });
+    const picker = query<HTMLInputElement>(view.container, '.picker-input');
+    await type(picker, '/settings');
+    await press(picker, 'Enter');
+    const add = [...view.container.querySelectorAll('button')].find(
+      (button) => button.textContent?.trim() === 'add…',
+    );
+    if (!add) throw new Error('Missing add skills directory button');
+    await click(add);
     await view.flush();
 
-    expect(bridge.payloads('settings.update')).toEqual([{ agentRuntime: 'pi' }]);
-    // The runtime is restarted, the transcript cleared, the draft untouched.
-    expect(bridge.payloads('runtime.start')).toEqual([{ cwd: null }]);
-    expect(composer(view).value).toBe('draft across runtimes');
-    expect(document.documentElement.dataset['theme']).toBe('high-contrast');
+    expect(bridge.payloads('settings.addResourceDirectory')).toEqual([{ kind: 'skills' }]);
+    expect(bridge.payloads('runtime.restart')).toEqual([undefined]);
   });
 
   it('survives a session switch', async () => {

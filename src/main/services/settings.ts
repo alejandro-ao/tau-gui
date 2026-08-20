@@ -10,6 +10,7 @@ import {
 
 const MAX_RECENT_SESSIONS = 30;
 const MAX_WORKING_DIRECTORIES = 100;
+const MAX_RESOURCE_DIRECTORIES = 100;
 
 /**
  * GUI-owned settings, persisted independently from Tau/Pi TUI configuration.
@@ -47,6 +48,29 @@ export class SettingsStore {
       ...this.settings,
       cwd,
       workingDirectories: prependDirectory(this.settings.workingDirectories, cwd),
+    };
+    this.write();
+    return this.settings;
+  }
+
+  /** Persists a native-chooser-selected resource directory without renderer path authority. */
+  addResourceDirectory(kind: 'skills' | 'prompts', path: string): AppSettings {
+    const key = kind === 'skills' ? 'customSkillDirectories' : 'customPromptDirectories';
+    this.settings = {
+      ...this.settings,
+      [key]: [...this.settings[key].filter((directory) => directory !== path), path].slice(
+        -MAX_RESOURCE_DIRECTORIES,
+      ),
+    };
+    this.write();
+    return this.settings;
+  }
+
+  removeResourceDirectory(kind: 'skills' | 'prompts', path: string): AppSettings {
+    const key = kind === 'skills' ? 'customSkillDirectories' : 'customPromptDirectories';
+    this.settings = {
+      ...this.settings,
+      [key]: this.settings[key].filter((directory) => directory !== path),
     };
     this.write();
     return this.settings;
@@ -101,11 +125,11 @@ export class SettingsStore {
 
   private read(): AppSettings {
     try {
-      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS };
+      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
       const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'));
       return mergeSettings(parsed);
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
     }
   }
 
@@ -120,7 +144,9 @@ export class SettingsStore {
 }
 
 export function mergeSettings(value: unknown): AppSettings {
-  if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS };
+  if (typeof value !== 'object' || value === null) {
+    return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
+  }
   const wire = value as Record<string, unknown>;
   const runtime =
     typeof wire['runtime'] === 'object' && wire['runtime'] !== null
@@ -149,7 +175,9 @@ export function mergeSettings(value: unknown): AppSettings {
     .slice(0, MAX_WORKING_DIRECTORIES);
 
   return {
-    agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
+    // Runtime selection is obsolete: the application now embeds Pi. Keeping
+    // the field in the persisted schema makes migration non-destructive.
+    agentRuntime: 'pi',
     theme: pick(
       'theme',
       (input) => input === 'tau-light' || input === 'high-contrast' || input === 'pure-black',
@@ -164,6 +192,14 @@ export function mergeSettings(value: unknown): AppSettings {
     showThinking: wire['showThinking'] !== false,
     cwd,
     workingDirectories,
+    customSkillDirectories: readDirectories(wire['customSkillDirectories']).slice(
+      0,
+      MAX_RESOURCE_DIRECTORIES,
+    ),
+    customPromptDirectories: readDirectories(wire['customPromptDirectories']).slice(
+      0,
+      MAX_RESOURCE_DIRECTORIES,
+    ),
     projectTrust: pick(
       'projectTrust',
       (input) => input === 'approve-once' || input === 'decline-once',
@@ -176,6 +212,23 @@ export function mergeSettings(value: unknown): AppSettings {
     scopedModels: mergeScopedModels(wire['scopedModels']),
     recentSessions,
   };
+}
+
+function readDirectories(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .filter(
+          (item): item is string =>
+            typeof item === 'string' &&
+            item.length > 0 &&
+            item.length <= 4_096 &&
+            ![...item].some((character) => {
+              const codePoint = character.codePointAt(0) ?? 0;
+              return codePoint <= 0x1f || codePoint === 0x7f;
+            }),
+        )
+        .filter((item, index, all) => all.indexOf(item) === index)
+    : [];
 }
 
 function prependDirectory(directories: string[], cwd: string): string[] {

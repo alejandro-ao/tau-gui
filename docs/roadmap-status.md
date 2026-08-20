@@ -1,6 +1,22 @@
 # Roadmap status
 
-Tracks issue #1. Update this file whenever behavior changes.
+Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration is [issue #17](https://github.com/alejandro-ao/tau-gui/issues/17).
+
+## Embedded Pi migration — initial slice ✅
+
+- Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
+- Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
+- Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- The app injects a trusted `spawn_session` SDK tool that creates an independently
+  running session in the current directory or another existing directory. The
+  main-process runtime pool owns its queue, lifecycle, and sidebar activity.
+- Removed runtime/binary/provider/argument/trust controls from the active settings UI and migrated persisted runtime selection to Pi.
+- Removed Tau/Pi switch entries from the command palette.
+- Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
+- The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
+- Remaining session listing/clone/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+
+## Historical RPC roadmap
 
 ## Phase 0 — foundation ✅
 
@@ -55,19 +71,22 @@ Tracks issue #1. Update this file whenever behavior changes.
   prompting because RPC `prompt` does not execute TUI commands. Arguments work for
   `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
   Runtime-reported built-ins are deduplicated against GUI handlers.
-- Tau skills and prompt templates are discovered from the same user/project
-  `.tau` and `.agents` directories with the same precedence and reserved-name
-  rules as Tau. `/skills` and `/prompts` open searchable pickers, and selected
-  invocations are sent through Tau's prompt RPC for authoritative expansion.
-  Slash completion mirrors Tau's TUI categories: typing `/` lists the builtin
-  commands (including the `/skill:` prefix) under a `Commands` heading with
-  custom prompt templates under `Custom prompts`; individual skills are offered
-  only once `/skill:` has been typed. The sidebar summarizes the aggregate skill
-  footprint as an approximate token count (for example, `~2k tokens`), using a
-  deterministic one-token-per-four-characters estimate over each `SKILL.md`.
-  Only metadata, including that numeric estimate, crosses IPC; resource contents
-  remain in Tau/main-process filesystem access. Project resources are omitted
-  unless launch-time project trust is explicitly approved.
+- Skills and prompt templates come from the embedded Pi SDK's authoritative
+  resource loader. The desktop adapter supplies project-root and home
+  `.pi`/`.agents` skill and prompt locations (including the standard
+  `~/.pi/agent` directories), plus separately persisted user-selected skill and
+  prompt directories. Changing a custom directory restarts the active session so
+  Pi reloads the actual expansion catalog. `/skills` and `/prompts` open searchable
+  pickers, and selected invocations are
+  sent through Pi for authoritative expansion. Slash completion mirrors Pi's
+  categories: typing `/` lists builtins and custom prompt templates under
+  separate headings; individual skills are offered only once `/skill:` has been
+  typed.
+  The sidebar summarizes the aggregate skill footprint as an approximate token
+  count (for example, `~2k tokens`), preserving the deterministic
+  one-token-per-four-characters estimate over each `SKILL.md`. Only bounded
+  metadata, including that numeric estimate, crosses IPC; resource contents
+  remain in main-process filesystem access.
 - A leading `/skill:<name>` or custom-prompt token in the draft is highlighted as a
   coloured pill, drawn by a mirrored backdrop behind the composer textarea
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
@@ -112,9 +131,10 @@ Tracks issue #1. Update this file whenever behavior changes.
 - Thinking level picker, `Shift+Tab` cycling, `Ctrl+T` visibility.
 - Session details plus a focused sidebar with activity counts, usage/cache, and
   discovered context files. The cache hit figure is derived from reported token
-  counts, so it is shown as an estimate (`~`). Context lists existing
-  `AGENTS.md` metadata from fixed user/project `.tau` and `.agents` locations;
-  discovery stays in the main process and project paths require explicit trust.
+  counts, so it is shown as an estimate (`~`). Context lists the actual
+  `AGENTS.md` files loaded by Pi, including its global agent file and the files
+  discovered while walking up from the session working directory. Discovery
+  stays in the main process; only bounded labels and paths cross IPC.
 - App-owned recent-session picker with per-entry forget (no runtime index
   parsing); the UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the

@@ -6,7 +6,8 @@ export const RESOURCE_LIMITS = {
   directoryEntries: 1_000,
   catalogEntries: 200,
   nameCharacters: 128,
-  descriptionCharacters: 512,
+  // Pi follows the Agent Skills specification, which allows 1,024 characters.
+  descriptionCharacters: 1_024,
   originCharacters: 256,
   diagnosticCharacters: 512,
   diagnostics: 200,

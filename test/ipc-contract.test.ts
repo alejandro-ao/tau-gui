@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   contextFilesSchema,
   envelopeSchema,
+  MAX_CONTEXT_FILES,
   requestSchema,
   resourceCatalogSchema,
 } from '../src/shared/ipc.js';
@@ -113,7 +114,7 @@ describe('IPC request validation', () => {
     ).toBe(false);
     expect(
       contextFilesSchema.safeParse(
-        Array.from({ length: 5 }, (_, index) => ({
+        Array.from({ length: MAX_CONTEXT_FILES + 1 }, (_, index) => ({
           label: `file-${index}`,
           path: `/file-${index}`,
         })),
@@ -215,6 +216,24 @@ describe('IPC request validation', () => {
         payload: {
           runtime: { tau: { binary: 'tau', provider: null, model: null, extraArgs: [] } },
         },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.update',
+        payload: { customSkillDirectories: ['/shared/skills'] },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.addResourceDirectory',
+        payload: { kind: 'skills' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.removeResourceDirectory',
+        payload: { kind: 'prompts', path: 'bad\npath' },
       }).success,
     ).toBe(false);
   });
