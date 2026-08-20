@@ -20,7 +20,7 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
 ## Storage ownership
 
 AO-created sessions default to `~/.ao-agent/sessions/`. Pi's standard agent
- directory remains independent at `~/.pi/agent/` for authentication, models,
+directory remains independent at `~/.pi/agent/` for authentication, models,
 skills, prompts, and other Pi services. Set `AO_AGENT_DIR` to override AO's data
 root; the deprecated `TAU_GUI_AGENT_DIR` alias remains supported temporarily,
 and `AO_AGENT_DIR` wins when both are set.
