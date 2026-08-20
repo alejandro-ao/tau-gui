@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EmbeddedPiRuntime } from '../src/main/runtime/embedded-pi-runtime.js';
 import type { RuntimeStatus } from '../src/shared/domain.js';
+import { resourceCatalogSchema } from '../src/shared/resources.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
@@ -58,7 +59,7 @@ describe('EmbeddedPiRuntime', () => {
     );
     writeFileSync(
       join(customSkills, 'shared', 'SKILL.md'),
-      '---\nname: shared\ndescription: Shared skill\n---\n# Shared\n',
+      `---\nname: shared\ndescription: ${'s'.repeat(600)}\n---\n# Shared\n`,
     );
     const globalContext = join(agentDir, 'AGENTS.md');
     writeFileSync(globalContext, '# Global instructions\n');
@@ -94,6 +95,11 @@ describe('EmbeddedPiRuntime', () => {
     expect(statuses).toEqual(expect.arrayContaining(['starting', 'idle']));
 
     const resources = await runtime.getResources();
+    const parsedResources = resourceCatalogSchema.safeParse(resources);
+    expect(
+      parsedResources.success,
+      parsedResources.success ? '' : parsedResources.error.message,
+    ).toBe(true);
     expect(resources.prompts.map((prompt) => prompt.name)).toEqual(
       expect.arrayContaining(['check', 'root', 'agent-prompt', 'home-pi', 'home-agent', 'shared']),
     );

@@ -369,29 +369,48 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     const loader = this.session.resourceLoader;
     const skillsResult = loader.getSkills();
     const promptsResult = loader.getPrompts();
-    const diagnostics = [...skillsResult.diagnostics, ...promptsResult.diagnostics].map(
-      (item) => `${item.type}: ${item.message}`,
-    );
-    return {
-      skills: await Promise.all(
-        skillsResult.skills.map(async (skill) => ({
-          name: skill.name,
-          description: skill.description || null,
-          origin: skill.sourceInfo.source,
-          disableModelInvocation: skill.disableModelInvocation,
-          // The file stays main-process-owned. Preserve the sidebar's
-          // provider-neutral estimate of one token per four characters.
-          estimatedTokens: await estimateSkillTokens(skill.filePath),
-        })),
-      ),
-      prompts: promptsResult.prompts.map((prompt) => ({
-        name: prompt.name,
-        description: prompt.description || null,
-        origin: prompt.sourceInfo.source,
+    const diagnostics = [...skillsResult.diagnostics, ...promptsResult.diagnostics]
+      .slice(0, RESOURCE_LIMITS.diagnostics)
+      .map((item) =>
+        boundedMetadata(`${item.type}: ${item.message}`, RESOURCE_LIMITS.diagnosticCharacters),
+      );
+    const skills = await Promise.all(
+      skillsResult.skills.slice(0, RESOURCE_LIMITS.catalogEntries).map(async (skill) => ({
+        name: skill.name,
+        description: resourceDescription(skill.description),
+        origin: boundedMetadata(skill.sourceInfo.source, RESOURCE_LIMITS.originCharacters),
+        disableModelInvocation: skill.disableModelInvocation,
+        // The file stays main-process-owned. Preserve the sidebar's
+        // provider-neutral estimate of one token per four characters.
+        estimatedTokens: await estimateSkillTokens(skill.filePath),
       })),
-      diagnostics,
-    };
+    );
+    const prompts = promptsResult.prompts
+      .slice(0, RESOURCE_LIMITS.catalogEntries)
+      .map((prompt) => ({
+        name: prompt.name,
+        description: resourceDescription(prompt.description),
+        origin: boundedMetadata(prompt.sourceInfo.source, RESOURCE_LIMITS.originCharacters),
+      }));
+    return { skills, prompts, diagnostics };
   }
+}
+
+function resourceDescription(value: string): string | null {
+  const description = boundedMetadata(value, RESOURCE_LIMITS.descriptionCharacters);
+  return description || null;
+}
+
+/** Pi permits YAML-folded descriptions that retain a trailing newline. */
+function boundedMetadata(value: string, limit: number): string {
+  return [...value]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f ? ' ' : character;
+    })
+    .join('')
+    .trim()
+    .slice(0, limit);
 }
 
 function findProjectRoot(cwd: string): string {
