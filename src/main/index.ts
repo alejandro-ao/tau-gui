@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain, shell, session as electronSession } from '
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
 import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
@@ -9,6 +10,17 @@ import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
 import { RuntimePool } from './services/runtime-pool.js';
+import {
+  AO_TEST_RPC_RUNTIME_ENV,
+  AO_USER_DATA_DIR_ENV,
+  ensurePrivateDirectory,
+  environmentValue,
+  LEGACY_TEST_RPC_RUNTIME_ENV,
+  LEGACY_USER_DATA_DIR_ENV,
+  migrateLegacySettings,
+  resolveAppStoragePaths,
+} from './services/app-paths.js';
+import { migrateLegacySessions } from './services/session-migration.js';
 import { SettingsStore } from './services/settings.js';
 
 const dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -16,11 +28,14 @@ const isDev = !app.isPackaged;
 
 /**
  * Test-only hook: redirect the whole userData tree (settings, cache, storage)
- * into an isolated directory. End-to-end runs set it so they never read or
- * overwrite a developer's real GUI settings. It must be applied before the app
- * is ready, and it is ignored unless the environment variable is present.
+ * into an isolated directory. AO_* is preferred; TAU_GUI_* remains a temporary
+ * compatibility alias for existing automation.
  */
-const isolatedUserData = process.env['TAU_GUI_USER_DATA_DIR'];
+const isolatedUserData = environmentValue(
+  process.env,
+  AO_USER_DATA_DIR_ENV,
+  LEGACY_USER_DATA_DIR_ENV,
+);
 if (isolatedUserData) {
   mkdirSync(isolatedUserData, { recursive: true });
   app.setPath('userData', isolatedUserData);
@@ -54,7 +69,7 @@ function createWindow(): BrowserWindow {
     show: false,
     transparent: true,
     backgroundColor: '#00000000',
-    title: 'τ',
+    title: 'AO',
     autoHideMenuBar: true,
     // Blend the title bar into the app on macOS: the traffic lights stay as a
     // small overlay and the renderer provides an invisible drag strip.
@@ -105,7 +120,7 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   electronSession.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -120,16 +135,33 @@ void app.whenReady().then(() => {
     callback(false),
   );
 
+  // Electron's application identity changed from Tau GUI to AO. Copy the old
+  // app-owned settings before constructing the store, without deleting or
+  // rewriting the old file.
+  migrateLegacySettings(app.getPath('userData'), app.getPath('appData'));
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
-  const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
+
+  const storagePaths = resolveAppStoragePaths({ agentDir: getAgentDir() });
+  ensurePrivateDirectory(storagePaths.sessionDir);
+  await migrateLegacySessions(
+    settings,
+    join(storagePaths.agentDir, 'sessions'),
+    storagePaths.sessionDir,
+  );
+
+  const useTestRpcRuntime =
+    environmentValue(process.env, AO_TEST_RPC_RUNTIME_ENV, LEGACY_TEST_RPC_RUNTIME_ENV) === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
       ? (kind, sink) => new JsonlAgentRuntime(kind, sink)
       : (_kind, sink) =>
           new EmbeddedPiRuntime(sink, {
+            agentDir: storagePaths.agentDir,
+            sessionRoot: storagePaths.sessionRoot,
             spawnSession: (request, signal) => manager.spawnSession(request, signal),
           }),
     probeExecutable: useTestRpcRuntime,
+    sessionRoot: useTestRpcRuntime ? undefined : storagePaths.sessionRoot,
   });
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {

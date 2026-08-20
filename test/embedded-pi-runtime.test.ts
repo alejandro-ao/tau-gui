@@ -31,6 +31,7 @@ describe('EmbeddedPiRuntime', () => {
     ];
     const cwd = contextDirectories.at(-1)!;
     const agentDir = join(root, 'home', '.pi', 'agent');
+    const sessionRoot = join(root, 'home', '.ao-agent');
     const home = join(root, 'home');
     const customSkills = join(root, 'shared-skills');
     const customPrompts = join(root, 'shared-prompts');
@@ -77,6 +78,7 @@ describe('EmbeddedPiRuntime', () => {
       },
       {
         agentDir,
+        sessionRoot,
         home,
         spawnSession: ({ cwd: spawnedCwd }) =>
           Promise.resolve({
@@ -100,7 +102,8 @@ describe('EmbeddedPiRuntime', () => {
 
     const state = await runtime.getState();
     expect(state.sessionId).not.toBe('');
-    expect(state.sessionFile).toContain(agentDir);
+    expect(state.sessionFile).toContain(join(sessionRoot, 'sessions'));
+    expect(state.sessionFile).not.toContain(agentDir);
     expect(statuses).toEqual(expect.arrayContaining(['starting', 'idle']));
     const internals = runtime as unknown as {
       runtime: { session: { getToolDefinition: (name: string) => unknown } };
