@@ -5,6 +5,7 @@ import type {
   AgentState,
   AppSettings,
   RuntimeCapabilities,
+  RuntimeKind,
   SessionStats,
 } from '../../src/shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../src/shared/domain.js';
@@ -39,6 +40,7 @@ export interface FakeBridge {
 }
 
 export interface FakeBridgeOptions {
+  runtime?: RuntimeKind;
   status?: RuntimeSnapshot['status'];
   detail?: string | null;
   capabilities?: Partial<RuntimeCapabilities>;
@@ -54,7 +56,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const listeners = new Set<(event: BridgeEvent) => void>();
   const calls: InvokeCall[] = [];
   const snapshot: RuntimeSnapshot = {
-    runtime: 'tau',
+    runtime: options.runtime ?? 'tau',
     status: options.status ?? 'idle',
     detail: options.detail ?? null,
     capabilities: { ...DEFAULT_CAPABILITIES, ...options.capabilities },
