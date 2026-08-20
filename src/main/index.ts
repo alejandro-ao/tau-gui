@@ -31,6 +31,14 @@ if (isolatedUserData) {
 // flag by itself can never hide a normal application launch.
 const hideWindowForTests =
   isolatedUserData !== undefined && process.env['TAU_GUI_E2E_HIDDEN'] === '1';
+if (hideWindowForTests) {
+  // Chromium can independently throttle hidden/occluded renderers on Linux
+  // even when the webContents preference below is disabled. Streaming E2E
+  // scenarios depend on foreground-equivalent timer scheduling.
+  app.commandLine.appendSwitch('disable-background-timer-throttling');
+  app.commandLine.appendSwitch('disable-renderer-backgrounding');
+  app.commandLine.appendSwitch('disable-backgrounding-occluded-windows');
+}
 
 // Identical to the document meta CSP injected at build time (src/shared/csp.ts).
 const CSP = buildCsp(isDev);
