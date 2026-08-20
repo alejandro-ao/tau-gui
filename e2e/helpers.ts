@@ -108,6 +108,9 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
     if (typeof value === 'string') env[key] = value;
   }
   env['TAU_GUI_USER_DATA_DIR'] = userDataDir;
+  // CDP can drive a hidden BrowserWindow, so keep test runs from repeatedly
+  // stealing focus or covering the developer's desktop.
+  env['TAU_GUI_E2E_HIDDEN'] = '1';
   // Most E2E tests use the explicit JSONL fake so no provider credentials or
   // network access are required. A focused smoke test exercises embedded Pi.
   if (options.embeddedPi) env['PI_CODING_AGENT_DIR'] = join(userDataDir, 'pi-agent');
