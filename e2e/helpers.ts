@@ -31,6 +31,8 @@ export interface LaunchOptions {
   /** Fixed directories: used by the visual suite for stable screenshots. */
   userDataDir?: string;
   projectDir?: string;
+  /** Use production's embedded Pi SDK instead of the deterministic RPC fake. */
+  embeddedPi?: boolean;
   /** Skip waiting for the runtime connection (crash/failure scenarios). */
   waitForRuntime?: boolean;
 }
@@ -52,7 +54,7 @@ function seedSettings(
   projectDir: string,
   marker: string,
   overrides: Partial<AppSettings>,
-  kind: RuntimeKind = 'tau',
+  kind: RuntimeKind = 'pi',
 ): void {
   const runtimeSettings = {
     binary: FAKE_RUNTIME,
@@ -104,6 +106,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
     if (typeof value === 'string') env[key] = value;
   }
   env['TAU_GUI_USER_DATA_DIR'] = userDataDir;
+  // Most E2E tests use the explicit JSONL fake so no provider credentials or
+  // network access are required. A focused smoke test exercises embedded Pi.
+  if (options.embeddedPi) env['PI_CODING_AGENT_DIR'] = join(userDataDir, 'pi-agent');
+  else env['TAU_GUI_TEST_RPC_RUNTIME'] = '1';
   env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = '1';
   Object.assign(env, options.env ?? {});
 

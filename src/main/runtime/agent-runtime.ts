@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ContextFile } from '../../shared/ipc.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -15,6 +16,7 @@ import type {
   RuntimeKind,
   RuntimeLaunchConfig,
   RuntimeStatus,
+  ResourceCatalog,
   SessionStats,
   ThinkingLevel,
   TreeSnapshot,
@@ -68,6 +70,9 @@ export interface AgentRuntime {
   fork(entryId: string): Promise<string>;
   exportHtml(path?: string): Promise<string>;
   listCommands(): Promise<CommandInfo[]>;
+  /** Direct SDK runtimes can expose authoritative resource metadata. */
+  getResources?(): Promise<ResourceCatalog>;
+  getContextFiles?(): Promise<ContextFile[]>;
 }
 
 /** Extension status text may carry terminal colour codes meant for a TUI. */

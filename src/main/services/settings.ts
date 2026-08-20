@@ -101,11 +101,11 @@ export class SettingsStore {
 
   private read(): AppSettings {
     try {
-      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS };
+      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
       const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'));
       return mergeSettings(parsed);
     } catch {
-      return { ...DEFAULT_SETTINGS };
+      return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
     }
   }
 
@@ -120,7 +120,9 @@ export class SettingsStore {
 }
 
 export function mergeSettings(value: unknown): AppSettings {
-  if (typeof value !== 'object' || value === null) return { ...DEFAULT_SETTINGS };
+  if (typeof value !== 'object' || value === null) {
+    return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
+  }
   const wire = value as Record<string, unknown>;
   const runtime =
     typeof wire['runtime'] === 'object' && wire['runtime'] !== null
@@ -149,7 +151,9 @@ export function mergeSettings(value: unknown): AppSettings {
     .slice(0, MAX_WORKING_DIRECTORIES);
 
   return {
-    agentRuntime: wire['agentRuntime'] === 'pi' ? 'pi' : 'tau',
+    // Runtime selection is obsolete: the application now embeds Pi. Keeping
+    // the field in the persisted schema makes migration non-destructive.
+    agentRuntime: 'pi',
     theme: pick(
       'theme',
       (input) => input === 'tau-light' || input === 'high-contrast' || input === 'pure-black',

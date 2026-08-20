@@ -1,6 +1,19 @@
 # Roadmap status
 
-Tracks issue #1. Update this file whenever behavior changes.
+Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration is [issue #17](https://github.com/alejandro-ao/tau-gui/issues/17).
+
+## Embedded Pi migration — initial slice ✅
+
+- Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
+- Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
+- Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- Removed runtime/binary/provider/argument/trust controls from the active settings UI and migrated persisted runtime selection to Pi.
+- Removed Tau/Pi switch entries from the command palette.
+- Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
+- The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
+- Remaining session listing/clone/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+
+## Historical RPC roadmap
 
 ## Phase 0 — foundation ✅
 

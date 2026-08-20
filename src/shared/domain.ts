@@ -413,6 +413,8 @@ export interface AppSettings {
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
+  // Kept as a schema/test fixture default; SettingsStore migrates production
+  // state to the sole embedded Pi runtime.
   agentRuntime: 'tau',
   theme: 'tau-dark',
   sidebarPosition: 'right',

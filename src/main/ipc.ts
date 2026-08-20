@@ -158,18 +158,26 @@ export async function handleRequest(
     case 'commands.list':
       return runtime().listCommands();
     case 'resources.list': {
+      const active = runtime();
+      if (active.getResources) {
+        return resourceCatalogSchema.parse(await active.getResources());
+      }
+      // Deterministic legacy RPC tests do not embed Pi; retain their bounded
+      // metadata-only scanner until the test harness moves to injected sessions.
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
         return { skills: [], prompts: [], diagnostics: [] };
       }
       const catalog = await discoverTauResources(snapshot.cwd, {
-        // Bind discovery to the active process's launch-time trust. Mutable
-        // settings may change without restarting that process.
         includeProject: manager.effectiveProjectTrust === 'approve-once',
       });
       return resourceCatalogSchema.parse(catalog);
     }
     case 'context.list': {
+      const active = runtime();
+      if (active.getContextFiles) {
+        return contextFilesSchema.parse(await active.getContextFiles());
+      }
       const snapshot = manager.snapshot();
       if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
       const files = await discoverContextFiles(snapshot.cwd, {

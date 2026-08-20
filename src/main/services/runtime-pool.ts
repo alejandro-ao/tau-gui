@@ -1,9 +1,9 @@
 import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
-import type { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
+import type { AgentRuntime } from '../runtime/agent-runtime.js';
 import type { SettingsStore } from './settings.js';
 import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
-import { RuntimeManager } from './runtime-manager.js';
+import { RuntimeManager, type RuntimeManagerOptions } from './runtime-manager.js';
 
 /**
  * Owns one runtime process per live session and routes IPC to the session the
@@ -28,13 +28,14 @@ export class RuntimePool {
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
+    private readonly managerOptions: RuntimeManagerOptions = {},
   ) {
     this.queues = new PromptQueueService(broadcast, (message) =>
       broadcast({ type: 'diagnostic', message }),
     );
   }
 
-  get active(): JsonlAgentRuntime {
+  get active(): AgentRuntime {
     if (!this.current) throw new Error('Runtime is not started');
     return this.current.active;
   }
@@ -49,7 +50,7 @@ export class RuntimePool {
    * Routing by identity keeps every command attached to the transcript the
    * renderer acted on, even when it is running in the background.
    */
-  runtimeFor(target?: SessionTarget | null): JsonlAgentRuntime {
+  runtimeFor(target?: SessionTarget | null): AgentRuntime {
     return this.managerFor(target).active;
   }
 
@@ -120,7 +121,11 @@ export class RuntimePool {
 
   snapshot(): RuntimeSnapshot {
     if (this.current) return this.current.snapshot();
-    const snapshot = new RuntimeManager(this.settings, () => undefined).snapshot();
+    const snapshot = new RuntimeManager(
+      this.settings,
+      () => undefined,
+      this.managerOptions,
+    ).snapshot();
     if (!this.failedRestart) return snapshot;
     return {
       ...snapshot,
@@ -367,7 +372,11 @@ export class RuntimePool {
   }
 
   private createManager(): RuntimeManager {
-    const manager = new RuntimeManager(this.settings, (event) => this.handleEvent(manager, event));
+    const manager = new RuntimeManager(
+      this.settings,
+      (event) => this.handleEvent(manager, event),
+      this.managerOptions,
+    );
     this.managers.add(manager);
     this.runLifecycles.set(manager, freshLifecycle(null));
     return manager;

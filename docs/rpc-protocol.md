@@ -1,4 +1,8 @@
-# Tau/Pi RPC protocol reference
+# Legacy Tau/Pi RPC test protocol reference
+
+> Production embeds Pi through its SDK. This protocol is retained temporarily
+> for the deterministic fake runtime and historical contract tests, enabled only
+> with `TAU_GUI_TEST_RPC_RUNTIME=1`. Removal is tracked in issue #17.
 
 Audited against `tau` (`src/tau_coding/rpc.py`, `tests/test_rpc.py`) and Pi
 (`packages/coding-agent/src/modes/rpc/*`). Tau's RPC mode is a deliberate clone of

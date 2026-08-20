@@ -50,24 +50,24 @@
   characters, and truncated to 80 characters before it leaves the main process.
 - Inbound events are shape-checked in the preload before reaching React.
 
-## Subprocess safety
+## Embedded agent safety
 
-- The runtime is spawned with an argument array, `shell: false`. Binary paths,
-  provider names, models, and extra args are never interpolated into a shell
-  string.
-- `--approve`/`--no-approve` is the only trust signal the GUI passes. Project
-  trust controls ambient resource loading in the runtime; it is **not** a
-  sandbox, and OS/container isolation remains a separate concern.
-- Runtime stdout is parsed with strict LF-only JSONL framing and a 16 MiB record
-  cap; malformed or oversized records are dropped with a diagnostic instead of
-  crashing the session.
-- stdin writes honour backpressure (queued in order until `drain`) and stdout is
-  paused while the undecoded backlog exceeds a high-water mark, so a chatty
-  runtime cannot grow unbounded memory. Record order is preserved.
-- stderr is captured into a bounded diagnostics ring (500 lines) surfaced in the
-  diagnostics modal. Runtime stderr may contain provider error text (endpoints,
-  request ids, prose from failed calls). It is bounded, held in memory only,
-  never persisted to settings or a log file, and dropped when the app exits.
+- Production imports a pinned Pi SDK in Electron's main process; no user-selected
+  runtime executable or shell-built launch command exists.
+- Pi events and objects are normalized before IPC. SDK sessions, credentials,
+  provider headers, environment values, resource contents, and extension
+  implementations never enter renderer state.
+- Third-party Pi extensions are disabled by the embedded resource loader until a
+  desktop trust decision and bounded UI contract exist. Extensions execute
+  arbitrary Node.js and are not a sandbox.
+- Provider/tool diagnostics use the existing bounded in-memory ring (500 lines)
+  and are dropped when the app exits.
+- A dedicated Electron utility process remains planned before enabling untrusted
+  extensions by default, to recover crash isolation previously supplied by a
+  subprocess.
+- Strict JSONL framing/backpressure code remains available only to the explicit
+  deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
+  settings.
 
 ## Untrusted content
 
@@ -81,8 +81,8 @@
 
 ## Secrets
 
-- Credentials live in the runtime's own configuration. The GUI never reads,
-  stores, or forwards provider keys.
+- Credentials are owned by Pi's main-process model runtime and standard agent
+  configuration. The renderer never reads, stores, or forwards provider keys.
 - `process.env` is passed to the child process but never sent to the renderer or
   written to logs.
 - Settings persisted by the GUI contain only binary paths, provider/model names,

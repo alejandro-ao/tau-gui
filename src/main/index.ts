@@ -6,6 +6,8 @@ import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
 import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
+import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
+import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -110,7 +112,13 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
-  manager = new RuntimePool(settings, broadcast);
+  const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
+  manager = new RuntimePool(settings, broadcast, {
+    runtimeFactory: useTestRpcRuntime
+      ? (kind, sink) => new JsonlAgentRuntime(kind, sink)
+      : (_kind, sink) => new EmbeddedPiRuntime(sink),
+    probeExecutable: useTestRpcRuntime,
+  });
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
     const parsed = envelopeSchema.safeParse(raw);

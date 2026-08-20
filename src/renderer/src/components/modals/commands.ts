@@ -408,8 +408,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/skills',
-    unavailable:
-      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
+    unavailable: null,
     run: () => actions.openModal('skills'),
   });
   add({
@@ -419,8 +418,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/prompts',
-    unavailable:
-      state.snapshot.runtime === 'tau' ? null : 'resource discovery is currently available for Tau',
+    unavailable: null,
     run: () => actions.openModal('prompts'),
   });
   add({
@@ -470,20 +468,6 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       ),
     });
   }
-  for (const kind of ['tau', 'pi'] as const) {
-    add({
-      id: `runtime.switch.${kind}`,
-      title: `runtime: ${kind}`,
-      description:
-        state.settings.agentRuntime === kind ? 'Current runtime' : `Switch the runtime to ${kind}`,
-      group: 'runtime',
-      origin: 'frontend',
-      slash: null,
-      unavailable: null,
-      run: () => void actions.switchRuntime(kind),
-    });
-  }
-
   /* ------------------------------------------------- runtime-discovered */
 
   const registeredSlashes = new Set(

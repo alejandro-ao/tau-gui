@@ -69,11 +69,11 @@ test('/scoped-models scopes models and constrains Ctrl+P cycling', async () => {
     readFileSync(join(handle.userDataDir, 'settings.json'), 'utf8'),
   ) as AppSettings;
   expect(persisted.scopedModels).toEqual({
-    tau: [
+    tau: [],
+    pi: [
       modelKey({ provider: 'fake', modelId: 'fake-small' }),
       modelKey({ provider: 'fake', modelId: 'fake-large' }),
     ],
-    pi: [],
   });
 });
 

@@ -13,11 +13,12 @@ const tempFile = (): string => join(mkdtempSync(join(tmpdir(), 'tau-gui-')), 'se
 
 describe('mergeSettings', () => {
   it('falls back to defaults for malformed input', () => {
-    expect(mergeSettings(null)).toEqual(DEFAULT_SETTINGS);
-    expect(mergeSettings('nope')).toEqual(DEFAULT_SETTINGS);
+    const embeddedDefaults = { ...DEFAULT_SETTINGS, agentRuntime: 'pi' as const };
+    expect(mergeSettings(null)).toEqual(embeddedDefaults);
+    expect(mergeSettings('nope')).toEqual(embeddedDefaults);
     expect(mergeSettings({ theme: 'neon', agentRuntime: 'zeta' })).toMatchObject({
       theme: 'tau-dark',
-      agentRuntime: 'tau',
+      agentRuntime: 'pi',
     });
   });
 

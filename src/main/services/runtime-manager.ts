@@ -9,7 +9,11 @@ import type {
   ProjectTrust,
 } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
-import { JsonlAgentRuntime } from '../runtime/agent-runtime.js';
+import {
+  JsonlAgentRuntime,
+  type AgentRuntime,
+  type RuntimeSink,
+} from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
 import type { SettingsStore } from './settings.js';
@@ -24,8 +28,18 @@ const SESSION_NAME_POLL_LIMIT = 300;
  * starting → idle → running → compacting/retrying → idle (on agent_settled)
  * → failed/disconnected.
  */
+export type RuntimeFactory = (kind: RuntimeKind, sink: RuntimeSink) => AgentRuntime;
+
+const legacyRpcRuntimeFactory: RuntimeFactory = (kind, sink) => new JsonlAgentRuntime(kind, sink);
+
+export interface RuntimeManagerOptions {
+  runtimeFactory?: RuntimeFactory;
+  /** The legacy test adapter needs executable discovery; embedded Pi does not. */
+  probeExecutable?: boolean;
+}
+
 export class RuntimeManager {
-  private runtime: JsonlAgentRuntime | null = null;
+  private runtime: AgentRuntime | null = null;
   private status: RuntimeStatus = 'stopped';
   private detail: string | null = null;
   private cwd: string | null = null;
@@ -43,10 +57,17 @@ export class RuntimeManager {
   private pendingSessionName: { sessionId: string; name: string } | null = null;
   private readonly diagnostics: string[] = [];
 
+  private readonly runtimeFactory: RuntimeFactory;
+  private readonly probeExecutable: boolean;
+
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
-  ) {}
+    options: RuntimeManagerOptions = {},
+  ) {
+    this.runtimeFactory = options.runtimeFactory ?? legacyRpcRuntimeFactory;
+    this.probeExecutable = options.probeExecutable ?? true;
+  }
 
   get kind(): RuntimeKind {
     // A manager keeps the runtime kind it was launched with. Settings may
@@ -54,7 +75,7 @@ export class RuntimeManager {
     return this.runtimeKind ?? this.settings.current.agentRuntime;
   }
 
-  get active(): JsonlAgentRuntime {
+  get active(): AgentRuntime {
     if (!this.runtime) throw new Error('Runtime is not started');
     return this.runtime;
   }
@@ -74,7 +95,7 @@ export class RuntimeManager {
       status: this.status,
       detail: this.detail,
       runtimeVersion: this.runtimeVersion,
-      capabilities: CAPABILITIES[this.kind],
+      capabilities: this.runtime?.capabilities ?? CAPABILITIES[this.kind],
       cwd: this.cwd,
       gitBranch: this.gitBranch,
       state: this.state,
@@ -108,23 +129,27 @@ export class RuntimeManager {
       projectTrust: settings.projectTrust,
     };
 
-    // First-run check: fail fast with an actionable message when the runtime
-    // binary is missing, instead of surfacing a raw spawn ENOENT.
-    const probe = await probeRuntime(config.kind, config.binary);
-    if (!probe.resolved) {
-      this.cwd = cwd;
-      const message = probe.error ?? `Runtime executable not found: ${config.binary}`;
-      this.setStatus('failed', message);
-      this.addDiagnostic(message);
-      throw new Error(message);
+    // Executable probing remains only for the injected JSONL fake used by
+    // deterministic tests. The packaged app embeds Pi and needs no binary.
+    if (this.probeExecutable) {
+      const probe = await probeRuntime(config.kind, config.binary);
+      if (!probe.resolved) {
+        this.cwd = cwd;
+        const message = probe.error ?? `Runtime executable not found: ${config.binary}`;
+        this.setStatus('failed', message);
+        this.addDiagnostic(message);
+        throw new Error(message);
+      }
+      this.runtimeVersion = probe.version;
+      if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
+    } else {
+      this.runtimeVersion = null;
     }
     this.runtimeKind = kind;
-    this.runtimeVersion = probe.version;
-    if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
 
     this.cwd = cwd;
     this.gitBranch = await readGitBranch(cwd);
-    const runtime = new JsonlAgentRuntime(kind, {
+    const runtime = this.runtimeFactory(kind, {
       event: (event) => this.handleEvent(event),
       status: (status, detail) => this.setStatus(status, detail ?? null),
       diagnostic: (line) => this.addDiagnostic(line),
