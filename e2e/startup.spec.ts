@@ -4,7 +4,9 @@ import { launchApp, waitForSettled, type AppHandle } from './helpers.js';
 let handle: AppHandle;
 
 test.beforeAll(async () => {
-  handle = await launchApp();
+  // Exercise hidden mode even in Linux CI, where the rest of the suite uses
+  // its isolated Xvfb display to avoid hidden-renderer timer throttling.
+  handle = await launchApp({ env: { TAU_GUI_E2E_HIDDEN: '1' } });
 });
 
 test.afterAll(async () => {
