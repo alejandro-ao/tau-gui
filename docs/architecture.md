@@ -34,9 +34,9 @@ Session-scoped commands are addressed, not implied. Every renderer request may c
 
 ## Resource and introspection lifecycle
 
-The embedded adapter uses public `AgentSession.systemPrompt`, `getAllTools()`, `getActiveToolNames()`, and `reload()` APIs. `/reload` invokes `AgentSession.reload()` in place, preserving the session while Pi performs its extension/resource shutdown, rediscovery, and startup lifecycle. The adapter returns bounded before/after counts for skills, prompts, themes, context files, extensions, and tools plus bounded diagnostics. Renderer state then refreshes from authoritative SDK-backed operations. Third-party extensions remain disabled, so reload does not weaken the existing extension trust decision.
+The embedded adapter uses public `AgentSession.systemPrompt`, `getAllTools()`, `getActiveToolNames()`, and `reload()` APIs. `/reload` invokes `AgentSession.reload()` in place, preserving the session while Pi performs its extension/resource shutdown, rediscovery, and startup lifecycle. Reload is a runtime-pool transition: it is serialized with itself and session lifecycle changes, rejects active agent work, and checks the exact session/runtime identity after Pi returns. The adapter returns bounded before/after counts for skills, prompts, themes, context files, extensions, and tools plus bounded diagnostics. Renderer state then refreshes from authoritative SDK-backed operations. Third-party extensions remain disabled, so reload does not weaken the existing extension trust decision.
 
-These calls remain transcript-addressed through the existing optional `{ runtime, sessionId }` IPC envelope. A session switch cannot redirect an inspection or reload to whichever runtime happens to become active later.
+These calls remain transcript-addressed through the existing optional `{ runtime, sessionId }` IPC envelope. The renderer also captures the navigation generation and target for `/system`, `/tools`, and `/reload`, discarding delayed data and modal actions after navigation. Reducer actions repeat the target check as defense in depth. A session switch therefore cannot redirect or later display an operation for whichever runtime becomes active.
 
 ## Migration state
 
