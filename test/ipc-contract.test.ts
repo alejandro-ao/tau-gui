@@ -18,6 +18,19 @@ import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-mode
 
 const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
 
+function treeNode(children: unknown[] = []): Record<string, unknown> {
+  return {
+    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
+    children,
+  };
+}
+
+function deepTree(depth: number): { tree: unknown[]; leafId: null } {
+  let children: unknown[] = [];
+  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
+  return { tree: children, leafId: null };
+}
+
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
     expect(requestSchema.safeParse({ action: 'settings.get' }).success).toBe(true);
@@ -103,6 +116,16 @@ describe('IPC request validation', () => {
     expect(treeSnapshotSchema.safeParse({ tree: [], leafId: 'entry-1' }).success).toBe(true);
     expect(entrySnapshotSchema.safeParse({ entries: [], leafId: huge }).success).toBe(false);
     expect(treeSnapshotSchema.safeParse({ tree: [], leafId: huge }).success).toBe(false);
+  });
+
+  it('rejects deeply and widely malformed trees without recursive overflow', () => {
+    const deep = deepTree(5_000);
+    const wide = { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null };
+
+    expect(() => treeSnapshotSchema.safeParse(deep)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(deep).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(wide)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(wide).success).toBe(false);
   });
 
   it('strictly bounds direct shell responses', () => {

@@ -24,6 +24,19 @@ beforeAll(async () => {
   await import('../src/preload/index.js');
 });
 
+function treeNode(children: unknown[] = []): Record<string, unknown> {
+  return {
+    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
+    children,
+  };
+}
+
+function deepTree(depth: number): { tree: unknown[]; leafId: null } {
+  let children: unknown[] = [];
+  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
+  return { tree: children, leafId: null };
+}
+
 describe('preload response validation', () => {
   it.each([
     ['agent.entries', { entries: [], leafId: 'x'.repeat(2 * 1024 * 1024) }],
@@ -32,6 +45,19 @@ describe('preload response validation', () => {
     mocks.invoke.mockResolvedValueOnce({ ok: true, value });
     await expect(mocks.exposed!.invoke(action)).rejects.toThrow();
   });
+
+  it.each([
+    ['deep', deepTree(5_000)],
+    ['wide', { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null }],
+  ] as const)(
+    'rejects a %s malformed tree from main without stack overflow',
+    async (_kind, value) => {
+      mocks.invoke.mockResolvedValueOnce({ ok: true, value });
+      const result = mocks.exposed!.invoke('agent.tree');
+      await expect(result).rejects.toThrow();
+      await expect(result).rejects.not.toThrow(/maximum call stack|RangeError/i);
+    },
+  );
 
   it('rejects oversized direct-shell output returned by main', async () => {
     mocks.invoke.mockResolvedValueOnce({

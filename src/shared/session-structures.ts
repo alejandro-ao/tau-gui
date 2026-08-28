@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { TreeNode } from './domain.js';
+import type { TreeSnapshot } from './domain.js';
 
 /** Complete restored entry/tree response budget, measured as serialized UTF-8. */
 export const MAX_SESSION_STRUCTURE_BYTES = 1024 * 1024;
@@ -153,35 +153,76 @@ export const entrySnapshotSchema = z
   .strict()
   .superRefine(enforceResponseBytes);
 
-const treeNodeSchema: z.ZodType<TreeNode> = z.lazy(() =>
-  z.object({ entry: entrySchema, children: z.array(treeNodeSchema) }).strict(),
-);
+const shallowTreeNodeSchema = z.object({ entry: entrySchema, children: z.unknown() }).strict();
+const treeSnapshotWrapperSchema = z.object({ tree: z.unknown(), leafId: leafIdSchema }).strict();
 
-export const treeSnapshotSchema = z
-  .object({ tree: z.array(treeNodeSchema), leafId: leafIdSchema })
-  .strict()
-  .superRefine((value, context) => {
-    let nodes = 0;
-    const visit = (children: TreeNode[], depth: number): void => {
-      if (depth > MAX_TREE_DEPTH) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: 'session tree depth limit exceeded',
-        });
-        return;
-      }
-      for (const node of children) {
-        nodes += 1;
-        if (nodes > MAX_ENTRY_NODES) {
-          context.addIssue({
-            code: z.ZodIssueCode.custom,
-            message: 'session tree node limit exceeded',
-          });
-          return;
-        }
-        visit(node.children, depth + 1);
-      }
-    };
-    visit(value.tree, 0);
-    enforceResponseBytes(value, context);
-  });
+/**
+ * Validate tree structure iteratively before any recursive parser or serializer
+ * sees it. Root/child widths, total nodes, and depth are rejected as soon as a
+ * bound is crossed, including cyclic input and hostile deep/wide adapter data.
+ */
+export const treeSnapshotSchema = treeSnapshotWrapperSchema.transform((value, context) => {
+  if (!Array.isArray(value.tree)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: 'session tree must be an array' });
+    return z.NEVER;
+  }
+  if (value.tree.length > MAX_ENTRY_NODES) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'session tree node limit exceeded',
+    });
+    return z.NEVER;
+  }
+
+  const pending: Array<{ node: unknown; depth: number }> = value.tree.map((node) => ({
+    node,
+    depth: 0,
+  }));
+  let nodes = 0;
+  while (pending.length > 0) {
+    const next = pending.pop()!;
+    if (next.depth > MAX_TREE_DEPTH) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'session tree depth limit exceeded',
+      });
+      return z.NEVER;
+    }
+    nodes += 1;
+    if (nodes > MAX_ENTRY_NODES) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'session tree node limit exceeded',
+      });
+      return z.NEVER;
+    }
+
+    const parsed = shallowTreeNodeSchema.safeParse(next.node);
+    if (!parsed.success) {
+      context.addIssue({ code: z.ZodIssueCode.custom, message: 'malformed session tree node' });
+      return z.NEVER;
+    }
+    const children = parsed.data.children;
+    if (!Array.isArray(children)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'session tree children must be an array',
+      });
+      return z.NEVER;
+    }
+    if (
+      children.length > MAX_ENTRY_NODES ||
+      nodes + pending.length + children.length > MAX_ENTRY_NODES
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'session tree node limit exceeded',
+      });
+      return z.NEVER;
+    }
+    for (const child of children) pending.push({ node: child, depth: next.depth + 1 });
+  }
+
+  enforceResponseBytes(value, context);
+  return value as TreeSnapshot;
+});

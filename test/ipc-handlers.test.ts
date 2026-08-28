@@ -41,6 +41,19 @@ beforeAll(() => {
   chmodSync(script, 0o755);
 });
 
+function treeNode(children: unknown[] = []): Record<string, unknown> {
+  return {
+    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
+    children,
+  };
+}
+
+function deepTree(depth: number): { tree: unknown[]; leafId: null } {
+  let children: unknown[] = [];
+  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
+  return { tree: children, leafId: null };
+}
+
 interface Calls {
   abortShell: number;
   entries: (string | undefined)[];
@@ -470,6 +483,18 @@ describe('capability-gated and adapter-contract actions', () => {
 
     await expect(handleRequest(context, { action: 'agent.entries' })).rejects.toThrow();
     await expect(handleRequest(context, { action: 'agent.tree' })).rejects.toThrow();
+  });
+
+  it.each([
+    ['deep', deepTree(5_000)],
+    ['wide', { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null }],
+  ] as const)('rejects a %s malformed adapter tree without stack overflow', async (_kind, tree) => {
+    const { context } = makeContext();
+    context.manager.runtimeFor().getTree = () => Promise.resolve(tree as never);
+
+    const result = handleRequest(context, { action: 'agent.tree' });
+    await expect(result).rejects.toThrow();
+    await expect(result).rejects.not.toThrow(/maximum call stack|RangeError/i);
   });
 
   it('routes agent.entries with and without a cursor', async () => {
