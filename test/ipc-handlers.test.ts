@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
+import { bridgeEventSchema, parseSessionIpcResult } from '../src/shared/ipc.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
 const electronMocks = vi.hoisted(() => ({
@@ -60,6 +61,7 @@ interface Calls {
   clones: unknown[];
   imports: string[];
   jsonlExports: { path: string; sessionId?: string }[];
+  names: string[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -84,6 +86,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     clones: [],
     imports: [],
     jsonlExports: [],
+    names: [],
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -191,6 +194,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       importSession: (path: string) => {
         calls.imports.push(path);
         return Promise.resolve({ runtime: 'pi' });
+      },
+      nameSession: (name: string) => {
+        calls.names.push(name);
+        return Promise.resolve();
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
@@ -444,6 +451,49 @@ describe('capability-gated and adapter-contract actions', () => {
     await handleRequest(context, { action: 'session.clone', session: target });
     expect(calls.labels).toEqual([{ entryId: 'entry-1', label: 'bookmark' }]);
     expect(calls.clones).toEqual([target]);
+  });
+
+  it('rejects a 501-character session name before mutation and preserves bounded outputs', async () => {
+    const { context, calls } = makeContext();
+    const event = { type: 'diagnostic', message: 'stable' } as const;
+    const before = {
+      settings: await handleRequest(context, { action: 'settings.get' }),
+      state: await handleRequest(context, { action: 'agent.state' }),
+      catalog: await handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+      }),
+      event,
+    };
+
+    await expect(
+      handleRequest(context, {
+        action: 'session.name',
+        payload: { name: 'x'.repeat(501) },
+      }),
+    ).rejects.toThrow();
+
+    expect(calls.names).toEqual([]);
+    const after = {
+      settings: await handleRequest(context, { action: 'settings.get' }),
+      state: await handleRequest(context, { action: 'agent.state' }),
+      catalog: await handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+      }),
+      event,
+    };
+    expect(after).toEqual(before);
+    expect(() => parseSessionIpcResult('settings.get', after.settings)).not.toThrow();
+    expect(() => parseSessionIpcResult('agent.state', after.state)).not.toThrow();
+    expect(() => parseSessionIpcResult('session.list', after.catalog)).not.toThrow();
+    expect(bridgeEventSchema.safeParse(after.event).success).toBe(true);
+
+    await handleRequest(context, {
+      action: 'session.name',
+      payload: { name: '  release\u202E\nprep  ' },
+    });
+    expect(calls.names).toEqual(['release  prep']);
   });
 
   it('gets import and export paths only from native dialogs', async () => {

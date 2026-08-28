@@ -149,15 +149,28 @@ export const treeNavigateResultSchema = z
   })
   .strict();
 
-export const sessionTargetSchema = z.object({
-  runtime: runtimeKind,
-  sessionId: z.string().min(1),
-});
+export const sessionTargetSchema = z
+  .object({
+    runtime: runtimeKind,
+    sessionId: z.string().min(1).max(128),
+  })
+  .strict();
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
 
 const finiteNumber = z.number().finite();
 const boundedText = (maximum: number) => z.string().max(maximum);
+export const MAX_SESSION_NAME = 500;
+export const sessionNameSchema = z
+  .string()
+  .max(MAX_SESSION_NAME)
+  .transform((value) =>
+    [...value.normalize('NFC')]
+      .map((character) => (/\p{Cc}|\p{Cf}|\p{Cs}/u.test(character) ? ' ' : character))
+      .join('')
+      .trim(),
+  )
+  .pipe(z.string().min(1).max(MAX_SESSION_NAME));
 const boundedJsonSchema = z.unknown().superRefine((value, context) => {
   const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
   let nodes = 0;
@@ -605,7 +618,12 @@ export const requestSchema = z.discriminatedUnion('action', [
     action: z.literal('session.switch'),
     payload: z.object({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) }).strict(),
   }),
-  z.object({ action: z.literal('session.name'), payload: z.object({ name: z.string().min(1) }) }),
+  z
+    .object({
+      action: z.literal('session.name'),
+      payload: z.object({ name: sessionNameSchema }).strict(),
+    })
+    .strict(),
   z.object({
     action: z.literal('session.fork'),
     payload: z
@@ -699,10 +717,10 @@ export type IpcAction = IpcRequest['action'];
  * Wire envelope: the action union plus the optional transcript identity the
  * renderer believes it is acting on.
  */
-export const envelopeSchema = z.intersection(
-  requestSchema,
-  z.object({ session: sessionTargetSchema.optional() }),
-);
+export const envelopeSchema = z
+  .object({ session: sessionTargetSchema.optional() })
+  .passthrough()
+  .pipe(z.intersection(requestSchema, z.object({ session: sessionTargetSchema.optional() })));
 export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {
@@ -840,6 +858,7 @@ export function parseSessionIpcResult(action: IpcAction, value: unknown): unknow
       return treeNavigateResultSchema.parse(value);
     case 'session.new':
     case 'session.switch':
+    case 'session.name':
     case 'session.clone':
     case 'session.importJsonl':
     case 'session.label':

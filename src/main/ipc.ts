@@ -5,6 +5,7 @@ import {
   contextFilesSchema,
   resourceCatalogSchema,
   sessionCatalogSchema,
+  sessionNameSchema,
   treeNavigateResultSchema,
   treeSnapshotSchema,
 } from '../shared/ipc.js';
@@ -152,7 +153,7 @@ export async function handleRequest(
       await manager.activateSession(request.payload.ref);
       return null;
     case 'session.name':
-      await manager.nameSession(request.payload.name, target);
+      await manager.nameSession(sessionNameSchema.parse(request.payload.name), target);
       return null;
     case 'session.fork':
       return treeNavigateResultSchema.parse(

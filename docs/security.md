@@ -52,7 +52,10 @@
   union are strictly parsed in main before send and again in preload before React.
   Every agent-event variant, nested message, tool payload, queue, activity,
   diagnostic, settings record, and null lifecycle result is checked; malformed,
-  extra-field, deeply nested, or oversized payloads are rejected.
+  extra-field, deeply nested, or oversized payloads are rejected. Session-target
+  IDs are capped at 128 characters with no extra fields. Session names are capped
+  at 500 characters before mutation, normalized, stripped of control/formatting/
+  surrogate characters, trimmed, and paired with a strictly parsed null result.
 
 ## Embedded agent safety
 

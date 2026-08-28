@@ -294,7 +294,32 @@ describe('IPC request validation', () => {
     ).toThrow();
     expect(() => parseSessionIpcResult('session.new', {})).toThrow();
     expect(() => parseSessionIpcResult('session.switch', undefined)).toThrow();
+    expect(() => parseSessionIpcResult('session.name', undefined)).toThrow();
     expect(parseSessionIpcResult('session.new', null)).toBeNull();
+    expect(parseSessionIpcResult('session.name', null)).toBeNull();
+  });
+
+  it('bounds, sanitizes, and strictly validates session names', () => {
+    const parsed = requestSchema.safeParse({
+      action: 'session.name',
+      payload: { name: '  release\u202E\nprep  ' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(
+      parsed.success && parsed.data.action === 'session.name' && parsed.data.payload.name,
+    ).toBe('release  prep');
+    expect(
+      requestSchema.safeParse({
+        action: 'session.name',
+        payload: { name: 'x'.repeat(501) },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'session.name',
+        payload: { name: 'safe', extra: true },
+      }).success,
+    ).toBe(false);
   });
 
   it('strictly validates complete bridge events and renderer state', () => {
@@ -455,6 +480,18 @@ describe('IPC request validation', () => {
       envelopeSchema.safeParse({
         action: 'agent.abort',
         session: { runtime: 'tau', sessionId: '' },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: 'x'.repeat(129) },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: 'abc', extra: true },
       }).success,
     ).toBe(false);
   });
