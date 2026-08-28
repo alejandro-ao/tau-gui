@@ -10,6 +10,10 @@ import {
 import { MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
 import type { RuntimeStatus } from '../src/shared/domain.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
+import {
+  MAX_SESSION_IDENTIFIER_CHARACTERS,
+  MAX_SESSION_STRUCTURE_BYTES,
+} from '../src/shared/session-structures.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
@@ -78,7 +82,7 @@ describe('EmbeddedPiRuntime', () => {
         sessionManager: {
           getEntries: () => [entry],
           getTree: () => [{ entry, children: [] }],
-          getLeafId: () => 'tool-entry',
+          getLeafId: () => huge,
         },
       },
     };
@@ -88,8 +92,14 @@ describe('EmbeddedPiRuntime', () => {
     expect(shell.truncated).toBe(true);
     const entries = await runtime.getEntries();
     const tree = await runtime.getTree();
-    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThan(140 * 1024);
-    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(140 * 1024);
+    expect(entries.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(tree.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
     expect(entries.entries[0]).not.toHaveProperty('raw');
   });
 

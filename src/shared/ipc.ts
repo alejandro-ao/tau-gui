@@ -14,6 +14,7 @@ import {
   type ToolCatalog,
 } from './introspection.js';
 import { resourceCatalogSchema } from './resources.js';
+import { entrySnapshotSchema, treeSnapshotSchema } from './session-structures.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -263,9 +264,11 @@ export const requestSchema = z.discriminatedUnion('action', [
 
 export {
   resourceCatalogSchema,
+  entrySnapshotSchema,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
+  treeSnapshotSchema,
 };
 
 export type IpcRequest = z.infer<typeof requestSchema>;

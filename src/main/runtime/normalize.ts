@@ -20,6 +20,10 @@ import type {
   Usage,
 } from '../../shared/domain.js';
 import { THINKING_LEVELS } from '../../shared/domain.js';
+import {
+  MAX_SESSION_IDENTIFIER_CHARACTERS,
+  MAX_SESSION_STRUCTURE_BYTES,
+} from '../../shared/session-structures.js';
 import { boundedRecord, boundedToolText } from './untrusted.js';
 
 type Wire = Record<string, unknown>;
@@ -46,9 +50,13 @@ const boundedText = (value: unknown): string => boundedToolText(str(value));
 const MAX_MESSAGE_BLOCKS = 100;
 const MAX_ENTRY_NODES = 1_000;
 const MAX_TREE_DEPTH = 50;
-/** Aggregate serialized-byte budget for one restored entry/tree collection. */
-export const MAX_SESSION_STRUCTURE_BYTES = 1024 * 1024;
 const TREE_NODE_SERIALIZATION_OVERHEAD = 32;
+
+export { MAX_SESSION_STRUCTURE_BYTES };
+
+export function normalizeSessionIdentifier(value: unknown): string | null {
+  return typeof value === 'string' ? value.slice(0, MAX_SESSION_IDENTIFIER_CHARACTERS) : null;
+}
 
 export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
   const level = str(value, 'medium');

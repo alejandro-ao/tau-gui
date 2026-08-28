@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
   requestSchema,
@@ -9,6 +10,7 @@ import {
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
+  treeSnapshotSchema,
 } from '../src/shared/ipc.js';
 import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
@@ -93,6 +95,14 @@ describe('IPC request validation', () => {
         kind: 'tau',
       },
     );
+  });
+
+  it('strictly bounds complete restored response wrappers', () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: huge }).success).toBe(false);
+    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: huge }).success).toBe(false);
   });
 
   it('strictly bounds direct shell responses', () => {

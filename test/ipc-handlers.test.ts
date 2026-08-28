@@ -83,6 +83,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       calls.entries.push(cursor);
       return Promise.resolve(snapshot);
     },
+    getTree: () => Promise.resolve({ tree: [], leafId: snapshot.leafId }),
     inspectSystemPrompt: () =>
       Promise.resolve({
         text: 'private system prompt',
@@ -437,6 +438,17 @@ describe('capability-gated and adapter-contract actions', () => {
       }),
     ).toBe(true);
     expect(calls.resolved).toEqual([{ id: 'prompt-1', outcome: 'restore', target: session }]);
+  });
+
+  it('rejects oversized restored response identifiers at the main boundary', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    active.getEntries = () => Promise.resolve({ entries: [], leafId: huge });
+    active.getTree = () => Promise.resolve({ tree: [], leafId: huge });
+
+    await expect(handleRequest(context, { action: 'agent.entries' })).rejects.toThrow();
+    await expect(handleRequest(context, { action: 'agent.tree' })).rejects.toThrow();
   });
 
   it('routes agent.entries with and without a cursor', async () => {

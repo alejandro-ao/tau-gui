@@ -32,6 +32,7 @@ import {
   normalizeEvent,
   normalizeMessages,
   normalizeModel,
+  normalizeSessionIdentifier,
   normalizeState,
   normalizeStats,
   normalizeThinkingLevel,
@@ -403,7 +404,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     const data = asRecord(await this.rpc.request('get_entries', params));
     return {
       entries: normalizeEntries(data['entries']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      leafId: normalizeSessionIdentifier(data['leafId']),
     };
   }
 
@@ -411,7 +412,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     const data = asRecord(await this.rpc.request('get_tree'));
     return {
       tree: normalizeTree(data['tree']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      leafId: normalizeSessionIdentifier(data['leafId']),
     };
   }
 

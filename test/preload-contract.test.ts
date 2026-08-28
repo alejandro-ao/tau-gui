@@ -25,6 +25,14 @@ beforeAll(async () => {
 });
 
 describe('preload response validation', () => {
+  it.each([
+    ['agent.entries', { entries: [], leafId: 'x'.repeat(2 * 1024 * 1024) }],
+    ['agent.tree', { tree: [], leafId: 'x'.repeat(2 * 1024 * 1024) }],
+  ] as const)('rejects oversized %s wrappers returned by main', async (action, value) => {
+    mocks.invoke.mockResolvedValueOnce({ ok: true, value });
+    await expect(mocks.exposed!.invoke(action)).rejects.toThrow();
+  });
+
   it('rejects oversized direct-shell output returned by main', async () => {
     mocks.invoke.mockResolvedValueOnce({
       ok: true,

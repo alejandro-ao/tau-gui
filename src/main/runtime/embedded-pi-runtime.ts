@@ -47,6 +47,7 @@ import {
   normalizeEvent,
   normalizeMessages,
   normalizeModel,
+  normalizeSessionIdentifier,
   normalizeStats,
   normalizeThinkingLevel,
   normalizeTree,
@@ -263,14 +264,14 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     const start = cursor ? Math.max(0, entries.findIndex((entry) => entry.id === cursor) + 1) : 0;
     return Promise.resolve({
       entries: normalizeEntries(entries.slice(start)),
-      leafId: this.session.sessionManager.getLeafId(),
+      leafId: normalizeSessionIdentifier(this.session.sessionManager.getLeafId()),
     });
   }
 
   getTree(): Promise<TreeSnapshot> {
     return Promise.resolve({
       tree: normalizeTree(this.session.sessionManager.getTree()),
-      leafId: this.session.sessionManager.getLeafId(),
+      leafId: normalizeSessionIdentifier(this.session.sessionManager.getLeafId()),
     });
   }
 

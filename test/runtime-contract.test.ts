@@ -2,6 +2,10 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { AgentEvent, RuntimeKind, RuntimeStatus } from '../src/shared/domain.js';
 import { JsonlAgentRuntime } from '../src/main/runtime/agent-runtime.js';
+import {
+  MAX_SESSION_IDENTIFIER_CHARACTERS,
+  MAX_SESSION_STRUCTURE_BYTES,
+} from '../src/shared/session-structures.js';
 
 const FAKE = fileURLToPath(new URL('./fake/fake-runtime.mjs', import.meta.url));
 
@@ -73,6 +77,34 @@ afterEach(async () => {
  * differences must appear only through capability flags.
  */
 describe.each<RuntimeKind>(['tau', 'pi'])('%s adapter contract', (kind) => {
+  it('bounds complete restored wrappers from compatibility RPC data', async () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    const runtime = new JsonlAgentRuntime(kind, {
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+    (runtime as unknown as { client: { request: (command: string) => Promise<unknown> } }).client = {
+      request: (command) =>
+        Promise.resolve(
+          command === 'get_tree'
+            ? { tree: [], leafId: huge }
+            : { entries: [], leafId: huge },
+        ),
+    };
+
+    const entries = await runtime.getEntries();
+    const tree = await runtime.getTree();
+    expect(entries.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(tree.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+  });
+
   it('reports a normalized state snapshot after start', async () => {
     active = await launch(kind);
     const state = await active.runtime.getState();

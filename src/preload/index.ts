@@ -9,12 +9,14 @@ import type {
 import {
   bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
+  treeSnapshotSchema,
 } from '../shared/ipc.js';
 
 /**
@@ -48,6 +50,12 @@ const bridge: TauBridge = {
       throw new Error('Malformed IPC response');
     }
     if (!response.ok) throw new Error(response.error);
+    if (action === 'agent.entries') {
+      return entrySnapshotSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'agent.tree') {
+      return treeSnapshotSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     if (action === 'resources.list') {
       return resourceCatalogSchema.parse(response.value) as IpcResult<typeof action>;
     }

@@ -4,10 +4,12 @@ import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import {
   bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   resourceCatalogSchema,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
+  treeSnapshotSchema,
 } from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
@@ -100,9 +102,9 @@ export async function handleRequest(
     case 'agent.messages':
       return runtime().getMessages();
     case 'agent.entries':
-      return runtime().getEntries(request.payload?.cursor);
+      return entrySnapshotSchema.parse(await runtime().getEntries(request.payload?.cursor));
     case 'agent.tree':
-      return runtime().getTree();
+      return treeSnapshotSchema.parse(await runtime().getTree());
     case 'agent.stats':
       return runtime().getStats();
 
