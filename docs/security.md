@@ -49,6 +49,7 @@
   reported version is reduced to the first line, stripped of control
   characters, and truncated to 80 characters before it leaves the main process.
 - Inbound events are shape-checked in the preload before reaching React.
+- Introspection and reload responses are independently parsed in both main and preload. Requests accept no renderer payload beyond the existing session address, so the renderer cannot supply a path, prompt, schema, or loader option.
 
 ## Embedded agent safety
 
@@ -62,6 +63,9 @@
   arbitrary Node.js and are not a sandbox.
 - Provider/tool diagnostics use the existing bounded in-memory ring (500 lines)
   and are dropped when the app exits.
+- `/system` reads `AgentSession.systemPrompt` directly into bounded renderer-only modal state (256 KiB maximum). It never creates a transcript block, invokes `prompt()`, or writes a session entry. Copying requires an explicit user action through the existing clipboard IPC.
+- `/tools` treats names, descriptions, origins, and parameter schemas as untrusted. Catalog size, strings, recursive depth, node/property/array counts, and serialized schema bytes are bounded in main, validated again in preload, and rendered as React text. SDK tool objects, implementations, output handlers, and filesystem authority never cross IPC. Independently, live and restored tool-result text is capped at 64 KiB and tool arguments/details use the same getter-free recursive sanitizer before any normalized event or message crosses IPC.
+- `/reload` uses public `AgentSession.reload()` in place. Only bounded category counts and diagnostics cross IPC; resource contents and extension implementations remain main-owned. Extensions remain disabled by policy after reload.
 - A dedicated Electron utility process remains planned before enabling untrusted
   extensions by default, to recover crash isolation previously supplied by a
   subprocess.

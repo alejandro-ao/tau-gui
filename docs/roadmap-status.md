@@ -7,6 +7,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
 - Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- `/system`, `/tools`, and `/reload` now use bounded main-process SDK operations, validated preload results, and local desktop modals. Inspection never creates model/session messages; reload reports category counts and diagnostics.
 - The app injects a trusted `spawn_session` SDK tool that creates an independently
   running session in the current directory or another existing directory. The
   main-process runtime pool owns its queue, lifecycle, and sidebar activity.
@@ -46,20 +47,18 @@ are additional requirements.
 | session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration          |
 | extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
 | provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
-| resource reload          | loader exists; no reload operation | missing          | no         | add counts, diagnostics, and refresh flow         |
-| system prompt inspection | active prompt exists only in main  | missing          | no         | add bounded local-only inspection                 |
-| tool catalog             | active tools exist only in main    | missing          | no         | add bounded schemas/origins and picker            |
+| resource reload          | `reloadResources`                  | complete         | yes        | maintain lifecycle/count/diagnostic tests         |
+| system prompt inspection | `inspectSystemPrompt`              | complete         | yes        | keep output local-only and bounded                |
+| tool catalog             | `listTools`                        | complete         | yes        | keep schemas/origins bounded and plain-text       |
 
 The next implementation order is:
 
-1. expose system-prompt inspection, tool-catalog inspection, and resource reload
-   as complete vertical slices;
-2. replace app-owned-only recents with Pi-native session listing, then add clone
+1. replace app-owned-only recents with Pi-native session listing, then add clone
    and complete import/export flows;
-3. add provider authentication and Pi-owned retry/settings controls;
-4. add images and extension interactions after their security boundaries are
+2. add provider authentication and Pi-owned retry/settings controls;
+3. add images and extension interactions after their security boundaries are
    defined;
-5. remove the compatibility runtime and JSONL test infrastructure, then finish
+4. remove the compatibility runtime and JSONL test infrastructure, then finish
    release hardening.
 
 ## Roadmap reconciliation notes
@@ -147,8 +146,8 @@ claims.
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
   the catalog match, so the pill distinguishes runtime expansions from GUI commands
   before Enter is pressed. Slash completion entries use the same colours.
-- Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/clone`, and extension commands that RPC can list but not execute)
+- Commands with no GUI implementation (`/login`, `/logout`, `/clone`, and
+  extension commands that RPC can list but not execute)
   are listed as unavailable with the reason instead of being sent incorrectly to
   the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
   because the desktop app has no clone flow yet.
@@ -234,9 +233,9 @@ with conformance tests:
 | image prompts                    | `imagePrompt`            | Pi only; GUI drop previews deferred                             |
 | extension dialogs/status/widgets | `extensionDialogs`       | Pi subprotocol only; Tau routes extension UI to stderr          |
 | provider login/logout            | `providerLogin`          | neither                                                         |
-| resource reload                  | `resourceReload`         | neither                                                         |
-| system prompt inspection         | `systemPromptInspection` | neither                                                         |
-| tool catalog                     | `toolCatalog`            | neither                                                         |
+| resource reload                  | `resourceReload`         | embedded Pi                                                     |
+| system prompt inspection         | `systemPromptInspection` | embedded Pi                                                     |
+| tool catalog                     | `toolCatalog`            | embedded Pi                                                     |
 | interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline            |
 
 ## Phase 7 — packaging and release ⏳ partial

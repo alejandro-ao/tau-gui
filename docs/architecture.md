@@ -20,7 +20,7 @@ Pinned Pi SDK
 
 ## Core rule
 
-The renderer never consumes Pi SDK objects or raw Pi events. The embedded adapter normalizes them into stable application-domain types. This preserves a narrow, validated IPC contract and keeps credentials, environment data, tools, extensions, and filesystem access out of the sandboxed renderer.
+The renderer never consumes Pi SDK objects or raw Pi events. The embedded adapter normalizes them into stable application-domain types. This preserves a narrow, validated IPC contract and keeps credentials, environment data, executable tools, extensions, and filesystem access out of the sandboxed renderer. `/system` and `/tools` expose only bounded inspection DTOs: prompt text stays local to an ephemeral modal, while tool definitions are reduced to bounded plain metadata, canonical origins, active state, and recursively bounded JSON schemas. Neither flow appends a message or calls `AgentSession.prompt()`.
 
 ## Session boundary
 
@@ -32,8 +32,14 @@ Editable prompts entered during a running turn are owned by a per-session main-p
 
 Session-scoped commands are addressed, not implied. Every renderer request may carry the `{ runtime, sessionId }` transcript it was issued for, and the pool routes prompts, steering, aborts, reads, model/thinking changes, naming, forking, compaction, export, and direct shell commands to the process that owns that session. Session-scoped IPC is not serialized against lifecycle transitions, so resolving through "whatever is selected right now" lets a switch already in flight redirect a prompt or a transcript read into the wrong session. Authoritative reads are bound to the same identity and rejected by the reducer when they describe another transcript, and submissions are refused while a session is still opening because their transcript is not yet known. An empty session never reuses a runtime that is mid-run: `new_session` swaps the session underneath the live agent, so the remainder of that turn would be written into the new transcript and both would be corrupted; busy runtimes stay in the background and the new session gets its own process. A failed activation is reconciled instead of silently leaving the cleared view attached to a still-streaming background runtime.
 
+## Resource and introspection lifecycle
+
+The embedded adapter uses public `AgentSession.systemPrompt`, `getAllTools()`, `getActiveToolNames()`, and `reload()` APIs. `/reload` invokes `AgentSession.reload()` in place, preserving the session while Pi performs its extension/resource shutdown, rediscovery, and startup lifecycle. The adapter returns bounded before/after counts for skills, prompts, themes, context files, extensions, and tools plus bounded diagnostics. Renderer state then refreshes from authoritative SDK-backed operations. Third-party extensions remain disabled, so reload does not weaken the existing extension trust decision.
+
+These calls remain transcript-addressed through the existing optional `{ runtime, sessionId }` IPC envelope. A session switch cannot redirect an inspection or reload to whichever runtime happens to become active later.
+
 ## Migration state
 
-Production uses the embedded Pi adapter. It already has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, resources, system prompts, tools, and provider authentication. Desktop flows are still capability-gated until each surface has bounded domain types and tests.
+Production uses the embedded Pi adapter. System-prompt inspection, tool-catalog inspection, and resource reload now have complete desktop flows. It also has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, and provider authentication, but those remaining desktop flows stay capability-gated until each surface has bounded domain types and tests.
 
 The JSONL adapter remains only as an explicitly enabled deterministic E2E/contract-test harness (`TAU_GUI_TEST_RPC_RUNTIME=1`). It is not selected by application settings and is scheduled for removal once tests inject fake Pi sessions/services directly. Third-party Pi extensions are disabled in the embedded loader until extension trust and desktop UI contracts are implemented.
