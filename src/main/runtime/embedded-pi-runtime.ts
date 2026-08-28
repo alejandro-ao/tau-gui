@@ -52,7 +52,7 @@ import {
   normalizeTree,
 } from './normalize.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
-import { boundJson } from './untrusted.js';
+import { boundJson, boundedToolText } from './untrusted.js';
 
 /**
  * Features executable through the complete desktop application contract.
@@ -336,12 +336,13 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async runShell(command: string, excludeFromContext: boolean): Promise<BashResult> {
     const result = await this.session.executeBash(command, undefined, { excludeFromContext });
+    const output = boundedToolText(result.output);
     return {
       command,
-      output: result.output,
+      output,
       exitCode: result.exitCode ?? null,
       cancelled: result.cancelled,
-      truncated: result.truncated,
+      truncated: result.truncated || output !== result.output,
     };
   }
 

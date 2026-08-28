@@ -106,6 +106,14 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         truncated: false,
         diagnostics: [],
       }),
+    runShell: (command: string) =>
+      Promise.resolve({
+        command,
+        output: 'ok',
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }),
     reloadResources: () =>
       Promise.resolve({
         before: { skills: 1, prompts: 1, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
@@ -345,6 +353,26 @@ describe('context.list handler', () => {
 });
 
 describe('capability-gated and adapter-contract actions', () => {
+  it('validates direct shell results in main before returning them', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    active.runShell = () =>
+      Promise.resolve({
+        command: 'huge',
+        output: 'x'.repeat(64 * 1024 + 1),
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      });
+
+    await expect(
+      handleRequest(context, {
+        action: 'shell.run',
+        payload: { command: 'huge', excludeFromContext: false },
+      }),
+    ).rejects.toThrow();
+  });
+
   it('routes bounded local-only introspection and reload to the adapter', async () => {
     const { context, calls } = makeContext();
     const session = { runtime: 'pi' as const, sessionId: 'session-1' };

@@ -7,6 +7,7 @@ import {
   EMBEDDED_PI_CAPABILITIES,
   EmbeddedPiRuntime,
 } from '../src/main/runtime/embedded-pi-runtime.js';
+import { MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
 import type { RuntimeStatus } from '../src/shared/domain.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
@@ -50,6 +51,46 @@ describe('EmbeddedPiRuntime', () => {
       extensionDialogs: false,
       providerLogin: false,
     });
+  });
+
+  it('bounds live shell and restored entry/tree responses before IPC', async () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    const entry = {
+      id: 'tool-entry',
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'call',
+        toolName: 'read',
+        content: huge,
+        details: { nested: huge },
+      },
+    };
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+    (runtime as unknown as { runtime: unknown }).runtime = {
+      session: {
+        executeBash: () =>
+          Promise.resolve({ output: huge, exitCode: 0, cancelled: false, truncated: false }),
+        sessionManager: {
+          getEntries: () => [entry],
+          getTree: () => [{ entry, children: [] }],
+          getLeafId: () => 'tool-entry',
+        },
+      },
+    };
+
+    const shell = await runtime.runShell('printf huge', false);
+    expect(shell.output).toHaveLength(MAX_TOOL_OUTPUT_CHARACTERS);
+    expect(shell.truncated).toBe(true);
+    const entries = await runtime.getEntries();
+    const tree = await runtime.getTree();
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThan(140 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(140 * 1024);
+    expect(entries.entries[0]).not.toHaveProperty('raw');
   });
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {

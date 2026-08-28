@@ -302,7 +302,6 @@ export interface SessionEntry {
   message?: AgentMessage;
   /** Short human-readable label used by the tree browser. */
   summary: string;
-  raw: Record<string, unknown>;
 }
 
 export interface EntrySnapshot {

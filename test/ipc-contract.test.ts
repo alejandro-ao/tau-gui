@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bashResultSchema,
   contextFilesSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
@@ -92,6 +93,27 @@ describe('IPC request validation', () => {
         kind: 'tau',
       },
     );
+  });
+
+  it('strictly bounds direct shell responses', () => {
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo ok',
+        output: 'ok',
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo huge',
+        output: 'x'.repeat(64 * 1024 + 1),
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(false);
   });
 
   it('accepts only payload-free introspection and reload requests', () => {

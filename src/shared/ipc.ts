@@ -90,6 +90,16 @@ export const sessionTargetSchema = z.object({
 });
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
+export const MAX_SHELL_TEXT_CHARACTERS = 64 * 1024;
+export const bashResultSchema = z
+  .object({
+    command: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    output: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    exitCode: z.number().int().nullable(),
+    cancelled: z.boolean(),
+    truncated: z.boolean(),
+  })
+  .strict();
 
 const runtimeSettings = z.object({
   binary: z.string().min(1),
@@ -217,7 +227,10 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({
     action: z.literal('shell.run'),
-    payload: z.object({ command: z.string().min(1), excludeFromContext: z.boolean() }),
+    payload: z.object({
+      command: z.string().min(1).max(MAX_SHELL_TEXT_CHARACTERS),
+      excludeFromContext: z.boolean(),
+    }),
   }),
   z.object({ action: z.literal('shell.abort') }),
 

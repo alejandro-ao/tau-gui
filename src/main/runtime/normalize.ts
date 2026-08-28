@@ -42,6 +42,10 @@ const bool = (value: unknown, fallback = false): boolean =>
 const record = (value: unknown): Record<string, unknown> => (isWire(value) ? value : {});
 
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const boundedText = (value: unknown): string => boundedToolText(str(value));
+const MAX_MESSAGE_BLOCKS = 100;
+const MAX_ENTRY_NODES = 1_000;
+const MAX_TREE_DEPTH = 50;
 
 export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
   const level = str(value, 'medium');
@@ -56,6 +60,7 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'text')
     .map((block) => str(block['text']))
@@ -64,9 +69,13 @@ function contentText(content: unknown): string {
 
 function contentImages(content: unknown): { mimeType: string; data: string }[] {
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'image')
-    .map((block) => ({ mimeType: str(block['mimeType']), data: str(block['data']) }));
+    .map((block) => ({
+      mimeType: boundedText(block['mimeType']),
+      data: boundedText(block['data']),
+    }));
 }
 
 function normalizeUsage(value: unknown): Usage | null {
@@ -96,6 +105,7 @@ function normalizeStopReason(value: unknown): StopReason | null {
 
 function normalizeToolCalls(content: unknown): ToolCall[] {
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'toolCall')
     .map((block) => ({
@@ -109,20 +119,27 @@ export function normalizeAssistantMessage(value: Wire): AssistantMessage {
   const content = list(value['content']).filter(isWire);
   return {
     role: 'assistant',
-    text: content
-      .filter((block) => block['type'] === 'text')
-      .map((block) => str(block['text']))
-      .join(''),
-    thinking: content
-      .filter((block) => block['type'] === 'thinking')
-      .map((block) => str(block['thinking']))
-      .join(''),
+    text: boundedToolText(
+      content
+        .slice(0, MAX_MESSAGE_BLOCKS)
+        .filter((block) => block['type'] === 'text')
+        .map((block) => str(block['text']))
+        .join(''),
+    ),
+    thinking: boundedToolText(
+      content
+        .slice(0, MAX_MESSAGE_BLOCKS)
+        .filter((block) => block['type'] === 'thinking')
+        .map((block) => str(block['thinking']))
+        .join(''),
+    ),
     toolCalls: normalizeToolCalls(value['content']),
     provider: str(value['provider']),
     model: str(value['model']),
     usage: normalizeUsage(value['usage']),
     stopReason: normalizeStopReason(value['stopReason']),
-    errorMessage: typeof value['errorMessage'] === 'string' ? value['errorMessage'] : null,
+    errorMessage:
+      typeof value['errorMessage'] === 'string' ? boundedToolText(value['errorMessage']) : null,
     timestamp: num(value['timestamp'], Date.now()),
   };
 }
@@ -135,7 +152,7 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'user':
       return {
         role: 'user',
-        text: contentText(value['content']),
+        text: boundedToolText(contentText(value['content'])),
         images: contentImages(value['content']),
         timestamp,
       };
@@ -154,7 +171,7 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'bashExecution':
       return {
         role: 'bashExecution',
-        command: str(value['command']),
+        command: boundedText(value['command']),
         output: boundedToolText(str(value['output'])),
         exitCode: numOrNull(value['exitCode']),
         cancelled: bool(value['cancelled']),
@@ -165,23 +182,23 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'custom':
       return {
         role: 'custom',
-        customType: str(value['customType'], 'custom'),
-        text: contentText(value['content']),
+        customType: boundedText(value['customType']) || 'custom',
+        text: boundedToolText(contentText(value['content'])),
         display: bool(value['display'], true),
-        details: record(value['details']),
+        details: boundedRecord(value['details']),
         timestamp,
       };
     case 'branchSummary':
       return {
         role: 'branchSummary',
-        summary: str(value['summary']),
+        summary: boundedText(value['summary']),
         fromId: str(value['fromId']),
         timestamp,
       };
     case 'compactionSummary':
       return {
         role: 'compactionSummary',
-        summary: str(value['summary']),
+        summary: boundedText(value['summary']),
         tokensBefore: num(value['tokensBefore']),
         timestamp,
       };
@@ -391,12 +408,11 @@ export function normalizeEntry(value: unknown): SessionEntry | null {
     : 'custom';
   const message = normalizeMessage(value['message']) ?? undefined;
   const entry: SessionEntry = {
-    id: str(value['id']),
-    parentId: typeof value['parentId'] === 'string' ? value['parentId'] : null,
-    timestamp: str(value['timestamp']),
+    id: str(value['id']).slice(0, 256),
+    parentId: typeof value['parentId'] === 'string' ? value['parentId'].slice(0, 256) : null,
+    timestamp: str(value['timestamp']).slice(0, 128),
     kind,
-    summary: entrySummary(kind, value, message),
-    raw: value,
+    summary: boundedToolText(entrySummary(kind, value, message)),
   };
   if (message) entry.message = message;
   return entry;
@@ -446,17 +462,25 @@ function entrySummary(
 
 export function normalizeEntries(value: unknown): SessionEntry[] {
   return list(value)
+    .slice(0, MAX_ENTRY_NODES)
     .map(normalizeEntry)
     .filter((entry): entry is SessionEntry => entry !== null);
 }
 
 export function normalizeTree(value: unknown): TreeNode[] {
-  return list(value)
-    .map((node) => {
-      if (!isWire(node)) return null;
+  let nodes = 0;
+  const visit = (input: unknown, depth: number): TreeNode[] => {
+    if (depth > MAX_TREE_DEPTH || nodes >= MAX_ENTRY_NODES) return [];
+    const output: TreeNode[] = [];
+    for (const node of list(input)) {
+      if (nodes >= MAX_ENTRY_NODES) break;
+      if (!isWire(node)) continue;
       const entry = normalizeEntry(node['entry']);
-      if (!entry) return null;
-      return { entry, children: normalizeTree(node['children']) } satisfies TreeNode;
-    })
-    .filter((node): node is TreeNode => node !== null);
+      if (!entry) continue;
+      nodes += 1;
+      output.push({ entry, children: visit(node['children'], depth + 1) });
+    }
+    return output;
+  };
+  return visit(value, 0);
 }

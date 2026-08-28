@@ -2,6 +2,7 @@ import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import {
+  bashResultSchema,
   contextFilesSchema,
   resourceCatalogSchema,
   resourceReloadResultSchema,
@@ -166,7 +167,9 @@ export async function handleRequest(
     }
 
     case 'shell.run':
-      return runtime().runShell(request.payload.command, request.payload.excludeFromContext);
+      return bashResultSchema.parse(
+        await runtime().runShell(request.payload.command, request.payload.excludeFromContext),
+      );
     case 'shell.abort':
       await runtime().abortShell();
       return null;

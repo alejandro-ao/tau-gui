@@ -109,7 +109,6 @@ function entry(id: string, summary: string, role: 'user' | 'assistant'): Session
             timestamp: 0,
           },
     summary,
-    raw: {},
   };
 }
 

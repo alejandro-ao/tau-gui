@@ -7,6 +7,7 @@ import type {
   SessionTarget,
 } from '../shared/ipc.js';
 import {
+  bashResultSchema,
   contextFilesSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
@@ -61,6 +62,9 @@ const bridge: TauBridge = {
     }
     if (action === 'resources.reload') {
       return resourceReloadResultSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'shell.run') {
+      return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return response.value as IpcResult<typeof action>;
   },
