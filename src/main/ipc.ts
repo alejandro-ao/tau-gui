@@ -80,7 +80,7 @@ export async function handleRequest(
       return manager.snapshot();
 
     case 'agent.prompt':
-      await runtime().prompt({ text: request.payload.text });
+      await manager.prompt(request.payload.text, target);
       return null;
     case 'agent.steer':
       manager.enqueuePrompt('steering', request.payload.text, target);

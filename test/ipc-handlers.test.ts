@@ -48,6 +48,7 @@ interface Calls {
   popped: number;
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
+  prompts: { text: string; target: unknown }[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
   refreshed: number;
 }
@@ -69,6 +70,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     popped: 0,
     resolved: [],
     openedDirectories: [],
+    prompts: [],
     resourceDirectories: [],
     refreshed: 0,
   };
@@ -150,6 +152,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     manager: {
       active,
       runtimeFor: () => active,
+      prompt: (text: string, target: unknown) => {
+        calls.prompts.push({ text, target });
+        return Promise.resolve();
+      },
       enqueuePrompt: (kind: string, text: string, target: unknown) =>
         calls.queued.push({ kind, text, target }),
       queueSnapshot: () => ({
@@ -406,6 +412,17 @@ describe('capability-gated and adapter-contract actions', () => {
     const { context, calls } = makeContext();
     expect(await handleRequest(context, { action: 'shell.abort' })).toBeNull();
     expect(calls.abortShell).toBe(1);
+  });
+
+  it('routes direct prompts through the pool work reservation', async () => {
+    const { context, calls } = makeContext();
+    const session = { runtime: 'tau' as const, sessionId: 'session-1' };
+    await handleRequest(context, {
+      action: 'agent.prompt',
+      payload: { text: 'reserved direct work' },
+      session,
+    });
+    expect(calls.prompts).toEqual([{ text: 'reserved direct work', target: session }]);
   });
 
   it('routes editable submissions and atomic pop through the application queue', async () => {

@@ -900,6 +900,127 @@ describe('RuntimePool', () => {
     expect(internals.managers.size).toBe(1);
   });
 
+  it('blocks direct prompts and defers queued scheduling during a reserved reload', async () => {
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const gate = deferred<void>();
+    let entered = false;
+    pool.active.reloadResources = async () => {
+      entered = true;
+      await gate.promise;
+      return reloadResult();
+    };
+    const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+
+    const reload = pool.reloadResources(target);
+    await waitFor(() => entered);
+    await expect(pool.prompt('must not overlap', target)).rejects.toThrow(
+      'resources are reloading',
+    );
+    pool.enqueuePrompt('follow-up', 'deferred until reload', target);
+    await Promise.resolve();
+    expect(prompt).not.toHaveBeenCalled();
+
+    gate.resolve();
+    await reload;
+    await waitFor(() => prompt.mock.calls.length === 1);
+    expect(prompt.mock.calls[0]?.[0].text).toBe('deferred until reload');
+  });
+
+  it('does not let settle-triggered scheduling cross a reload reservation', async () => {
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const gate = deferred<void>();
+    pool.active.reloadResources = async () => {
+      await gate.promise;
+      return reloadResult();
+    };
+    const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+    const internals = pool as unknown as {
+      managers: Set<RuntimeManager>;
+      runLifecycles: Map<RuntimeManager, { phase: string }>;
+    };
+    const manager = [...internals.managers][0]!;
+
+    const reload = pool.reloadResources(target);
+    pool.enqueuePrompt('follow-up', 'settle deferred', target);
+    internals.runLifecycles.get(manager)!.phase = 'ended';
+    (manager as unknown as { handleEvent: (event: AgentEvent) => void }).handleEvent({
+      type: 'agent_settled',
+    });
+    await Promise.resolve();
+    expect(prompt).not.toHaveBeenCalled();
+
+    // Reload owns the manager even if a terminal event updates the run gate.
+    internals.runLifecycles.get(manager)!.phase = 'ready';
+    gate.resolve();
+    await reload;
+    await waitFor(() => prompt.mock.calls.length === 1);
+  });
+
+  it('releases a failed reload reservation for later direct work', async () => {
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const gate = deferred<void>();
+    let entered = false;
+    pool.active.reloadResources = async () => {
+      entered = true;
+      await gate.promise;
+      return reloadResult();
+    };
+    const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+
+    const reload = pool.reloadResources(target);
+    const rejection = expect(reload).rejects.toThrow('reload failed');
+    await expect(pool.prompt('blocked', target)).rejects.toThrow('resources are reloading');
+    await waitFor(() => entered);
+    gate.reject(new Error('reload failed'));
+    await rejection;
+    await expect(pool.prompt('after failure', target)).resolves.toBeUndefined();
+    expect(prompt).toHaveBeenCalledWith({ text: 'after failure' });
+  });
+
+  it('reserves a background target against direct and scheduled work', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const backgroundRuntime = pool.runtimeFor(background);
+    settings.rememberSession({
+      id: 'other-session',
+      name: 'other',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+    await pool.activateSession('other-session');
+    const gate = deferred<void>();
+    backgroundRuntime.reloadResources = async () => {
+      await gate.promise;
+      return reloadResult();
+    };
+    const prompt = vi.spyOn(backgroundRuntime, 'prompt').mockResolvedValue(undefined);
+
+    const reload = pool.reloadResources(background);
+    await expect(pool.prompt('blocked background', background)).rejects.toThrow(
+      'resources are reloading',
+    );
+    pool.enqueuePrompt('follow-up', 'background deferred', background);
+    await Promise.resolve();
+    expect(prompt).not.toHaveBeenCalled();
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+
+    gate.resolve();
+    await reload;
+    await waitFor(() => prompt.mock.calls.length === 1);
+    expect(prompt.mock.calls[0]?.[0].text).toBe('background deferred');
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+  });
+
   it('serializes reload with itself and releases the queue after failure', async () => {
     pool = new RuntimePool(makeSettings(), () => undefined);
     await pool.start();

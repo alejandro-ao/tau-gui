@@ -21,6 +21,8 @@ export class RuntimePool {
   private readonly owners = new Map<string, RuntimeManager>();
   /** Queue scheduling state is independent of RuntimeManager's presentation status. */
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
+  /** Requested/in-progress reloads reserve a manager before entering the transition queue. */
+  private readonly reloadReservations = new Map<RuntimeManager, number>();
   /** App-tool-created runtimes retained for sidebar navigation and bounded recursion. */
   private readonly spawned = new Set<RuntimeManager>();
   private current: RuntimeManager | null = null;
@@ -60,12 +62,25 @@ export class RuntimePool {
     return this.managerFor(target).active;
   }
 
+  /** Starts direct work only after atomically claiming the target manager. */
+  async prompt(text: string, target?: SessionTarget | null): Promise<void> {
+    const manager = this.managerFor(target);
+    const lifecycle = this.claimWorkStart(manager);
+    try {
+      await manager.active.prompt({ text });
+    } catch (error) {
+      // A rejected handoff did not start agent work; release it for reload/retry.
+      if (lifecycle.phase === 'handoff') lifecycle.phase = 'ready';
+      throw error;
+    }
+  }
+
   enqueuePrompt(kind: PromptQueueKind, text: string, target?: SessionTarget | null): void {
     const resolved = this.queueTarget(target);
     this.queues.enqueue(resolved.target, kind, text);
     // A retained queue has deliberately outlived its failed process. It remains
     // editable until restart recreates the exact owner and schedules it.
-    if (!resolved.manager) return;
+    if (!resolved.manager || this.isReloadReserved(resolved.manager)) return;
     // The turn may settle between the renderer observing `running` and this
     // request reaching main. Treat the now-idle process as the settle boundary.
     if (!isBusy(resolved.manager)) void this.schedule(resolved.manager);
@@ -405,29 +420,39 @@ export class RuntimePool {
     });
   }
 
-  /** Reloads one exact idle session, mutually exclusive with every pool transition. */
+  /** Reloads one exact idle session, mutually exclusive with transitions and work starts. */
   async reloadResources(target?: SessionTarget | null) {
     const requested = target ?? (this.current ? targetFor(this.current) : null);
     if (!requested) throw new Error('Runtime is not started');
+    // Reserve synchronously, before waiting on the transition chain. Prompts
+    // arriving after this call can therefore never enter the target runtime.
+    const reservedManager = this.managerFor(requested);
+    this.reserveReload(reservedManager);
     return this.enqueueTransition(async () => {
-      const manager = this.managerFor(requested);
-      if (isBusy(manager)) throw new Error('Cannot reload resources while agent work is active');
-      const runtime = manager.active;
-      if (!runtime.reloadResources) throw new Error('Resource reload is unavailable');
-      const beforeState = await runtime.getState();
-      if (beforeState.sessionId !== requested.sessionId) {
-        throw new Error('Session identity changed before resources could reload');
+      try {
+        const manager = this.managerFor(requested);
+        if (manager !== reservedManager) {
+          throw new Error('Session runtime changed before resources could reload');
+        }
+        const runtime = manager.active;
+        if (!runtime.reloadResources) throw new Error('Resource reload is unavailable');
+        const beforeState = await runtime.getState();
+        if (beforeState.sessionId !== requested.sessionId) {
+          throw new Error('Session identity changed before resources could reload');
+        }
+        const result = await runtime.reloadResources();
+        if (!manager.isStarted || manager.active !== runtime || !this.managers.has(manager)) {
+          throw new Error('Session runtime changed while resources were reloading');
+        }
+        const afterState = await runtime.getState();
+        if (afterState.sessionId !== beforeState.sessionId) {
+          throw new Error('Session identity changed while resources were reloading');
+        }
+        await this.refreshState(false, requested);
+        return result;
+      } finally {
+        this.releaseReload(reservedManager);
       }
-      const result = await runtime.reloadResources();
-      if (!manager.isStarted || manager.active !== runtime || !this.managers.has(manager)) {
-        throw new Error('Session runtime changed while resources were reloading');
-      }
-      const afterState = await runtime.getState();
-      if (afterState.sessionId !== beforeState.sessionId) {
-        throw new Error('Session identity changed while resources were reloading');
-      }
-      await this.refreshState(false, requested);
-      return result;
     });
   }
 
@@ -563,6 +588,7 @@ export class RuntimePool {
     const snapshot = manager.snapshot();
     const lifecycle = this.lifecycleFor(manager);
     if (
+      this.isReloadReserved(manager) ||
       !manager.isStarted ||
       snapshot.status !== 'idle' ||
       !snapshot.state?.sessionId ||
@@ -571,16 +597,49 @@ export class RuntimePool {
       return;
     }
     await this.queues.dispatchNext(targetFor(manager), async (text) => {
-      lifecycle.phase = 'handoff';
+      const claimed = this.claimWorkStart(manager);
       try {
         await manager.active.prompt({ text });
       } catch (error) {
         // A rejected RPC never started a run, so the reinstated item may be
         // attempted again at the next idle scheduling boundary.
-        if (lifecycle.phase === 'handoff') lifecycle.phase = 'ready';
+        if (claimed.phase === 'handoff') claimed.phase = 'ready';
         throw error;
       }
     });
+  }
+
+  private claimWorkStart(manager: RuntimeManager): RunLifecycle {
+    const lifecycle = this.lifecycleFor(manager);
+    if (this.isReloadReserved(manager)) {
+      throw new Error('Cannot start agent work while resources are reloading');
+    }
+    if (isBusy(manager) || lifecycle.phase !== 'ready') {
+      throw new Error('Cannot start agent work while other agent work is active');
+    }
+    lifecycle.phase = 'handoff';
+    return lifecycle;
+  }
+
+  private reserveReload(manager: RuntimeManager): void {
+    const existing = this.reloadReservations.get(manager) ?? 0;
+    const lifecycle = this.lifecycleFor(manager);
+    if (existing === 0 && (isBusy(manager) || lifecycle.phase !== 'ready')) {
+      throw new Error('Cannot reload resources while agent work is active');
+    }
+    this.reloadReservations.set(manager, existing + 1);
+  }
+
+  private releaseReload(manager: RuntimeManager): void {
+    const remaining = (this.reloadReservations.get(manager) ?? 1) - 1;
+    if (remaining > 0) this.reloadReservations.set(manager, remaining);
+    else this.reloadReservations.delete(manager);
+    // Queue work deferred by this reservation gets one fresh idle boundary.
+    if (remaining <= 0 && manager.isStarted && this.managers.has(manager)) void this.schedule(manager);
+  }
+
+  private isReloadReserved(manager: RuntimeManager): boolean {
+    return (this.reloadReservations.get(manager) ?? 0) > 0;
   }
 
   private broadcastActivity(
