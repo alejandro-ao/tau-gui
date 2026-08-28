@@ -31,6 +31,16 @@ describe('privileged session filesystem guards', () => {
 
     await expect(exclusiveCopy(source, destination)).rejects.toThrow();
     await expect(readFile(destination, 'utf8')).resolves.toBe('owned');
+
+    const hardTarget = join(directory, 'hard-target.jsonl');
+    const hardDestination = join(directory, 'hard-destination.jsonl');
+    const symbolicDestination = join(directory, 'symbolic-destination.jsonl');
+    await writeFile(hardTarget, 'hard-owned');
+    await link(hardTarget, hardDestination);
+    await symlink(hardTarget, symbolicDestination);
+    await expect(exclusiveCopy(source, hardDestination)).rejects.toThrow();
+    await expect(exclusiveCopy(source, symbolicDestination)).rejects.toThrow();
+    await expect(readFile(hardTarget, 'utf8')).resolves.toBe('hard-owned');
   });
 
   it('rejects symlink and hardlink import sources', async () => {
