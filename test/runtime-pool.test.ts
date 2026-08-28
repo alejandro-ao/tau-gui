@@ -1042,6 +1042,181 @@ describe('RuntimePool', () => {
     await expect(second).resolves.toEqual(reloadResult());
   });
 
+  it.each(['success', 'failure'] as const)(
+    'never releases retained queue work before a queued stop after reload %s',
+    async (outcome) => {
+      pool = new RuntimePool(makeSettings(), () => undefined);
+      await pool.start();
+      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const gate = deferred<void>();
+      let reloadEntered = false;
+      pool.active.reloadResources = async () => {
+        reloadEntered = true;
+        await gate.promise;
+        return reloadResult();
+      };
+      const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+
+      const reload = pool.reloadResources(target);
+      const observedReload = reload.then(
+        () => null,
+        (error: Error) => error,
+      );
+      pool.enqueuePrompt('follow-up', 'must remain stopped', target);
+      const stopping = pool.stop();
+      await waitFor(() => reloadEntered);
+      if (outcome === 'success') gate.resolve();
+      else gate.reject(new Error('reload failed'));
+
+      const reloadError = await observedReload;
+      expect(reloadError?.message ?? null).toBe(outcome === 'failure' ? 'reload failed' : null);
+      await stopping;
+      expect(prompt).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['success', 'failure'] as const)(
+    'never dispatches an old-session queue before a queued new session after reload %s',
+    async (outcome) => {
+      pool = new RuntimePool(makeSettings(), () => undefined);
+      await pool.start();
+      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const gate = deferred<void>();
+      let reloadEntered = false;
+      pool.active.reloadResources = async () => {
+        reloadEntered = true;
+        await gate.promise;
+        return reloadResult();
+      };
+      const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
+
+      const reload = pool.reloadResources(target);
+      const observedReload = reload.then(
+        () => null,
+        (error: Error) => error,
+      );
+      pool.enqueuePrompt('follow-up', 'belongs to prior session', target);
+      const opening = pool.newSession(target);
+      await waitFor(() => reloadEntered);
+      if (outcome === 'success') gate.resolve();
+      else gate.reject(new Error('reload failed'));
+
+      const reloadError = await observedReload;
+      expect(reloadError?.message ?? null).toBe(outcome === 'failure' ? 'reload failed' : null);
+      await opening;
+      expect(pool.snapshot().state?.sessionId).not.toBe(target.sessionId);
+      expect(prompt).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['success', 'failure'] as const)(
+    'waits for a queued switch before handing retained background work off after reload %s',
+    async (outcome) => {
+      const settings = makeSettings();
+      pool = new RuntimePool(settings, () => undefined);
+      await pool.start();
+      const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const backgroundRuntime = pool.active;
+      const reloadGate = deferred<void>();
+      const handoffGate = deferred<void>();
+      let reloadEntered = false;
+      backgroundRuntime.reloadResources = async () => {
+        reloadEntered = true;
+        await reloadGate.promise;
+        return reloadResult();
+      };
+      const order: string[] = [];
+      vi.spyOn(backgroundRuntime, 'prompt').mockImplementation(async () => {
+        order.push(`prompt:${pool!.snapshot().state?.sessionId}`);
+        await handoffGate.promise;
+      });
+      settings.rememberSession({
+        id: 'other-session',
+        name: 'other',
+        path: null,
+        cwd: process.cwd(),
+        runtime: 'tau',
+        lastSeen: Date.now(),
+      });
+
+      const reload = pool.reloadResources(background);
+      const observedReload = reload.then(
+        () => null,
+        (error: Error) => error,
+      );
+      pool.enqueuePrompt('follow-up', 'background after switch', background);
+      const switching = pool.activateSession('other-session').then(() => order.push('switch'));
+      await waitFor(() => reloadEntered);
+      if (outcome === 'success') reloadGate.resolve();
+      else reloadGate.reject(new Error('reload failed'));
+
+      const reloadError = await observedReload;
+      expect(reloadError?.message ?? null).toBe(outcome === 'failure' ? 'reload failed' : null);
+      await switching;
+      await waitFor(() => order.some((item) => item.startsWith('prompt:')));
+      expect(order).toEqual(['prompt:other-session', 'switch']);
+      // The switch callback completed before handoff, and its transition
+      // promise remains live even while the prompt promise is held.
+      expect(pool.snapshot().state?.sessionId).toBe('other-session');
+      handoffGate.resolve();
+    },
+  );
+
+  it.each(['success', 'failure'] as const)(
+    're-resolves the replacement before handing retained work off after queued restart and reload %s',
+    async (outcome) => {
+      pool = new RuntimePool(makeSettings(), () => undefined);
+      await pool.start();
+      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const replacedRuntime = pool.active;
+      const reloadGate = deferred<void>();
+      const handoffGate = deferred<void>();
+      let reloadEntered = false;
+      replacedRuntime.reloadResources = async () => {
+        reloadEntered = true;
+        await reloadGate.promise;
+        return reloadResult();
+      };
+      const oldPrompt = vi.spyOn(replacedRuntime, 'prompt').mockResolvedValue(undefined);
+      const order: string[] = [];
+      const internals = pool as unknown as { createManager: () => RuntimeManager };
+      const createManager = internals.createManager.bind(pool);
+      internals.createManager = () => {
+        const manager = createManager();
+        const start = manager.start.bind(manager);
+        manager.start = async (options) => {
+          const snapshot = await start(options);
+          vi.spyOn(manager.active, 'prompt').mockImplementation(async () => {
+            order.push('replacement-prompt');
+            await handoffGate.promise;
+          });
+          order.push('replacement-started');
+          return snapshot;
+        };
+        return manager;
+      };
+
+      const reload = pool.reloadResources(target);
+      const observedReload = reload.then(
+        () => null,
+        (error: Error) => error,
+      );
+      pool.enqueuePrompt('follow-up', 'replacement only', target);
+      const restarting = pool.restart().then(() => order.push('restart-complete'));
+      await waitFor(() => reloadEntered);
+      if (outcome === 'success') reloadGate.resolve();
+      else reloadGate.reject(new Error('reload failed'));
+
+      const reloadError = await observedReload;
+      expect(reloadError?.message ?? null).toBe(outcome === 'failure' ? 'reload failed' : null);
+      await restarting;
+      await waitFor(() => order.includes('replacement-prompt'));
+      expect(oldPrompt).not.toHaveBeenCalled();
+      expect(order).toEqual(['replacement-started', 'replacement-prompt', 'restart-complete']);
+      handoffGate.resolve();
+    },
+  );
+
   it('serializes reload before stop and new-session transitions', async () => {
     pool = new RuntimePool(makeSettings(), () => undefined);
     await pool.start();

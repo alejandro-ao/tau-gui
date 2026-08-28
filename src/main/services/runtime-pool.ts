@@ -23,6 +23,10 @@ export class RuntimePool {
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
   /** Requested/in-progress reloads reserve a manager before entering the transition queue. */
   private readonly reloadReservations = new Map<RuntimeManager, number>();
+  /** Exact sessions awaiting an idle scheduling boundary after lifecycle transitions. */
+  private readonly pendingSchedules = new Map<RuntimeManager, SessionTarget>();
+  /** Includes executing and queued lifecycle transitions, claimed synchronously. */
+  private pendingTransitions = 0;
   /** App-tool-created runtimes retained for sidebar navigation and bounded recursion. */
   private readonly spawned = new Set<RuntimeManager>();
   private current: RuntimeManager | null = null;
@@ -83,7 +87,7 @@ export class RuntimePool {
     if (!resolved.manager || this.isReloadReserved(resolved.manager)) return;
     // The turn may settle between the renderer observing `running` and this
     // request reaching main. Treat the now-idle process as the settle boundary.
-    if (!isBusy(resolved.manager)) void this.schedule(resolved.manager);
+    if (!isBusy(resolved.manager)) this.requestSchedule(resolved.manager);
   }
 
   popPrompt(target?: SessionTarget | null): ReturnType<PromptQueueService['pop']> {
@@ -197,7 +201,7 @@ export class RuntimePool {
       const snapshot = await manager.start(options);
       this.index(manager);
       this.claimSnapshot(manager);
-      void this.schedule(manager);
+      this.requestSchedule(manager);
       return snapshot;
     } catch (error) {
       // Startup can fail after spawning or indexing transient state. Fully
@@ -284,7 +288,7 @@ export class RuntimePool {
 
         const target = targetFor(manager);
         this.queues.enqueue(target, 'follow-up', request.prompt);
-        void this.schedule(manager);
+        this.requestSchedule(manager);
         const state = manager.snapshot().state;
         return {
           sessionId: target.sessionId,
@@ -379,7 +383,7 @@ export class RuntimePool {
       }
       this.index(manager);
       this.claimSnapshot(manager);
-      void this.schedule(manager);
+      this.requestSchedule(manager);
       return snapshot;
     } catch (error) {
       // A failed resume may happen after the subprocess has started. Always
@@ -401,6 +405,7 @@ export class RuntimePool {
       this.removeOwnership(manager);
       this.managers.delete(manager);
       this.runLifecycles.delete(manager);
+      this.pendingSchedules.delete(manager);
       this.spawned.delete(manager);
       if (this.current === manager) this.current = null;
       return snapshot;
@@ -415,6 +420,7 @@ export class RuntimePool {
       this.owners.clear();
       this.managers.clear();
       this.runLifecycles.clear();
+      this.pendingSchedules.clear();
       this.spawned.clear();
       await Promise.allSettled(managers.map((manager) => manager.stop()));
     });
@@ -451,7 +457,7 @@ export class RuntimePool {
         await this.refreshState(false, requested);
         return result;
       } finally {
-        this.releaseReload(reservedManager);
+        this.releaseReload(reservedManager, requested);
       }
     });
   }
@@ -472,7 +478,18 @@ export class RuntimePool {
   }
 
   private enqueueTransition<T>(work: () => Promise<T>): Promise<T> {
-    const result = this.transitions.then(work, work);
+    // Claim before joining the promise chain. Scheduling can therefore see
+    // transitions that are queued but whose callback has not started yet.
+    this.pendingTransitions += 1;
+    const execute = async (): Promise<T> => {
+      try {
+        return await work();
+      } finally {
+        this.pendingTransitions -= 1;
+        this.flushPendingSchedules();
+      }
+    };
+    const result = this.transitions.then(execute, execute);
     this.transitions = result.then(
       () => undefined,
       () => undefined,
@@ -507,7 +524,7 @@ export class RuntimePool {
       if (event.event.type === 'agent_settled') {
         this.broadcastActivity(manager, manager.snapshot().status, manager !== this.current);
       }
-      if (terminal) void this.schedule(manager);
+      if (terminal) this.requestSchedule(manager);
     }
     // Settings are application-global. Every other transcript event is shown
     // only while that transcript is selected. Session activity is separately
@@ -584,7 +601,42 @@ export class RuntimePool {
     return lifecycle;
   }
 
-  private async schedule(manager: RuntimeManager): Promise<void> {
+  private requestSchedule(manager: RuntimeManager): void {
+    if (!manager.isStarted || !this.managers.has(manager)) return;
+    let target: SessionTarget;
+    try {
+      target = targetFor(manager);
+    } catch {
+      return;
+    }
+    this.pendingSchedules.set(manager, target);
+    this.flushPendingSchedules();
+  }
+
+  private flushPendingSchedules(): void {
+    if (this.pendingTransitions > 0) return;
+    for (const [manager, target] of this.pendingSchedules) {
+      this.pendingSchedules.delete(manager);
+      // Re-resolve both ownership and session identity after every transition.
+      // A restart may replace the manager for the same target; its own start
+      // boundary requests scheduling for that replacement.
+      if (
+        !manager.isStarted ||
+        !this.managers.has(manager) ||
+        this.ownerOf(target) !== manager ||
+        !matches(manager, target)
+      ) {
+        continue;
+      }
+      void this.schedule(manager, target);
+    }
+  }
+
+  private async schedule(manager: RuntimeManager, target: SessionTarget): Promise<void> {
+    if (this.pendingTransitions > 0) {
+      this.pendingSchedules.set(manager, target);
+      return;
+    }
     const snapshot = manager.snapshot();
     const lifecycle = this.lifecycleFor(manager);
     if (
@@ -596,7 +648,7 @@ export class RuntimePool {
     ) {
       return;
     }
-    await this.queues.dispatchNext(targetFor(manager), async (text) => {
+    await this.queues.dispatchNext(target, async (text) => {
       const claimed = this.claimWorkStart(manager);
       try {
         await manager.active.prompt({ text });
@@ -630,13 +682,17 @@ export class RuntimePool {
     this.reloadReservations.set(manager, existing + 1);
   }
 
-  private releaseReload(manager: RuntimeManager): void {
+  private releaseReload(manager: RuntimeManager, target: SessionTarget): void {
     const remaining = (this.reloadReservations.get(manager) ?? 1) - 1;
     if (remaining > 0) this.reloadReservations.set(manager, remaining);
     else this.reloadReservations.delete(manager);
-    // Queue work deferred by this reservation gets one fresh idle boundary.
-    if (remaining <= 0 && manager.isStarted && this.managers.has(manager))
-      void this.schedule(manager);
+    // Never dispatch from inside reload's transition callback. The request is
+    // retained until every lifecycle transition already claimed has finished,
+    // then exact manager/session ownership is resolved again.
+    if (remaining <= 0 && manager.isStarted && this.managers.has(manager)) {
+      this.pendingSchedules.set(manager, target);
+      this.flushPendingSchedules();
+    }
   }
 
   private isReloadReserved(manager: RuntimeManager): boolean {
@@ -707,6 +763,7 @@ export class RuntimePool {
     this.removeOwnership(manager);
     this.managers.delete(manager);
     this.runLifecycles.delete(manager);
+    this.pendingSchedules.delete(manager);
     this.spawned.delete(manager);
     if (this.current === manager) this.current = null;
   }
