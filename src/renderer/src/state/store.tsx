@@ -84,6 +84,9 @@ export interface Actions {
   setAutoCompaction: (enabled: boolean) => Promise<void>;
   loadTree: () => Promise<TreeSnapshot | null>;
   loadDiagnostics: () => Promise<void>;
+  inspectSystemPrompt: () => Promise<void>;
+  inspectTools: () => Promise<void>;
+  reloadResources: () => Promise<void>;
   completePaths: (query: string) => Promise<FileCompletion[]>;
   relativize: (paths: string[]) => Promise<string[]>;
   setDraft: (text: string) => void;
@@ -666,6 +669,26 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       loadDiagnostics: async () => {
         const messages = await attempt('diagnostics.list', undefined, notice);
         if (messages) dispatch({ type: 'diagnostics', messages });
+      },
+      inspectSystemPrompt: async () => {
+        const inspection = await attempt('agent.inspectSystemPrompt', undefined, notice, viewed());
+        if (!inspection) return;
+        // Local UI state only: never create a transcript block or call agent.prompt.
+        dispatch({ type: 'systemPromptInspection', inspection });
+        dispatch({ type: 'modal', modal: 'system' });
+      },
+      inspectTools: async () => {
+        const catalog = await attempt('tools.list', undefined, notice, viewed());
+        if (!catalog) return;
+        dispatch({ type: 'toolCatalog', catalog });
+        dispatch({ type: 'modal', modal: 'tools' });
+      },
+      reloadResources: async () => {
+        const result = await run(() => invoke('resources.reload', undefined, viewed()));
+        if (!result) return;
+        dispatch({ type: 'resourceReload', result });
+        await refresh();
+        dispatch({ type: 'modal', modal: 'reload' });
       },
       completePaths: async (query) => (await attempt('fs.complete', { query }, notice)) ?? [],
       relativize: async (paths) => (await attempt('fs.relativize', { paths }, notice)) ?? paths,

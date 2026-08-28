@@ -10,6 +10,11 @@ import type {
   ThinkingLevel,
 } from '../../../shared/domain.js';
 import type {
+  ResourceReloadResult,
+  SystemPromptInspection,
+  ToolCatalog,
+} from '../../../shared/introspection.js';
+import type {
   ContextFile,
   PromptQueueSnapshot,
   RuntimeSnapshot,
@@ -122,7 +127,10 @@ export type ModalKind =
   | 'diagnostics'
   | 'commands'
   | 'skills'
-  | 'prompts';
+  | 'prompts'
+  | 'system'
+  | 'tools'
+  | 'reload';
 
 export interface AppState {
   snapshot: RuntimeSnapshot;
@@ -134,6 +142,10 @@ export interface AppState {
   commands: CommandInfo[];
   resources: ResourceCatalog;
   contextFiles: ContextFile[];
+  /** Local-only inspection data. Never converted into transcript blocks or prompts. */
+  systemPromptInspection: SystemPromptInspection | null;
+  toolCatalog: ToolCatalog;
+  resourceReload: ResourceReloadResult | null;
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -187,6 +199,9 @@ export type Action =
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
   | { type: 'contextFiles'; files: ContextFile[] }
+  | { type: 'systemPromptInspection'; inspection: SystemPromptInspection }
+  | { type: 'toolCatalog'; catalog: ToolCatalog }
+  | { type: 'resourceReload'; result: ResourceReloadResult }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

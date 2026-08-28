@@ -7,11 +7,14 @@ import { HotkeysModal } from './HotkeysModal.js';
 import { ModelModal } from './ModelModal.js';
 import { PaletteModal } from './PaletteModal.js';
 import { PromptsModal } from './PromptsModal.js';
+import { ReloadModal } from './ReloadModal.js';
 import { ScopedModelsModal } from './ScopedModelsModal.js';
 import { SessionModal } from './SessionModal.js';
 import { SettingsModal } from './SettingsModal.js';
 import { SkillsModal } from './SkillsModal.js';
+import { SystemPromptModal } from './SystemPromptModal.js';
 import { ThemeModal } from './ThemeModal.js';
+import { ToolsModal } from './ToolsModal.js';
 import { ThinkingModal } from './ThinkingModal.js';
 import { TreeModal } from './TreeModal.js';
 
@@ -49,5 +52,11 @@ export function ModalHost(): ReactNode {
       return <SkillsModal />;
     case 'prompts':
       return <PromptsModal />;
+    case 'system':
+      return <SystemPromptModal />;
+    case 'tools':
+      return <ToolsModal />;
+    case 'reload':
+      return <ReloadModal />;
   }
 }

@@ -430,10 +430,11 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/tools',
-    unavailable: missing(
-      capabilities.toolCatalog,
-      'tool catalog inspection is not exposed by the desktop application contract',
-    ),
+    ...(capabilities.toolCatalog
+      ? { unavailable: null, run: () => void actions.inspectTools() }
+      : {
+          unavailable: 'tool catalog inspection is not exposed by the desktop application contract',
+        }),
   });
   add({
     id: 'runtime.system',
@@ -442,10 +443,12 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/system',
-    unavailable: missing(
-      capabilities.systemPromptInspection,
-      'system prompt inspection is not exposed by the desktop application contract',
-    ),
+    ...(capabilities.systemPromptInspection
+      ? { unavailable: null, run: () => void actions.inspectSystemPrompt() }
+      : {
+          unavailable:
+            'system prompt inspection is not exposed by the desktop application contract',
+        }),
   });
   add({
     id: 'runtime.reload',
@@ -454,10 +457,9 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/reload',
-    unavailable: missing(
-      capabilities.resourceReload,
-      'resource reload is not exposed by the desktop application contract',
-    ),
+    ...(capabilities.resourceReload
+      ? { unavailable: null, run: () => void actions.reloadResources() }
+      : { unavailable: 'resource reload is not exposed by the desktop application contract' }),
   });
   for (const action of ['login', 'logout'] as const) {
     add({
