@@ -98,6 +98,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     string,
     { path: string; sessionId: string; physical: PhysicalFile }
   >();
+  private catalogComplete = false;
   private preparedImport: {
     source: string;
     staged: string;
@@ -372,7 +373,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async switchSession(ref: string): Promise<void> {
-    const info = this.catalog.get(ref) ?? (await resolveCatalogSession(ref, this.agentDir));
+    const cached = this.catalog.get(ref);
+    if (cached && !this.catalogComplete) throw incompleteCatalogError();
+    const info = cached ?? (await resolveCatalogSession(ref, this.agentDir));
     if (!info) throw new Error('Pi session reference is not in the main-owned catalog');
     await this.host.switchSession(info.path);
   }
@@ -512,7 +515,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
-    const record = this.catalog.get(ref) ?? (await resolveCatalogSession(ref, this.agentDir));
+    const cached = this.catalog.get(ref);
+    if (cached && !this.catalogComplete) throw incompleteCatalogError();
+    const record = cached ?? (await resolveCatalogSession(ref, this.agentDir));
     if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
     return { sessionId: record.sessionId, physicalKey: record.physical.key };
   }
@@ -520,6 +525,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   async listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]> {
     const result = await loadCatalog(this.agentDir, scope === 'cwd' ? this.host.cwd : null);
     this.catalog.clear();
+    this.catalogComplete = result.complete;
     for (const record of result.records) this.catalog.set(record.summary.id, record);
     for (const message of result.diagnostics.slice(0, 20)) this.sink.diagnostic(message);
     return result.records.map((record) => record.summary);
@@ -698,9 +704,10 @@ function catalogId(physical: PhysicalFile): string {
 export async function loadCatalog(
   agentDir: string,
   cwd: string | null,
-): Promise<{ records: CatalogRecord[]; diagnostics: string[] }> {
+): Promise<{ records: CatalogRecord[]; diagnostics: string[]; complete: boolean }> {
   const listed = await boundedSessionList(join(agentDir, 'sessions'));
   const diagnostics = [...listed.diagnostics];
+  let complete = listed.complete;
   const candidates: CatalogRecord[] = [];
   const pathIds = new Map<string, string>();
   for (const { info, physical } of listed.sessions) {
@@ -746,6 +753,7 @@ export async function loadCatalog(
         },
       });
     } catch (error) {
+      complete = false;
       diagnostics.push(`Dropped malformed session record: ${(error as Error).message}`);
     }
   }
@@ -761,7 +769,10 @@ export async function loadCatalog(
     .filter((record) => {
       const unique =
         idCounts.get(record.sessionId) === 1 && physicalCounts.get(record.physical.key) === 1;
-      if (!unique) diagnostics.push(`Dropped conflicting session identity: ${record.sessionId}`);
+      if (!unique) {
+        complete = false;
+        diagnostics.push(`Dropped conflicting session identity: ${record.sessionId}`);
+      }
       return unique;
     })
     .map((record) => {
@@ -777,24 +788,19 @@ export async function loadCatalog(
         },
       };
     })
-    .sort((left, right) => right.summary.modifiedAt - left.summary.modifiedAt)
-    .slice(0, MAX_SESSION_CATALOG_ENTRIES);
-  return { records, diagnostics };
+    .sort((left, right) => right.summary.modifiedAt - left.summary.modifiedAt);
+  if (records.length > MAX_SESSION_CATALOG_ENTRIES) {
+    complete = false;
+    diagnostics.push('Session catalog record budget exceeded; remaining records omitted');
+    records.length = MAX_SESSION_CATALOG_ENTRIES;
+  }
+  return { records, diagnostics, complete };
 }
 
 async function assertLogicalSessionIdAvailable(agentDir: string, sessionId: string): Promise<void> {
-  const listed = await boundedSessionList(join(agentDir, 'sessions'));
-  if (
-    listed.sessions.some(({ info }) => {
-      if (typeof info.id !== 'string') return false;
-      try {
-        assertValidImportedSessionId(info.id);
-        return info.id === sessionId;
-      } catch {
-        return false;
-      }
-    })
-  ) {
+  const catalog = await loadCatalog(agentDir, null);
+  if (!catalog.complete) throw incompleteCatalogError();
+  if (catalog.records.some((record) => record.sessionId === sessionId)) {
     throw new Error('A session with this identity already exists; portable re-import is refused');
   }
 }
@@ -811,9 +817,14 @@ function assertValidImportedSessionId(id: string): void {
   }
 }
 
+function incompleteCatalogError(): Error {
+  return new Error('Session catalog is incomplete; identity-sensitive operation refused');
+}
+
 async function resolveCatalogSession(ref: string, agentDir: string): Promise<CatalogRecord | null> {
   if (!/^pi-[a-f0-9]{32}$/.test(ref)) return null;
   const catalog = await loadCatalog(agentDir, null);
+  if (!catalog.complete) throw incompleteCatalogError();
   return catalog.records.find((record) => record.summary.id === ref) ?? null;
 }
 
@@ -825,6 +836,7 @@ async function openSession(ref: string, cwd: string, agentDir: string): Promise<
     return SessionManager.open(physical.path, dirname(physical.path), cwd);
   }
   const catalog = await loadCatalog(agentDir, null);
+  if (!catalog.complete) throw incompleteCatalogError();
   const record = catalog.records.find(
     (candidate) => candidate.summary.id === ref || candidate.sessionId === ref,
   );

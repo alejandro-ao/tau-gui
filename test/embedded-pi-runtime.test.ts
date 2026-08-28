@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
+import { SESSION_IO_LIMITS } from '../src/main/runtime/session-files.js';
 import {
   EMBEDDED_PI_CAPABILITIES,
   EmbeddedPiRuntime,
@@ -233,9 +234,27 @@ describe('EmbeddedPiRuntime', () => {
       expect.arrayContaining([expect.objectContaining({ sessionId: cloneId })]),
     );
 
+    // The uniqueness oracle must not trust a partial scan. Poison the directory
+    // containing exported A and clone B, then prove import refuses until a
+    // subsequent complete catalog recovers.
+    const nativeDirectory = dirname((await runtime.getState()).sessionFile!);
+    const poison = Array.from({ length: SESSION_IO_LIMITS.entriesPerDirectory + 1 }, (_, index) =>
+      join(nativeDirectory, `catalog-poison-${index}`),
+    );
+    for (const path of poison) writeFileSync(path, '');
+    await expect(runtime.prepareImport(portable)).rejects.toThrow('catalog is incomplete');
+    expect((await runtime.listSessions('all')).length).toBe(0);
+    for (const path of poison) rmSync(path);
+    expect(await runtime.listSessions('all')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sessionId: originalId }),
+        expect.objectContaining({ sessionId: cloneId }),
+      ]),
+    );
+
     // A portable copy preserves its logical ID. Re-importing it while the
-    // original remains in this manager's catalog must fail without creating a
-    // duplicate that would make both records disappear.
+    // original remains in this manager's recovered catalog must fail without
+    // creating a duplicate that would make both records disappear.
     await expect(runtime.prepareImport(portable)).rejects.toThrow('portable re-import is refused');
     const afterRejectedImport = await runtime.listSessions('all');
     const originalRecord = afterRejectedImport.find((session) => session.sessionId === originalId);
@@ -279,8 +298,8 @@ describe('EmbeddedPiRuntime', () => {
       dirname((await runtime.getState()).sessionFile!),
       forcedImportDestination,
     );
-    writeFileSync(collision, 'caller-owned collision');
     await runtime.prepareImport(externalPath);
+    writeFileSync(collision, 'caller-owned collision');
     await expect(runtime.importJsonl(externalPath)).rejects.toThrow();
     expect(readFileSync(collision, 'utf8')).toBe('caller-owned collision');
     expect((await runtime.getState()).sessionId).toBe(originalId);

@@ -115,6 +115,8 @@ async function inspectDirectory(
 export async function boundedSessionList(root: string): Promise<{
   sessions: Array<{ info: SessionInfo; physical: PhysicalFile }>;
   diagnostics: string[];
+  /** False whenever any directory or record was omitted from this bounded scan. */
+  complete: boolean;
 }> {
   const started = Date.now();
   const diagnostics: string[] = [];
@@ -122,7 +124,11 @@ export async function boundedSessionList(root: string): Promise<{
   try {
     rootReal = await checkedDirectory(resolve(root));
   } catch (error) {
-    return { sessions: [], diagnostics: [`Session root rejected: ${(error as Error).message}`] };
+    return {
+      sessions: [],
+      diagnostics: [`Session root rejected: ${(error as Error).message}`],
+      complete: false,
+    };
   }
 
   const directoryPaths = [rootReal];
@@ -146,24 +152,26 @@ export async function boundedSessionList(root: string): Promise<{
       await handle.close().catch(() => undefined);
     }
   } catch (error) {
-    return { sessions: [], diagnostics: [(error as Error).message] };
+    return { sessions: [], diagnostics: [(error as Error).message], complete: false };
   }
 
   const budget = { files: 0, bytes: 0 };
   const approved: ApprovedDirectory[] = [];
+  let complete = true;
   for (const directory of directoryPaths) {
     try {
       approved.push(await inspectDirectory(directory, rootReal, budget, started));
     } catch (error) {
+      complete = false;
       diagnostics.push(`Skipped session directory: ${(error as Error).message}`);
     }
   }
 
   const sessions: Array<{ info: SessionInfo; physical: PhysicalFile }> = [];
   for (const directory of approved) {
-    deadline(started);
     let listed: SessionInfo[];
     try {
+      deadline(started);
       // Recheck every approved identity immediately before Pi opens any file.
       // The public API cannot consume handles, so a same-user mutation after this
       // point remains the narrowly documented listing residual.
@@ -176,27 +184,38 @@ export async function boundedSessionList(root: string): Promise<{
       // Public SDK owns JSONL parsing. Its API has no abort/file/byte budget, so calls
       // happen only for directories whose complete metadata set passed the budgets above.
       listed = await SessionManager.listAll(directory.path);
+      deadline(started);
     } catch (error) {
+      complete = false;
       diagnostics.push(`Skipped malformed session directory: ${(error as Error).message}`);
       continue;
     }
+    const represented = new Set<string>();
     for (const info of listed) {
       try {
+        deadline(started);
         if (!info || typeof info.path !== 'string') throw new Error('Malformed SDK record');
         const path = resolve(info.path);
         const physical = directory.files.get(path);
         if (!physical) throw new Error('SDK returned an unapproved path');
+        if (represented.has(path)) throw new Error('SDK returned a duplicate path');
+        represented.add(path);
         const checked = await inspectPhysicalFile(path, directory.path);
         if (checked.key !== physical.key || checked.size !== physical.size) {
           throw new Error('Session file changed during listing');
         }
         sessions.push({ info, physical });
       } catch (error) {
+        complete = false;
         diagnostics.push(`Dropped session record: ${(error as Error).message}`);
       }
     }
+    if (represented.size !== directory.files.size) {
+      complete = false;
+      diagnostics.push('Dropped session record: SDK omitted an approved session file');
+    }
   }
-  return { sessions, diagnostics };
+  return { sessions, diagnostics, complete };
 }
 
 export async function inspectPhysicalFile(
