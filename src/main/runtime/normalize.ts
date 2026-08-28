@@ -20,6 +20,7 @@ import type {
   Usage,
 } from '../../shared/domain.js';
 import { THINKING_LEVELS } from '../../shared/domain.js';
+import { boundedRecord, boundedToolText } from './untrusted.js';
 
 type Wire = Record<string, unknown>;
 
@@ -98,9 +99,9 @@ function normalizeToolCalls(content: unknown): ToolCall[] {
     .filter(isWire)
     .filter((block) => block['type'] === 'toolCall')
     .map((block) => ({
-      id: str(block['id']),
-      name: str(block['name']),
-      arguments: record(block['arguments']),
+      id: str(block['id']).slice(0, 256),
+      name: str(block['name']).slice(0, 128),
+      arguments: boundedRecord(block['arguments']),
     }));
 }
 
@@ -143,10 +144,10 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'toolResult':
       return {
         role: 'toolResult',
-        toolCallId: str(value['toolCallId']),
-        toolName: str(value['toolName']),
-        text: contentText(value['content']),
-        details: record(value['details']),
+        toolCallId: str(value['toolCallId']).slice(0, 256),
+        toolName: str(value['toolName']).slice(0, 128),
+        text: boundedToolText(contentText(value['content'])),
+        details: boundedRecord(value['details']),
         isError: bool(value['isError']),
         timestamp,
       };
@@ -154,7 +155,7 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
       return {
         role: 'bashExecution',
         command: str(value['command']),
-        output: str(value['output']),
+        output: boundedToolText(str(value['output'])),
         exitCode: numOrNull(value['exitCode']),
         cancelled: bool(value['cancelled']),
         truncated: bool(value['truncated']),
@@ -232,26 +233,26 @@ export function normalizeEvent(record_: Wire): AgentEvent | null {
     case 'tool_execution_start':
       return {
         type: 'tool_start',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        args: record(record_['args']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        args: boundedRecord(record_['args']),
       };
     case 'tool_execution_update':
       return {
         type: 'tool_update',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        args: record(record_['args']),
-        partialText: contentText(record(record_['partialResult'])['content']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        args: boundedRecord(record_['args']),
+        partialText: boundedToolText(contentText(record(record_['partialResult'])['content'])),
       };
     case 'tool_execution_end': {
       const result = record(record_['result']);
       return {
         type: 'tool_end',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        text: contentText(result['content']),
-        details: record(result['details']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        text: boundedToolText(contentText(result['content'])),
+        details: boundedRecord(result['details']),
         isError: bool(record_['isError']),
       };
     }

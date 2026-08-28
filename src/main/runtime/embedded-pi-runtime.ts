@@ -17,7 +17,6 @@ import {
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
-  type BoundedJson,
   type ResourceReloadResult,
   type SystemPromptInspection,
   type ToolCatalog,
@@ -53,6 +52,7 @@ import {
   normalizeTree,
 } from './normalize.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
+import { boundJson } from './untrusted.js';
 
 /**
  * Features executable through the complete desktop application contract.
@@ -515,58 +515,6 @@ function resourceCounts(session: AgentSession) {
     extensions: loader.getExtensions().extensions.length,
     tools: session.getAllTools().length,
   };
-}
-
-/** Convert an untrusted TypeBox schema to bounded JSON without invoking getters or toJSON. */
-function boundJson(value: unknown): { value: BoundedJson; truncated: boolean } {
-  let nodes = 0;
-  let bytes = 0;
-  let truncated = false;
-  const visit = (input: unknown, depth: number): BoundedJson => {
-    nodes += 1;
-    if (depth > INTROSPECTION_LIMITS.schemaDepth || nodes > INTROSPECTION_LIMITS.schemaNodes) {
-      truncated = true;
-      return '[truncated]';
-    }
-    if (input === null || typeof input === 'boolean') return input;
-    if (typeof input === 'number') return Number.isFinite(input) ? input : String(input);
-    if (typeof input === 'string') {
-      const output = boundedMetadata(input, INTROSPECTION_LIMITS.schemaStringCharacters);
-      bytes += Buffer.byteLength(output);
-      if (output.length < input.length || bytes > INTROSPECTION_LIMITS.schemaBytes)
-        truncated = true;
-      return bytes > INTROSPECTION_LIMITS.schemaBytes ? '[truncated]' : output;
-    }
-    if (Array.isArray(input)) {
-      if (input.length > INTROSPECTION_LIMITS.schemaArrayItems) truncated = true;
-      return input
-        .slice(0, INTROSPECTION_LIMITS.schemaArrayItems)
-        .map((item) => visit(item, depth + 1));
-    }
-    if (typeof input === 'object') {
-      const output: Record<string, BoundedJson> = {};
-      const descriptors = Object.getOwnPropertyDescriptors(input);
-      const entries = Object.entries(descriptors).filter(([, descriptor]) => 'value' in descriptor);
-      if (entries.length > INTROSPECTION_LIMITS.schemaObjectProperties) truncated = true;
-      for (const [rawKey, descriptor] of entries.slice(
-        0,
-        INTROSPECTION_LIMITS.schemaObjectProperties,
-      )) {
-        const key = boundedMetadata(rawKey, INTROSPECTION_LIMITS.schemaKeyCharacters);
-        if (!key) continue;
-        if (key.length < rawKey.length) truncated = true;
-        output[key] = visit(descriptor.value, depth + 1);
-      }
-      return output;
-    }
-    truncated = true;
-    return `[unsupported ${typeof input}]`;
-  };
-  const output = visit(value, 0);
-  if (Buffer.byteLength(JSON.stringify(output)) > INTROSPECTION_LIMITS.schemaBytes) {
-    return { value: { truncated: 'schema exceeded 64 KiB' }, truncated: true };
-  }
-  return { value: output, truncated };
 }
 
 function resourceDescription(value: string): string | null {

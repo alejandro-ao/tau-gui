@@ -8,6 +8,7 @@ import {
   normalizeStats,
   normalizeTree,
 } from '../src/main/runtime/normalize.js';
+import { MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
 
 describe('normalizeMessage', () => {
   it('normalizes a string-content user message', () => {
@@ -143,6 +144,36 @@ describe('normalizeEvent', () => {
       details: { exit_code: 0 },
       isError: false,
     });
+  });
+
+  it('strictly bounds untrusted tool output and payloads', () => {
+    let getterCalled = false;
+    const args = Object.defineProperty({ safe: 'value' }, 'secret', {
+      enumerable: true,
+      get: () => {
+        getterCalled = true;
+        return process.env;
+      },
+    });
+    const event = normalizeEvent({
+      type: 'tool_execution_end',
+      toolCallId: 'c'.repeat(300),
+      toolName: 't'.repeat(200),
+      result: {
+        content: [{ type: 'text', text: 'x'.repeat(MAX_TOOL_OUTPUT_CHARACTERS + 100) }],
+        details: { args, huge: 'y'.repeat(10_000) },
+      },
+      isError: false,
+    });
+
+    expect(getterCalled).toBe(false);
+    expect(event?.type).toBe('tool_end');
+    if (event?.type !== 'tool_end') throw new Error('expected tool end');
+    expect(event.toolCallId).toHaveLength(256);
+    expect(event.toolName).toHaveLength(128);
+    expect(event.text).toContain('[tool output truncated by desktop security limit]');
+    expect(event.text.length).toBeLessThan(MAX_TOOL_OUTPUT_CHARACTERS + 100);
+    expect(JSON.stringify(event.details).length).toBeLessThan(10_000);
   });
 
   it('maps queue, compaction, retry, and error records', () => {
