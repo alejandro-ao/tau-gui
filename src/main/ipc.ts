@@ -186,13 +186,8 @@ export async function handleRequest(
       if (!active.listTools) throw new Error('Tool catalog inspection is unavailable');
       return toolCatalogSchema.parse(await active.listTools());
     }
-    case 'resources.reload': {
-      const active = runtime();
-      if (!active.reloadResources) throw new Error('Resource reload is unavailable');
-      const result = resourceReloadResultSchema.parse(await active.reloadResources());
-      await manager.refreshState(false, target);
-      return result;
-    }
+    case 'resources.reload':
+      return resourceReloadResultSchema.parse(await manager.reloadResources(target));
     case 'resources.list': {
       const active = runtime();
       if (active.getResources) {

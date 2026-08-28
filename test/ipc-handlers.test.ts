@@ -175,6 +175,11 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         calls.refreshed += 1;
         return Promise.resolve();
       },
+      reloadResources: async () => {
+        const result = await active.reloadResources();
+        calls.refreshed += 1;
+        return result;
+      },
     } as unknown as Context['manager'],
     window: () => null,
   } as Context;

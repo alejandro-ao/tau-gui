@@ -378,27 +378,57 @@ export class RuntimePool {
   }
 
   async stop(): Promise<RuntimeSnapshot> {
-    if (!this.current) return this.snapshot();
-    const manager = this.current;
-    const snapshot = await manager.stop();
-    this.removeIndexes(manager);
-    this.removeOwnership(manager);
-    this.managers.delete(manager);
-    this.runLifecycles.delete(manager);
-    this.spawned.delete(manager);
-    this.current = null;
-    return snapshot;
+    return this.enqueueTransition(async () => {
+      if (!this.current) return this.snapshot();
+      const manager = this.current;
+      const snapshot = await manager.stop();
+      this.removeIndexes(manager);
+      this.removeOwnership(manager);
+      this.managers.delete(manager);
+      this.runLifecycles.delete(manager);
+      this.spawned.delete(manager);
+      if (this.current === manager) this.current = null;
+      return snapshot;
+    });
   }
 
   async stopAll(): Promise<void> {
-    const managers = [...this.managers];
-    this.current = null;
-    this.sessions.clear();
-    this.owners.clear();
-    this.managers.clear();
-    this.runLifecycles.clear();
-    this.spawned.clear();
-    await Promise.allSettled(managers.map((manager) => manager.stop()));
+    await this.enqueueTransition(async () => {
+      const managers = [...this.managers];
+      this.current = null;
+      this.sessions.clear();
+      this.owners.clear();
+      this.managers.clear();
+      this.runLifecycles.clear();
+      this.spawned.clear();
+      await Promise.allSettled(managers.map((manager) => manager.stop()));
+    });
+  }
+
+  /** Reloads one exact idle session, mutually exclusive with every pool transition. */
+  async reloadResources(target?: SessionTarget | null) {
+    const requested = target ?? (this.current ? targetFor(this.current) : null);
+    if (!requested) throw new Error('Runtime is not started');
+    return this.enqueueTransition(async () => {
+      const manager = this.managerFor(requested);
+      if (isBusy(manager)) throw new Error('Cannot reload resources while agent work is active');
+      const runtime = manager.active;
+      if (!runtime.reloadResources) throw new Error('Resource reload is unavailable');
+      const beforeState = await runtime.getState();
+      if (beforeState.sessionId !== requested.sessionId) {
+        throw new Error('Session identity changed before resources could reload');
+      }
+      const result = await runtime.reloadResources();
+      if (!manager.isStarted || manager.active !== runtime || !this.managers.has(manager)) {
+        throw new Error('Session runtime changed while resources were reloading');
+      }
+      const afterState = await runtime.getState();
+      if (afterState.sessionId !== beforeState.sessionId) {
+        throw new Error('Session identity changed while resources were reloading');
+      }
+      await this.refreshState(false, requested);
+      return result;
+    });
   }
 
   async nameSession(name: string, target?: SessionTarget | null): Promise<void> {

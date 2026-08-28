@@ -899,7 +899,127 @@ describe('RuntimePool', () => {
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(1);
   });
+
+  it('serializes reload with itself and releases the queue after failure', async () => {
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    await pool.start();
+    const gates = [deferred<void>(), deferred<void>()];
+    let calls = 0;
+    pool.active.reloadResources = async () => {
+      const gate = gates[calls++];
+      await gate?.promise;
+      return reloadResult();
+    };
+
+    const first = pool.reloadResources();
+    const second = pool.reloadResources();
+    await waitFor(() => calls === 1);
+    gates[0]?.reject(new Error('reload failed'));
+    await expect(first).rejects.toThrow('reload failed');
+    await waitFor(() => calls === 2);
+    gates[1]?.resolve();
+    await expect(second).resolves.toEqual(reloadResult());
+  });
+
+  it('serializes reload before stop and new-session transitions', async () => {
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    await pool.start();
+    const target = pool.snapshot().state?.sessionId;
+    const stopGate = deferred<void>();
+    pool.active.reloadResources = async () => {
+      await stopGate.promise;
+      return reloadResult();
+    };
+    const reload = pool.reloadResources();
+    const stopping = pool.stop();
+    await Promise.resolve();
+    expect(pool.snapshot().status).toBe('idle');
+    stopGate.resolve();
+    await reload;
+    await stopping;
+    expect(pool.snapshot().status).toBe('stopped');
+
+    await pool.start();
+    const newGate = deferred<void>();
+    pool.active.reloadResources = async () => {
+      await newGate.promise;
+      return reloadResult();
+    };
+    const reloadBeforeNew = pool.reloadResources();
+    const opening = pool.newSession();
+    await Promise.resolve();
+    expect(pool.snapshot().state?.sessionId).toBe(target);
+    newGate.resolve();
+    await reloadBeforeNew;
+    await opening;
+    expect(pool.snapshot().state?.sessionId).not.toBe(target);
+  });
+
+  it('serializes reload before switching and targets a background owner exactly', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const firstTarget = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const switchGate = deferred<void>();
+    let firstCalls = 0;
+    pool.active.reloadResources = async () => {
+      firstCalls += 1;
+      await switchGate.promise;
+      return reloadResult();
+    };
+    settings.rememberSession({
+      id: 'other-session',
+      name: 'other',
+      path: null,
+      cwd: process.cwd(),
+      runtime: 'tau',
+      lastSeen: Date.now(),
+    });
+    const reload = pool.reloadResources(firstTarget);
+    const switching = pool.activateSession('other-session');
+    await Promise.resolve();
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+    switchGate.resolve();
+    await reload;
+    await switching;
+    expect(pool.snapshot().state?.sessionId).toBe('other-session');
+
+    const selected = pool.active;
+    await pool.reloadResources(firstTarget);
+    expect(firstCalls).toBe(2);
+    expect(pool.active).toBe(selected);
+  });
+
+  it('rejects reload while the exact target has active work', async () => {
+    process.env['FAKE_RUNTIME_DELAY_MS'] = '50';
+    pool = new RuntimePool(makeSettings(), () => undefined);
+    try {
+      await pool.start();
+    } finally {
+      delete process.env['FAKE_RUNTIME_DELAY_MS'];
+    }
+    await pool.active.prompt({ text: 'slow work' });
+    await waitFor(() => pool!.snapshot().status === 'running');
+    pool.active.reloadResources = () => Promise.resolve(reloadResult());
+
+    await expect(pool.reloadResources()).rejects.toThrow('agent work is active');
+  });
 });
+
+function reloadResult() {
+  const counts = { skills: 0, prompts: 0, themes: 0, contextFiles: 0, extensions: 0, tools: 0 };
+  return { before: counts, after: counts, diagnostics: [] };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 async function waitFor(check: () => boolean | Promise<boolean>, timeout = 5_000): Promise<void> {
   const deadline = Date.now() + timeout;

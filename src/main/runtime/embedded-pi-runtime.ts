@@ -450,10 +450,15 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async reloadResources(): Promise<ResourceReloadResult> {
-    const before = resourceCounts(this.session);
-    await this.session.reload();
-    const after = resourceCounts(this.session);
-    const loader = this.session.resourceLoader;
+    const session = this.session;
+    if (session.isStreaming || session.isCompacting) {
+      throw new Error('Cannot reload resources while agent work is active');
+    }
+    const before = resourceCounts(session);
+    await session.reload();
+    if (this.session !== session) throw new Error('Session changed while resources were reloading');
+    const after = resourceCounts(session);
+    const loader = session.resourceLoader;
     const diagnostics = [
       ...loader.getSkills().diagnostics,
       ...loader.getPrompts().diagnostics,
