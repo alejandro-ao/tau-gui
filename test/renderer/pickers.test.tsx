@@ -109,7 +109,6 @@ function entry(id: string, summary: string, role: 'user' | 'assistant'): Session
             timestamp: 0,
           },
     summary,
-    raw: {},
   };
 }
 
@@ -153,7 +152,7 @@ describe('model picker', () => {
 });
 
 describe('session picker', () => {
-  it('switches to an app-owned recent session and can forget one', async () => {
+  it('switches from the Pi-native picker and exports without exposing a path', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
       settings: { recentSessions: RECENTS },
@@ -161,12 +160,11 @@ describe('session picker', () => {
     mounted = view;
     await runPaletteCommand(view, '/resume');
     const dialog = query(view.container, '[data-modal-name="session"]');
-    expect(dialog.textContent).toContain('full cross-session listing is not implemented yet');
+    expect(dialog.textContent).toContain('Pi-native session catalog');
     expect(options(dialog)).toHaveLength(2);
 
     await click(query(dialog, '[role="option"]:nth-child(2) button'));
-    expect(bridge.payloads('settings.forgetSession')).toEqual([{ id: 'session-2' }]);
-    // Forgetting must not switch sessions.
+    expect(bridge.payloads('session.exportJsonl')).toEqual([{ sessionId: 'session-2' }]);
     expect(bridge.payloads('session.switch')).toEqual([]);
 
     const rows = [...dialog.querySelectorAll('[role="option"]')];

@@ -13,8 +13,8 @@ interface Row {
  * Session tree browser.
  *
  * User turns stay prominent, assistant/tool nodes are compact, the active leaf
- * is marked, and accepting a row forks the session at that entry. The forked
- * prompt text is returned by the runtime and prefilled into the composer.
+ * is marked, and accepting a row navigates in place using Pi's edit semantics.
+ * Selecting a user turn returns its text for editing; every branch is preserved.
  */
 export function TreeModal(): ReactNode {
   const { state, actions } = useStore();
@@ -46,7 +46,7 @@ export function TreeModal(): ReactNode {
         depth: row.depth,
         tone: prominence(row.entry),
         hint: timestamp(row.entry.timestamp),
-        detail: `${row.entry.kind} · ${row.entry.id}`,
+        detail: `${row.entry.kind} · ${row.entry.id}${row.entry.label ? ` · ${row.entry.label}` : ''}`,
         current: row.entry.id === leafId,
         keywords: `${row.entry.kind} ${row.entry.summary}`,
       })),
@@ -54,7 +54,7 @@ export function TreeModal(): ReactNode {
   );
 
   const subtitle = supported
-    ? 'Enter forks the session at the selected entry; existing branches are preserved'
+    ? 'Enter navigates in place; user turns reopen for editing and branches are preserved'
     : 'this runtime does not expose session tree inspection';
 
   return (
@@ -66,9 +66,31 @@ export function TreeModal(): ReactNode {
       items={items}
       emptyLabel={supported ? 'no entries yet' : 'unavailable for this runtime'}
       onClose={() => actions.openModal(null)}
+      rowActions={(item) => {
+        const row = rows.find((candidate) => candidate.entry.id === item.id);
+        if (!row) return null;
+        return (
+          <button
+            type="button"
+            className="ghost-button"
+            title={row.entry.label ? 'Clear bookmark' : 'Bookmark entry'}
+            onClick={(event) => {
+              event.stopPropagation();
+              void actions
+                .setLabel(item.id, row.entry.label ? null : 'bookmark')
+                .then(() => actions.loadTree())
+                .then((loaded) => {
+                  if (loaded) setSnapshot(loaded);
+                });
+            }}
+          >
+            {row.entry.label ? 'unlabel' : 'label'}
+          </button>
+        );
+      }}
       onAccept={(item) => {
         if (!supported) {
-          actions.notice('This runtime does not support session forking.');
+          actions.notice('This runtime does not support session tree navigation.');
           return;
         }
         actions.openModal(null);
@@ -107,7 +129,8 @@ function label(entry: SessionEntry): string {
           ? 'tool'
           : entry.kind.replaceAll('_', ' ');
   const preview = firstLine(entry.summary) || entry.summary;
-  return `${prefix} · ${truncate(preview, 90)}`;
+  const bookmark = entry.label ? `[${entry.label}] ` : '';
+  return `${bookmark}${prefix} · ${truncate(preview, 90)}`;
 }
 
 function truncate(text: string, limit: number): string {

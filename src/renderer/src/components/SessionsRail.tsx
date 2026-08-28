@@ -17,7 +17,10 @@ export function SessionsRail(): ReactNode {
   const [resizing, setResizing] = useState(false);
   const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const groups = useMemo(() => groupSessionsByWorkingDirectory(state.settings), [state.settings]);
+  const groups = useMemo(
+    () => groupSessionsByWorkingDirectory(state.settings, state.sessions),
+    [state.settings, state.sessions],
+  );
   const sessionCount = groups.reduce((count, group) => count + group.sessions.length, 0);
   const activeId = pendingSessionId ?? state.agent?.sessionId ?? null;
   const resize = useCallback((nextWidth: number) => {
@@ -99,7 +102,7 @@ export function SessionsRail(): ReactNode {
                 <ul>
                   {group.sessions.map((session) => {
                     const label = sessionLabel(session)!;
-                    const activity = state.sessionActivity[`${session.runtime}:${session.id}`];
+                    const activity = state.sessionActivity[`pi:${session.id}`];
                     const working =
                       activity?.status === 'starting' ||
                       activity?.status === 'running' ||
@@ -111,10 +114,7 @@ export function SessionsRail(): ReactNode {
                         ? 'response'
                         : null;
                     return (
-                      <li
-                        key={`${session.runtime}:${session.id}`}
-                        data-active={session.id === activeId}
-                      >
+                      <li key={`pi:${session.id}`} data-active={session.id === activeId}>
                         <button
                           type="button"
                           className="sessions-rail-item"
@@ -122,7 +122,7 @@ export function SessionsRail(): ReactNode {
                           data-pending={session.id === pendingSessionId}
                           aria-current={session.id === activeId ? 'true' : undefined}
                           aria-busy={session.id === pendingSessionId}
-                          title={session.path ?? session.id}
+                          title={session.cwd ?? session.id}
                           onClick={() => {
                             setPendingSessionId(session.id);
                             void actions.resumeSession(session).finally(() => {
@@ -134,9 +134,6 @@ export function SessionsRail(): ReactNode {
                         >
                           <span className="sessions-rail-primary">
                             <span className="sessions-rail-name">{label}</span>
-                            {session.runtime !== state.settings.agentRuntime ? (
-                              <span className="sessions-rail-runtime">{session.runtime}</span>
-                            ) : null}
                             <span className="sessions-rail-end">
                               {indicator ? (
                                 <span
@@ -151,7 +148,7 @@ export function SessionsRail(): ReactNode {
                                 />
                               ) : (
                                 <span className="sessions-rail-time">
-                                  {formatRelativeTime(session.lastSeen)}
+                                  {formatRelativeTime(session.modifiedAt)}
                                 </span>
                               )}
                             </span>
@@ -160,11 +157,11 @@ export function SessionsRail(): ReactNode {
                         <button
                           type="button"
                           className="sessions-rail-forget"
-                          aria-label={`forget ${label}`}
-                          title="remove from recent sessions"
-                          onClick={() => void actions.forgetSession(session.id)}
+                          aria-label={`export ${label} as JSONL`}
+                          title="export portable Pi session"
+                          onClick={() => void actions.exportJsonl(session.id)}
                         >
-                          ×
+                          ⇩
                         </button>
                       </li>
                     );

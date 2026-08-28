@@ -1,20 +1,46 @@
-import type { AppSettings, SessionRef } from '../../../shared/domain.js';
+import type { AppSettings, SessionSummary } from '../../../shared/domain.js';
 
 export interface WorkingDirectoryGroup {
   cwd: string;
   label: string;
-  sessions: SessionRef[];
+  sessions: SessionSummary[];
 }
 
 /**
- * Groups app-owned session metadata without reading the filesystem. Persisted
- * directory order wins; session metadata repairs older settings on read.
+ * Pi's catalog is authoritative. App-owned recents remain a fallback for
+ * previously remembered Pi sessions and keep only UI ordering metadata.
  */
-export function groupSessionsByWorkingDirectory(settings: AppSettings): WorkingDirectoryGroup[] {
+export function catalogSessions(
+  settings: AppSettings,
+  nativeSessions: SessionSummary[],
+): SessionSummary[] {
+  const ids = new Set(nativeSessions.map((session) => session.id));
+  const remembered = settings.recentSessions
+    .filter((session) => !ids.has(session.id))
+    .map((session) => ({
+      id: session.id,
+      name: session.name,
+      firstMessage: session.firstMessage ?? null,
+      cwd: session.cwd,
+      createdAt: session.lastSeen,
+      modifiedAt: session.lastSeen,
+      messageCount: session.messageCount ?? 0,
+      parentSessionId: null,
+    }));
+  return [...nativeSessions, ...remembered].sort(
+    (left, right) => right.modifiedAt - left.modifiedAt,
+  );
+}
+
+export function groupSessionsByWorkingDirectory(
+  settings: AppSettings,
+  nativeSessions: SessionSummary[] = [],
+): WorkingDirectoryGroup[] {
+  const sessions = catalogSessions(settings, nativeSessions);
   const directories = [
     ...settings.workingDirectories,
     settings.cwd,
-    ...settings.recentSessions.map((session) => session.cwd),
+    ...sessions.map((session) => session.cwd),
   ]
     .filter((cwd): cwd is string => Boolean(cwd))
     .filter((cwd, index, all) => all.indexOf(cwd) === index);
@@ -22,7 +48,7 @@ export function groupSessionsByWorkingDirectory(settings: AppSettings): WorkingD
   return directories.map((cwd) => ({
     cwd,
     label: directoryLabel(cwd),
-    sessions: settings.recentSessions.filter(
+    sessions: sessions.filter(
       (session) =>
         session.cwd === cwd && session.messageCount !== 0 && sessionLabel(session) !== null,
     ),
@@ -33,7 +59,9 @@ export function directoryLabel(cwd: string): string {
   return cwd.split(/[\\/]/).filter(Boolean).at(-1) ?? cwd;
 }
 
-export function sessionLabel(session: Pick<SessionRef, 'name' | 'firstMessage'>): string | null {
+export function sessionLabel(
+  session: Pick<SessionSummary, 'name' | 'firstMessage'>,
+): string | null {
   const name = session.name?.trim();
   if (name) return name;
   const message = session.firstMessage?.replace(/\s+/g, ' ').trim();

@@ -13,6 +13,7 @@ import type {
   ModelRef,
   RuntimeKind,
   SessionRef,
+  SessionSummary,
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
@@ -66,11 +67,15 @@ export interface Actions {
   newSessionFromDirectoryPicker: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
   /** Resumes a recent session, switching runtime or restarting if needed. */
-  resumeSession: (ref: SessionRef) => Promise<void>;
+  resumeSession: (ref: SessionRef | SessionSummary) => Promise<void>;
   nameSession: (name: string) => Promise<void>;
   fork: (entryId: string) => Promise<string | null>;
+  setLabel: (entryId: string, label: string | null) => Promise<void>;
+  cloneSession: () => Promise<void>;
+  importJsonl: () => Promise<void>;
   compact: (instructions?: string) => Promise<void>;
-  exportHtml: (destination?: string) => Promise<void>;
+  exportHtml: () => Promise<void>;
+  exportJsonl: (sessionId?: string) => Promise<void>;
   openDirectory: () => Promise<void>;
   addResourceDirectory: (kind: 'skills' | 'prompts') => Promise<void>;
   removeResourceDirectory: (kind: 'skills' | 'prompts', path: string) => Promise<void>;
@@ -171,10 +176,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
         return;
       }
-      const [messages, stats, models, levels, commands, resources, contextFiles, queue] =
+      const [messages, stats, sessions, models, levels, commands, resources, contextFiles, queue] =
         await Promise.all([
           attempt('agent.messages', undefined, notice, target),
           attempt('agent.stats', undefined, notice, target),
+          snapshot.capabilities.sessionList
+            ? attempt('session.list', { scope: 'all' }, notice, target)
+            : Promise.resolve(null),
           attempt('models.list', undefined, notice, target),
           attempt('thinking.list', undefined, notice, target),
           attempt('commands.list', undefined, notice, target),
@@ -185,6 +193,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       if (epoch !== refreshEpoch.current) return;
       if (messages) dispatch({ type: 'hydrate', messages, now: Date.now(), ...target });
       if (stats) dispatch({ type: 'stats', stats });
+      if (sessions) dispatch({ type: 'sessions', sessions });
       if (models) dispatch({ type: 'models', models });
       if (levels) dispatch({ type: 'thinkingLevels', levels });
       if (commands) dispatch({ type: 'commands', commands });
@@ -523,16 +532,15 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       resumeSession: async (ref) => {
         const previousStatus = stateRef.current.snapshot.status;
-        const navigation = beginNavigation(ref.runtime);
+        const native = 'modifiedAt' in ref;
+        const runtime: RuntimeKind = native ? 'pi' : ref.runtime;
+        const navigation = beginNavigation(runtime);
         try {
-          // Tau resumes by indexed session id; Pi resumes by session path.
-          const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
-          if (ref.runtime !== stateRef.current.settings.agentRuntime) {
-            const settings = await attempt(
-              'settings.update',
-              { agentRuntime: ref.runtime },
-              notice,
-            );
+          // Native Pi metadata carries only an opaque session id. Legacy
+          // app-owned references may still contain a path, consumed only here.
+          const target = native ? ref.id : ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
+          if (runtime !== stateRef.current.settings.agentRuntime) {
+            const settings = await attempt('settings.update', { agentRuntime: runtime }, notice);
             if (!settings) return;
             dispatch({ type: 'settings', settings });
           }
@@ -568,6 +576,27 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
         return text;
       },
+      setLabel: async (entryId, label) => {
+        await attempt('session.label', { entryId, label }, notice, viewed());
+      },
+      cloneSession: async () => {
+        const target = viewed();
+        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
+        try {
+          await navigate(navigation, () => invoke('session.clone', undefined, target));
+        } finally {
+          finishNavigation(navigation);
+        }
+      },
+      importJsonl: async () => {
+        const target = viewed();
+        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
+        try {
+          await navigate(navigation, () => invoke('session.importJsonl', undefined, target));
+        } finally {
+          finishNavigation(navigation);
+        }
+      },
       compact: async (instructions) => {
         const target = viewed();
         await run(async () => {
@@ -590,25 +619,18 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           });
         });
       },
-      exportHtml: async (destination) => {
+      exportHtml: async () => {
+        const path = await attempt('session.exportHtml', undefined, notice, viewed());
+        if (path) announceExport(dispatch, path);
+      },
+      exportJsonl: async (sessionId) => {
         const path = await attempt(
-          'session.exportHtml',
-          destination ? { destination } : undefined,
+          'session.exportJsonl',
+          sessionId ? { sessionId } : {},
           notice,
           viewed(),
         );
-        if (path) {
-          dispatch({
-            type: 'localMessage',
-            block: {
-              kind: 'status',
-              id: nextBlockId('status'),
-              text: `Exported session to ${path}`,
-              tone: 'info',
-              timestamp: Date.now(),
-            },
-          });
-        }
+        if (path) announceExport(dispatch, path);
       },
       openDirectory: chooseDirectoryAndStart,
       addResourceDirectory: async (kind) => {
@@ -679,6 +701,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
 
   const value = useMemo<Store>(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;
+}
+
+function announceExport(dispatch: (action: Action) => void, path: string): void {
+  dispatch({
+    type: 'localMessage',
+    block: {
+      kind: 'status',
+      id: nextBlockId('status'),
+      text: `Exported session to ${path}`,
+      tone: 'info',
+      timestamp: Date.now(),
+    },
+  });
 }
 
 export function useStore(): Store {

@@ -91,6 +91,37 @@ describe('SessionsRail', () => {
     expect(separator.getAttribute('aria-valuenow')).toBe('276');
   });
 
+  it('renders Pi-native catalog metadata instead of app-only recents', async () => {
+    const { bridge, view } = await render({
+      runtime: 'pi',
+      capabilities: { sessionList: true },
+      settings: {
+        agentRuntime: 'pi',
+        recentSessions: [session({ id: 'native-1', name: 'stale app label' })],
+      },
+      results: {
+        'session.list': [
+          {
+            id: 'native-1',
+            name: 'Native task',
+            firstMessage: 'Authoritative prompt',
+            cwd: '/work/native',
+            createdAt: 1_700_000_000_000,
+            modifiedAt: 1_800_000_000_000,
+            messageCount: 4,
+            parentSessionId: null,
+          },
+        ],
+      },
+    });
+    await settle(view);
+    const item = view.container.querySelector<HTMLElement>('.sessions-rail-item');
+    expect(item?.textContent).toContain('Native task');
+    expect(item?.textContent).not.toContain('stale app label');
+    expect(item?.title).toBe('/work/native');
+    expect(bridge.calls).toEqual([]);
+  });
+
   it('groups sessions beneath collapsible known working directories', async () => {
     const { view } = await render({
       settings: {
@@ -136,7 +167,7 @@ describe('SessionsRail', () => {
     expect(item?.textContent).not.toContain('opaque-sess');
   });
 
-  it('marks the active session and shows a runtime badge for foreign runtimes', async () => {
+  it('marks the active session and renders native catalog timestamps', async () => {
     const { view } = await render({
       agent: {
         model: null,
@@ -161,7 +192,7 @@ describe('SessionsRail', () => {
     expect(active?.textContent).toContain('here-1');
     expect(active?.closest('li')?.dataset['active']).toBe('true');
     const items = [...view.container.querySelectorAll('.sessions-rail-item')];
-    expect(items[1]?.querySelector('.sessions-rail-runtime')?.textContent).toBe('pi');
+    expect(items[1]?.querySelector('.sessions-rail-runtime')).toBeNull();
     expect(items[1]?.querySelector('.sessions-rail-time')).not.toBeNull();
   });
 
@@ -177,7 +208,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'running',
           responseReady: null,
         },
@@ -194,7 +225,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'idle',
           responseReady: true,
         },
@@ -255,7 +286,7 @@ describe('SessionsRail', () => {
     expect(bridge.payloads('runtime.start')).toEqual([]);
   });
 
-  it('resumes a Pi session by path', async () => {
+  it('resumes a Pi session by opaque native id', async () => {
     const { bridge, view } = await render({
       status: 'idle',
       settings: {
@@ -267,10 +298,10 @@ describe('SessionsRail', () => {
     if (!item) throw new Error('sessions rail item missing');
     await click(item);
     await settle(view);
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: '/sessions/pi.jsonl' }]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
   });
 
-  it('switches the runtime before resuming a foreign-runtime session', async () => {
+  it('switches the runtime before resuming remembered metadata', async () => {
     const { bridge, view } = await render({
       status: 'idle',
       settings: {
@@ -283,9 +314,8 @@ describe('SessionsRail', () => {
     await click(item);
     await settle(view);
     expect(bridge.payloads('settings.update')).toEqual([{ agentRuntime: 'pi' }]);
-    // The fake bridge keeps the snapshot status at idle, so the session switch
-    // happens in place rather than through a restart.
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: '/sessions/pi.jsonl' }]);
+    // Native metadata crosses IPC by opaque id, never by session-file path.
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
   });
 
   it('restarts the runtime with the session reference when it is not running', async () => {
@@ -304,15 +334,15 @@ describe('SessionsRail', () => {
     ]);
   });
 
-  it('forgets a session without resuming it', async () => {
+  it('exports a catalog session without resuming it', async () => {
     const { bridge, view } = await render({
       settings: { recentSessions: [session({ id: 'here-1', name: 'local work' })] },
     });
-    const forget = view.container.querySelector<HTMLButtonElement>('.sessions-rail-forget');
-    if (!forget) throw new Error('forget button missing');
-    await click(forget);
+    const exportButton = view.container.querySelector<HTMLButtonElement>('.sessions-rail-forget');
+    if (!exportButton) throw new Error('export button missing');
+    await click(exportButton);
     await settle(view);
-    expect(bridge.payloads('settings.forgetSession')).toEqual([{ id: 'here-1' }]);
+    expect(bridge.payloads('session.exportJsonl')).toEqual([{ sessionId: 'here-1' }]);
     expect(bridge.payloads('session.switch')).toEqual([]);
   });
 });
