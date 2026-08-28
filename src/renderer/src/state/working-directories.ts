@@ -6,34 +6,17 @@ export interface WorkingDirectoryGroup {
   sessions: SessionSummary[];
 }
 
-/** Main returns a tagged, deduplicated catalog. Renderer never resolves legacy paths. */
+/** Main owns all native/recent identities; renderer never synthesizes catalog IDs. */
 export function catalogSessions(
-  settings: AppSettings,
+  _settings: AppSettings,
   sessions: SessionSummary[],
 ): SessionSummary[] {
-  const identities = new Set(sessions.map((session) => `${session.runtime}:${session.sessionId}`));
-  const remembered: SessionSummary[] = settings.recentSessions
-    .filter((session) => !identities.has(`${session.runtime}:${session.id}`))
-    .map((session) => ({
-      // Legacy id is an opaque settings key here; its path never enters a renderer request.
-      id: session.id,
-      source: 'recent',
-      runtime: session.runtime,
-      sessionId: session.id,
-      exportable: false,
-      name: session.name,
-      firstMessage: session.firstMessage ?? null,
-      cwd: session.cwd,
-      createdAt: session.lastSeen,
-      modifiedAt: session.lastSeen,
-      messageCount: session.messageCount ?? (session.name || session.firstMessage ? 1 : 0),
-      parentSessionId: null,
-    }));
   const seen = new Set<string>();
-  return [...sessions, ...remembered]
+  return sessions
     .filter((session) => {
-      if (seen.has(session.id)) return false;
-      seen.add(session.id);
+      const identity = `${session.runtime}:${session.id}`;
+      if (seen.has(identity)) return false;
+      seen.add(identity);
       return true;
     })
     .sort((left, right) => right.modifiedAt - left.modifiedAt);

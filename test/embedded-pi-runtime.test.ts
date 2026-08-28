@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
 import {
@@ -104,6 +105,7 @@ describe('EmbeddedPiRuntime', () => {
     }
 
     const statuses: RuntimeStatus[] = [];
+    let forcedImportDestination: string | null = null;
     const runtime = new EmbeddedPiRuntime(
       {
         event: () => undefined,
@@ -116,9 +118,9 @@ describe('EmbeddedPiRuntime', () => {
         spawnSession: ({ cwd: spawnedCwd }) =>
           Promise.resolve({
             sessionId: 'spawned-session',
-            sessionFile: null,
             cwd: spawnedCwd,
           }),
+        importDestinationName: () => forcedImportDestination ?? 'unused-import.jsonl',
       },
     );
     active = runtime;
@@ -231,20 +233,93 @@ describe('EmbeddedPiRuntime', () => {
       expect.arrayContaining([expect.objectContaining({ sessionId: cloneId })]),
     );
 
-    const collision = join(dirname((await runtime.getState()).sessionFile!), 'portable.jsonl');
-    writeFileSync(collision, 'owned destination');
-    await runtime.prepareImport(portable);
-    await runtime.importJsonl(portable);
-    expect(readFileSync(collision, 'utf8')).toBe('owned destination');
+    // A portable copy preserves its logical ID. Re-importing it while the
+    // original remains in this manager's catalog must fail without creating a
+    // duplicate that would make both records disappear.
+    await expect(runtime.prepareImport(portable)).rejects.toThrow('portable re-import is refused');
+    const afterRejectedImport = await runtime.listSessions('all');
+    const originalRecord = afterRejectedImport.find((session) => session.sessionId === originalId);
+    expect(originalRecord).toBeDefined();
+    expect(afterRejectedImport.some((session) => session.sessionId === cloneId)).toBe(true);
+    await runtime.switchSession(originalRecord!.id);
     expect((await runtime.getState()).sessionId).toBe(originalId);
-    expect((await runtime.getMessages())[0]).toMatchObject({
-      role: 'user',
-      text: 'Native catalog task',
-    });
+    const afterRejectedExport = join(root, 'after-rejected-import.jsonl');
+    await expect(runtime.exportJsonl(afterRejectedExport)).resolves.toBe(afterRejectedExport);
+    expect(readFileSync(afterRejectedExport, 'utf8')).toContain(originalId);
 
     await expect(runtime.prepareImport((await runtime.getState()).sessionFile!)).rejects.toThrow(
       'active session',
     );
+
+    const externalDirectory = join(root, 'external-sessions');
+    mkdirSync(externalDirectory, { recursive: true });
+    const external = SessionManager.create(cwd, externalDirectory);
+    external.appendMessage({ role: 'user', content: 'External import', timestamp: Date.now() });
+    external.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'External ready' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    });
+    const externalPath = external.getSessionFile();
+    if (!externalPath) throw new Error('external session was not persisted');
+    forcedImportDestination = 'caller-collision.jsonl';
+    const collision = join(
+      dirname((await runtime.getState()).sessionFile!),
+      forcedImportDestination,
+    );
+    writeFileSync(collision, 'caller-owned collision');
+    await runtime.prepareImport(externalPath);
+    await expect(runtime.importJsonl(externalPath)).rejects.toThrow();
+    expect(readFileSync(collision, 'utf8')).toBe('caller-owned collision');
+    expect((await runtime.getState()).sessionId).toBe(originalId);
+    forcedImportDestination = 'successful-import.jsonl';
+    await runtime.importJsonl(externalPath);
+    expect((await runtime.getState()).sessionId).toBe(external.getSessionId());
+
+    const leafBeforeOversized = (await runtime.getTree()).leafId;
+    const oversizedEntry = sessionInternals.runtime.session.sessionManager.appendMessage({
+      role: 'user',
+      content: 'x'.repeat(100_001),
+      timestamp: Date.now(),
+    });
+    sessionInternals.runtime.session.sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'oversized reply' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    });
+    const navigation = await runtime.fork(oversizedEntry, { summary: 'none' });
+    expect(navigation).toMatchObject({
+      editorTextTruncated: true,
+      cancelled: false,
+      aborted: false,
+    });
+    expect(navigation.editorText).toHaveLength(100_000);
+    expect((await runtime.getTree()).leafId).toBe(leafBeforeOversized);
+    expect((await runtime.getMessages()).at(-1)).not.toMatchObject({ text: 'oversized reply' });
 
     const malformed = join(root, 'malformed.jsonl');
     writeFileSync(malformed, '{not-jsonl}\n');

@@ -18,6 +18,16 @@ export interface PhysicalFile {
   size: number;
 }
 
+/** Remove only the exact no-follow identity created by this process. */
+export async function removePhysicalFile(expected: PhysicalFile): Promise<boolean> {
+  const current = await inspectPhysicalFile(expected.path, dirname(expected.path)).catch(
+    () => null,
+  );
+  if (!current || current.key !== expected.key || current.size !== expected.size) return false;
+  await rm(expected.path);
+  return true;
+}
+
 interface ApprovedDirectory {
   path: string;
   files: Map<string, PhysicalFile>;
@@ -154,6 +164,15 @@ export async function boundedSessionList(root: string): Promise<{
     deadline(started);
     let listed: SessionInfo[];
     try {
+      // Recheck every approved identity immediately before Pi opens any file.
+      // The public API cannot consume handles, so a same-user mutation after this
+      // point remains the narrowly documented listing residual.
+      for (const approvedFile of directory.files.values()) {
+        const checked = await inspectPhysicalFile(approvedFile.path, directory.path);
+        if (checked.key !== approvedFile.key || checked.size !== approvedFile.size) {
+          throw new Error('Session file changed before listing');
+        }
+      }
       // Public SDK owns JSONL parsing. Its API has no abort/file/byte budget, so calls
       // happen only for directories whose complete metadata set passed the budgets above.
       listed = await SessionManager.listAll(directory.path);

@@ -139,9 +139,11 @@ export const treeSnapshotSchema = z
     truncated: z.boolean(),
   })
   .strict();
+export const MAX_TREE_EDITOR_TEXT = 100_000;
 export const treeNavigateResultSchema = z
   .object({
-    editorText: z.string().max(100_000).nullable(),
+    editorText: z.string().max(MAX_TREE_EDITOR_TEXT).nullable(),
+    editorTextTruncated: z.boolean(),
     cancelled: z.boolean(),
     aborted: z.boolean(),
   })
@@ -154,12 +156,266 @@ export const sessionTargetSchema = z.object({
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
 
-const runtimeSettings = z.object({
-  binary: z.string().min(1),
-  provider: z.string().nullable(),
-  model: z.string().nullable(),
-  extraArgs: z.array(z.string()),
+const finiteNumber = z.number().finite();
+const boundedText = (maximum: number) => z.string().max(maximum);
+const boundedJsonSchema = z.unknown().superRefine((value, context) => {
+  const pending: Array<{ value: unknown; depth: number }> = [{ value, depth: 0 }];
+  let nodes = 0;
+  let characters = 0;
+  while (pending.length > 0) {
+    const item = pending.pop()!;
+    nodes += 1;
+    if (nodes > 2_000 || item.depth > 8) {
+      context.addIssue({ code: 'custom', message: 'Nested event data exceeds its bound' });
+      return;
+    }
+    if (typeof item.value === 'string') {
+      characters += item.value.length;
+      if (characters > 200_000) {
+        context.addIssue({ code: 'custom', message: 'Nested event text exceeds its bound' });
+        return;
+      }
+    } else if (
+      item.value === null ||
+      typeof item.value === 'boolean' ||
+      (typeof item.value === 'number' && Number.isFinite(item.value))
+    ) {
+      continue;
+    } else if (Array.isArray(item.value)) {
+      if (item.value.length > 500) {
+        context.addIssue({ code: 'custom', message: 'Nested event array exceeds its bound' });
+        return;
+      }
+      for (const child of item.value) pending.push({ value: child, depth: item.depth + 1 });
+    } else if (typeof item.value === 'object' && item.value !== null) {
+      const entries = Object.entries(item.value);
+      if (entries.length > 200) {
+        context.addIssue({ code: 'custom', message: 'Nested event object exceeds its bound' });
+        return;
+      }
+      for (const [key, child] of entries) {
+        characters += key.length;
+        pending.push({ value: child, depth: item.depth + 1 });
+      }
+    } else {
+      context.addIssue({ code: 'custom', message: 'Nested event data is not JSON' });
+      return;
+    }
+  }
 });
+
+const boundedRecordSchema = z.record(z.string(), z.unknown()).superRefine((value, context) => {
+  const parsed = boundedJsonSchema.safeParse(value);
+  if (!parsed.success) {
+    context.addIssue({ code: 'custom', message: 'Nested event object exceeds its bound' });
+  }
+});
+
+const usageSchema = z
+  .object({
+    input: finiteNumber,
+    output: finiteNumber,
+    cacheRead: finiteNumber,
+    cacheWrite: finiteNumber,
+    reasoning: finiteNumber.nullable(),
+    totalTokens: finiteNumber,
+    cost: finiteNumber.nullable(),
+  })
+  .strict();
+const modelSchema = z
+  .object({
+    id: boundedText(500),
+    name: boundedText(500),
+    provider: boundedText(200),
+    api: boundedText(200),
+    reasoning: z.boolean(),
+    input: z.array(boundedText(100)).max(20),
+    contextWindow: finiteNumber,
+    maxTokens: finiteNumber,
+    cost: z
+      .object({
+        input: finiteNumber,
+        output: finiteNumber,
+        cacheRead: finiteNumber,
+        cacheWrite: finiteNumber,
+      })
+      .strict(),
+  })
+  .strict();
+const toolCallSchema = z
+  .object({ id: boundedText(500), name: boundedText(500), arguments: boundedRecordSchema })
+  .strict();
+export const agentMessageSchema = z.discriminatedUnion('role', [
+  z
+    .object({
+      role: z.literal('user'),
+      text: boundedText(500_000),
+      images: z
+        .array(z.object({ mimeType: boundedText(100), data: boundedText(750_000) }).strict())
+        .max(20),
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('assistant'),
+      text: boundedText(500_000),
+      thinking: boundedText(500_000),
+      toolCalls: z.array(toolCallSchema).max(500),
+      provider: boundedText(200),
+      model: boundedText(500),
+      usage: usageSchema.nullable(),
+      stopReason: z.enum(['stop', 'length', 'toolUse', 'error', 'aborted']).nullable(),
+      errorMessage: boundedText(10_000).nullable(),
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('toolResult'),
+      toolCallId: boundedText(500),
+      toolName: boundedText(500),
+      text: boundedText(500_000),
+      details: boundedRecordSchema,
+      isError: z.boolean(),
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('bashExecution'),
+      command: boundedText(100_000),
+      output: boundedText(500_000),
+      exitCode: z.number().int().nullable(),
+      cancelled: z.boolean(),
+      truncated: z.boolean(),
+      excludeFromContext: z.boolean(),
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('custom'),
+      customType: boundedText(500),
+      text: boundedText(500_000),
+      display: z.boolean(),
+      details: boundedRecordSchema,
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('branchSummary'),
+      summary: boundedText(500_000),
+      fromId: boundedText(500),
+      timestamp: finiteNumber,
+    })
+    .strict(),
+  z
+    .object({
+      role: z.literal('compactionSummary'),
+      summary: boundedText(500_000),
+      tokensBefore: finiteNumber,
+      timestamp: finiteNumber,
+    })
+    .strict(),
+]);
+
+const eventId = z.string().min(1).max(500);
+const eventArgs = boundedRecordSchema;
+export const agentEventSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('agent_start') }).strict(),
+  z.object({ type: z.literal('turn_start') }).strict(),
+  z.object({ type: z.literal('message_start'), message: agentMessageSchema }).strict(),
+  z
+    .object({
+      type: z.literal('message_delta'),
+      kind: z.enum(['text', 'thinking']),
+      delta: boundedText(500_000),
+      message: agentMessageSchema.and(z.object({ role: z.literal('assistant') })),
+    })
+    .strict(),
+  z.object({ type: z.literal('message_end'), message: agentMessageSchema }).strict(),
+  z
+    .object({
+      type: z.literal('tool_start'),
+      toolCallId: eventId,
+      toolName: boundedText(500),
+      args: eventArgs,
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('tool_update'),
+      toolCallId: eventId,
+      toolName: boundedText(500),
+      args: eventArgs,
+      partialText: boundedText(500_000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('tool_end'),
+      toolCallId: eventId,
+      toolName: boundedText(500),
+      text: boundedText(500_000),
+      details: boundedRecordSchema,
+      isError: z.boolean(),
+    })
+    .strict(),
+  z.object({ type: z.literal('turn_end') }).strict(),
+  z.object({ type: z.literal('agent_end'), willRetry: z.boolean() }).strict(),
+  z.object({ type: z.literal('agent_settled') }).strict(),
+  z
+    .object({
+      type: z.literal('queue_update'),
+      steering: z.array(boundedText(100_000)).max(500),
+      followUp: z.array(boundedText(100_000)).max(500),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('compaction_start'),
+      reason: z.enum(['manual', 'threshold', 'overflow']),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('compaction_end'),
+      reason: z.enum(['manual', 'threshold', 'overflow']),
+      aborted: z.boolean(),
+      willRetry: z.boolean(),
+      errorMessage: boundedText(10_000).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('retry_start'),
+      attempt: z.number().int().nonnegative(),
+      maxAttempts: z.number().int().nonnegative(),
+      delayMs: z.number().int().nonnegative(),
+      message: boundedText(10_000),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('retry_end'),
+      success: z.boolean(),
+      attempt: z.number().int().nonnegative(),
+      finalError: boundedText(10_000).nullable(),
+    })
+    .strict(),
+  z.object({ type: z.literal('runtime_error'), message: boundedText(10_000) }).strict(),
+]);
+
+const runtimeSettings = z
+  .object({
+    binary: z.string().min(1).max(4_096),
+    provider: boundedText(500).nullable(),
+    model: boundedText(500).nullable(),
+    extraArgs: z.array(boundedText(4_096)).max(100),
+  })
+  .strict();
 
 // Full-map settings patches remain valid for import/repair, but interactive
 // mutations use settings.toggleScopedModel so the main process updates atomically.
@@ -169,6 +425,95 @@ const scopedModelRef = z
   .refine(({ provider, modelId }) => isScopedModelKey(modelKey({ provider, modelId })), {
     message: 'encoded scoped model identity is too long',
   });
+
+export const rendererSettingsSchema = z
+  .object({
+    agentRuntime: runtimeKind,
+    theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
+    sidebarPosition: z.enum(['right', 'left', 'off']),
+    turnNotification: z.enum(['desktop', 'off']),
+    showThinking: z.boolean(),
+    cwd: safePathText.nullable(),
+    workingDirectories: z.array(safePathText).max(100),
+    customSkillDirectories: z.array(safePathText).max(100),
+    customPromptDirectories: z.array(safePathText).max(100),
+    projectTrust,
+    runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }).strict(),
+    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }).strict(),
+    recentSessions: z
+      .array(
+        z
+          .object({
+            id: z.string().min(1).max(128),
+            name: boundedText(500).nullable(),
+            firstMessage: boundedText(500).nullable().optional(),
+            messageCount: z.number().int().nonnegative().max(1_000_000).optional(),
+            path: z.null(),
+            cwd: safePathText.nullable(),
+            runtime: runtimeKind,
+            lastSeen: finiteNumber.nonnegative(),
+          })
+          .strict(),
+      )
+      .max(100),
+  })
+  .strict();
+
+const runtimeCapabilitiesSchema = z
+  .object({
+    textPrompt: z.boolean(),
+    imagePrompt: z.boolean(),
+    steering: z.boolean(),
+    followUps: z.boolean(),
+    directBash: z.boolean(),
+    abortBash: z.boolean(),
+    retryControls: z.boolean(),
+    sessionTree: z.boolean(),
+    sessionClone: z.boolean(),
+    sessionList: z.boolean(),
+    extensionDialogs: z.boolean(),
+    providerLogin: z.boolean(),
+    resourceReload: z.boolean(),
+    systemPromptInspection: z.boolean(),
+    toolCatalog: z.boolean(),
+  })
+  .strict();
+export const rendererAgentStateSchema = z
+  .object({
+    model: modelSchema.nullable(),
+    thinkingLevel,
+    isStreaming: z.boolean(),
+    isCompacting: z.boolean(),
+    persisted: z.boolean(),
+    sessionId: z.string().min(1).max(128),
+    sessionName: boundedText(500).nullable(),
+    autoCompactionEnabled: z.boolean(),
+    messageCount: z.number().int().nonnegative().max(1_000_000),
+    pendingMessageCount: z.number().int().nonnegative().max(100_000),
+  })
+  .strict();
+export const runtimeSnapshotSchema: z.ZodType<RuntimeSnapshot> = z
+  .object({
+    runtime: runtimeKind,
+    status: z.enum([
+      'stopped',
+      'starting',
+      'idle',
+      'running',
+      'compacting',
+      'retrying',
+      'failed',
+      'disconnected',
+    ]),
+    detail: boundedText(1_000).nullable(),
+    runtimeVersion: boundedText(200).nullable(),
+    capabilities: runtimeCapabilitiesSchema,
+    cwd: safePathText.nullable(),
+    gitBranch: boundedText(500).nullable(),
+    state: rendererAgentStateSchema.nullable(),
+    recoveryTarget: sessionTargetSchema.nullable().optional(),
+  })
+  .strict();
 
 export const settingsPatchSchema = z
   .object({
@@ -468,12 +813,33 @@ const nullResultSchema = z.null();
 /** Strict second-boundary schemas for the Pi-native session slice. */
 export function parseSessionIpcResult(action: IpcAction, value: unknown): unknown {
   switch (action) {
+    case 'settings.get':
+    case 'settings.update':
+    case 'settings.toggleScopedModel':
+    case 'settings.removeResourceDirectory':
+    case 'settings.rememberWorkingDirectory':
+    case 'settings.forgetSession':
+      return rendererSettingsSchema.parse(value);
+    case 'settings.addResourceDirectory':
+      return rendererSettingsSchema.nullable().parse(value);
+    case 'runtime.start':
+    case 'runtime.openSession':
+    case 'runtime.stop':
+    case 'runtime.restart':
+    case 'runtime.snapshot':
+      return runtimeSnapshotSchema.parse(value);
+    case 'agent.state':
+      return rendererAgentStateSchema.parse(value);
+    case 'queue.snapshot':
+      return promptQueueSnapshotSchema.parse(value);
     case 'agent.tree':
       return treeSnapshotSchema.parse(value);
     case 'session.list':
       return sessionCatalogSchema.parse(value);
     case 'session.fork':
       return treeNavigateResultSchema.parse(value);
+    case 'session.new':
+    case 'session.switch':
     case 'session.clone':
     case 'session.importJsonl':
     case 'session.label':
@@ -488,6 +854,65 @@ export function parseSessionIpcResult(action: IpcAction, value: unknown): unknow
 
 export type IpcResponse<A extends IpcAction = IpcAction> =
   { ok: true; value: IpcResult<A> } | { ok: false; error: string };
+
+const promptQueueItemSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    kind: z.enum(['steering', 'follow-up']),
+    text: boundedText(100_000),
+  })
+  .strict();
+export const promptQueueSnapshotSchema = z
+  .object({
+    runtime: runtimeKind,
+    sessionId: z.string().min(1).max(128),
+    steering: z.array(promptQueueItemSchema).max(500),
+    followUp: z.array(promptQueueItemSchema).max(500),
+  })
+  .strict();
+const sessionActivitySchema = z
+  .object({
+    sessionId: z.string().min(1).max(128),
+    runtime: runtimeKind,
+    status: z.enum([
+      'stopped',
+      'starting',
+      'idle',
+      'running',
+      'compacting',
+      'retrying',
+      'failed',
+      'disconnected',
+    ]),
+    responseReady: z.boolean().nullable(),
+  })
+  .strict();
+export const bridgeEventSchema = z
+  .discriminatedUnion('type', [
+    z
+      .object({
+        type: z.literal('agent'),
+        sessionId: z.string().min(1).max(128),
+        runtime: runtimeKind,
+        event: agentEventSchema,
+      })
+      .strict(),
+    z.object({ type: z.literal('status'), snapshot: runtimeSnapshotSchema }).strict(),
+    z.object({ type: z.literal('queue'), snapshot: promptQueueSnapshotSchema }).strict(),
+    z.object({ type: z.literal('diagnostic'), message: boundedText(2_000) }).strict(),
+    z.object({ type: z.literal('settings'), settings: rendererSettingsSchema }).strict(),
+    z.object({ type: z.literal('sessionActivity'), activity: sessionActivitySchema }).strict(),
+    z.object({ type: z.literal('focus'), focused: z.boolean() }).strict(),
+  ])
+  .superRefine((value, context) => {
+    try {
+      if (JSON.stringify(value).length > 1_000_000) {
+        context.addIssue({ code: 'custom', message: 'Bridge event exceeds its byte bound' });
+      }
+    } catch {
+      context.addIssue({ code: 'custom', message: 'Bridge event is not serializable' });
+    }
+  });
 
 export type BridgeEvent =
   | {

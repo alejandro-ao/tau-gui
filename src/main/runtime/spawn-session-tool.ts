@@ -11,7 +11,6 @@ export interface SpawnSessionRequest {
 
 export interface SpawnSessionResult {
   sessionId: string;
-  sessionFile: string | null;
   cwd: string;
 }
 

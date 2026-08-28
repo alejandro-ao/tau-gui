@@ -564,6 +564,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         if (result === null || result.cancelled || result.aborted) return null;
         dispatch({ type: 'clearTranscript' });
         await refresh();
+        if (result.editorTextTruncated) {
+          notice('Editable message was truncated to 100,000 characters after navigation.');
+        }
         return result.editorText;
       },
       setLabel: async (entryId, label) => {

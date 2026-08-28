@@ -56,7 +56,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: false,
   isCompacting: false,
-  sessionFile: null,
+  persisted: false,
   sessionId: 'session-1',
   sessionName: 'scoping',
   autoCompactionEnabled: true,

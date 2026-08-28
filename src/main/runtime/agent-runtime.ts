@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { ContextFile } from '../../shared/ipc.js';
+import { MAX_TREE_EDITOR_TEXT, type ContextFile } from '../../shared/ipc.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -35,6 +35,11 @@ import {
 } from './normalize.js';
 import { CAPABILITIES, buildLaunchSpec } from './spec.js';
 
+export interface RuntimeAgentState extends AgentState {
+  /** Main-process-only durable identity; never copy into renderer DTOs. */
+  sessionFile: string | null;
+}
+
 export interface RuntimeSink {
   event(event: AgentEvent): void;
   status(status: RuntimeStatus, detail?: string | null): void;
@@ -50,7 +55,7 @@ export interface AgentRuntime {
   steer(input: PromptInput): Promise<void>;
   followUp(input: PromptInput): Promise<void>;
   abort(): Promise<void>;
-  getState(): Promise<AgentState>;
+  getState(): Promise<RuntimeAgentState>;
   getMessages(): Promise<AgentMessage[]>;
   getEntries(cursor?: string): Promise<EntrySnapshot>;
   getTree(): Promise<TreeSnapshot>;
@@ -75,11 +80,18 @@ export interface AgentRuntime {
       customInstructions?: string;
       label?: string;
     },
-  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }>;
+  ): Promise<{
+    editorText: string | null;
+    editorTextTruncated: boolean;
+    cancelled: boolean;
+    aborted: boolean;
+  }>;
   setLabel(entryId: string, label: string | null): Promise<void>;
   clone(): Promise<void>;
   prepareImport?(path: string): Promise<{ sessionId: string; physicalKey: string }>;
-  importJsonl(path: string): Promise<void>;
+  importJsonl(
+    path: string,
+  ): Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>;
   discardPreparedImport?(): Promise<void>;
   describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
   listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
@@ -396,7 +408,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     await this.rpc.request('abort');
   }
 
-  async getState(): Promise<AgentState> {
+  async getState(): Promise<RuntimeAgentState> {
     return normalizeState(await this.rpc.request('get_state', {}, 20_000));
   }
 
@@ -530,10 +542,17 @@ export class JsonlAgentRuntime implements AgentRuntime {
       customInstructions?: string;
       label?: string;
     },
-  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }> {
+  ): Promise<{
+    editorText: string | null;
+    editorTextTruncated: boolean;
+    cancelled: boolean;
+    aborted: boolean;
+  }> {
     const data = asRecord(await this.rpc.request('fork', { entryId }));
+    const editorText = typeof data['text'] === 'string' ? data['text'] : null;
     return {
-      editorText: typeof data['text'] === 'string' ? data['text'].slice(0, 100_000) : null,
+      editorText: editorText?.slice(0, MAX_TREE_EDITOR_TEXT) ?? null,
+      editorTextTruncated: editorText !== null && editorText.length > MAX_TREE_EDITOR_TEXT,
       cancelled: false,
       aborted: false,
     };

@@ -286,6 +286,19 @@ export async function injectAgentEvent(app: ElectronApplication, event: AgentEve
   );
 }
 
+/** Sends an untrusted raw payload through the production preload event boundary. */
+export async function injectBridgePayload(
+  app: ElectronApplication,
+  payload: unknown,
+): Promise<void> {
+  await app.evaluate(
+    ({ BrowserWindow }, input) => {
+      BrowserWindow.getAllWindows()[0]?.webContents.send(input.channel, input.payload);
+    },
+    { channel: IPC_EVENT_CHANNEL, payload },
+  );
+}
+
 /** Pushes a settings event (theme, sidebar position, …) into the renderer. */
 export async function injectSettings(
   app: ElectronApplication,

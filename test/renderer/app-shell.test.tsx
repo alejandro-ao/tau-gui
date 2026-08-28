@@ -17,7 +17,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: true,
   isCompacting: false,
-  sessionFile: null,
+  persisted: false,
   sessionId: 'abc123',
   sessionName: null,
   autoCompactionEnabled: true,
@@ -26,7 +26,7 @@ const AGENT: AgentState = {
 };
 
 const STATS: SessionStats = {
-  sessionFile: '/work/project/.tau/session.jsonl',
+  persisted: true,
   sessionId: 'abc123',
   userMessages: 3,
   assistantMessages: 4,

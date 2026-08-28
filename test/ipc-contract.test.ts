@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bridgeEventSchema,
   contextFilesSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
@@ -11,6 +12,7 @@ import {
   sessionCatalogSchema,
   treeSnapshotSchema,
 } from '../src/shared/ipc.js';
+import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
@@ -284,11 +286,82 @@ describe('IPC request validation', () => {
     expect(() =>
       parseSessionIpcResult('session.fork', {
         editorText: null,
+        editorTextTruncated: false,
         cancelled: false,
         aborted: false,
         extra: true,
       }),
     ).toThrow();
+    expect(() => parseSessionIpcResult('session.new', {})).toThrow();
+    expect(() => parseSessionIpcResult('session.switch', undefined)).toThrow();
+    expect(parseSessionIpcResult('session.new', null)).toBeNull();
+  });
+
+  it('strictly validates complete bridge events and renderer state', () => {
+    const snapshot = {
+      runtime: 'pi' as const,
+      status: 'idle' as const,
+      detail: null,
+      runtimeVersion: null,
+      capabilities: DEFAULT_CAPABILITIES,
+      cwd: '/work',
+      gitBranch: null,
+      state: null,
+    };
+    expect(bridgeEventSchema.safeParse({ type: 'status', snapshot }).success).toBe(true);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'status',
+        snapshot: { ...snapshot, state: { sessionFile: '/private/session.jsonl' } },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'settings',
+        settings: { ...DEFAULT_SETTINGS, recentSessions: [{ path: '/private' }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: { type: 'message_end' },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: {
+          type: 'tool_end',
+          toolCallId: 'tool-1',
+          toolName: 'read',
+          text: 'ok',
+          details: { nested: { forged: true, extra: { value: 1 } } },
+          isError: false,
+          forged: true,
+        },
+      }).success,
+    ).toBe(false);
+    let nested: Record<string, unknown> = { value: true };
+    for (let depth = 0; depth < 10; depth += 1) nested = { nested };
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: {
+          type: 'tool_end',
+          toolCallId: 'tool-1',
+          toolName: 'read',
+          text: 'ok',
+          details: nested,
+          isError: false,
+        },
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects unknown actions', () => {

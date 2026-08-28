@@ -12,7 +12,6 @@ import type {
   Model,
   SessionEntry,
   SessionStats,
-  AgentState,
   StopReason,
   ThinkingLevel,
   ToolCall,
@@ -21,6 +20,7 @@ import type {
 } from '../../shared/domain.js';
 import { THINKING_LEVELS } from '../../shared/domain.js';
 import { MAX_TREE_DEPTH, MAX_TREE_PREVIEW, MAX_TREE_ROWS } from '../../shared/ipc.js';
+import type { RuntimeAgentState } from './agent-runtime.js';
 
 type Wire = Record<string, unknown>;
 
@@ -326,13 +326,14 @@ export function normalizeModel(value: unknown): Model | null {
   };
 }
 
-export function normalizeState(value: unknown): AgentState {
+export function normalizeState(value: unknown): RuntimeAgentState {
   const wire = record(value);
   return {
     model: normalizeModel(wire['model']),
     thinkingLevel: normalizeThinkingLevel(wire['thinkingLevel']),
     isStreaming: bool(wire['isStreaming']),
     isCompacting: bool(wire['isCompacting']),
+    persisted: typeof wire['sessionFile'] === 'string',
     sessionFile: typeof wire['sessionFile'] === 'string' ? wire['sessionFile'] : null,
     sessionId: str(wire['sessionId']),
     sessionName: typeof wire['sessionName'] === 'string' ? wire['sessionName'] : null,
@@ -347,7 +348,7 @@ export function normalizeStats(value: unknown): SessionStats {
   const tokens = record(wire['tokens']);
   const usage = record(wire['contextUsage']);
   return {
-    sessionFile: typeof wire['sessionFile'] === 'string' ? wire['sessionFile'] : null,
+    persisted: typeof wire['sessionFile'] === 'string',
     sessionId: str(wire['sessionId']),
     userMessages: num(wire['userMessages']),
     assistantMessages: num(wire['assistantMessages']),

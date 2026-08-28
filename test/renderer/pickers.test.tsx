@@ -54,7 +54,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: false,
   isCompacting: false,
-  sessionFile: '/work/project/.tau/sessions/current.jsonl',
+  persisted: true,
   sessionId: 'session-1',
   sessionName: 'refactor transport',
   autoCompactionEnabled: true,
@@ -187,7 +187,12 @@ describe('tree modal', () => {
       capabilities: { sessionTree: true },
       results: {
         'agent.tree': TREE,
-        'session.fork': { editorText: 'add jsonl framing tests', cancelled: false, aborted: false },
+        'session.fork': {
+          editorText: 'add jsonl framing tests',
+          editorTextTruncated: false,
+          cancelled: false,
+          aborted: false,
+        },
       },
     });
     mounted = view;

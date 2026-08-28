@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { launchApp, type AppHandle } from './helpers.js';
+import { injectBridgePayload, launchApp, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
 
@@ -48,6 +48,40 @@ test('the bridge exposes only the narrow contract', async () => {
     pathForFile: 'function',
     platform: 'string',
   });
+});
+
+test('drops forged nested and incomplete bridge events', async () => {
+  const { app, page } = handle;
+  await page.evaluate(`(() => {
+    window.__acceptedBridgeEvents = 0;
+    window.tau.subscribe(() => { window.__acceptedBridgeEvents += 1; });
+  })()`);
+
+  await injectBridgePayload(app, {
+    type: 'agent',
+    sessionId: 'forged-session',
+    runtime: 'pi',
+    event: { type: 'message_end' },
+  });
+  await injectBridgePayload(app, {
+    type: 'agent',
+    sessionId: 'forged-session',
+    runtime: 'pi',
+    event: {
+      type: 'tool_end',
+      toolCallId: 'tool-1',
+      toolName: 'read',
+      text: 'forged',
+      details: { nested: { value: true } },
+      isError: false,
+      extra: '/private/session.jsonl',
+    },
+  });
+  await page.waitForTimeout(50);
+  expect(await page.evaluate<number>('window.__acceptedBridgeEvents')).toBe(0);
+
+  await injectBridgePayload(app, { type: 'focus', focused: true });
+  await expect.poll(() => page.evaluate<number>('window.__acceptedBridgeEvents')).toBe(1);
 });
 
 test('an invalid IPC action is rejected by validation', async () => {

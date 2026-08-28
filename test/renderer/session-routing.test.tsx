@@ -18,7 +18,7 @@ function agent(sessionId: string): AgentState {
     thinkingLevel: 'medium',
     isStreaming: false,
     isCompacting: false,
-    sessionFile: null,
+    persisted: false,
     sessionId,
     sessionName: sessionId,
     autoCompactionEnabled: true,

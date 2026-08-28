@@ -117,7 +117,12 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'fs.complete': [],
     'fs.relativize': [],
     'diagnostics.list': [],
-    'session.fork': { editorText: null, cancelled: false, aborted: false },
+    'session.fork': {
+      editorText: null,
+      editorTextTruncated: false,
+      cancelled: false,
+      aborted: false,
+    },
     ...options.results,
     'session.list': sessionList,
   };

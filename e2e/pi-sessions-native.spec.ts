@@ -60,7 +60,7 @@ test.afterEach(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-test('lists, exports offline, resumes, clones, imports, and exports HTML through Pi APIs', async () => {
+test('rejects current portable re-import while preserving list, resume, and export', async () => {
   const { app, page } = handle;
   const portable = join(root, 'portable.jsonl');
 
@@ -92,6 +92,16 @@ test('lists, exports offline, resumes, clones, imports, and exports HTML through
     dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [path] });
   }, portable);
   await runCommand('/import');
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
+  await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
+
+  await runCommand('/resume');
+  const preserved = page
+    .getByTestId('modal-session')
+    .getByRole('option')
+    .filter({ hasText: 'Native E2E session' });
+  await expect(preserved).toHaveCount(2);
+  await preserved.first().click();
   await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
 
   const html = join(root, 'session.html');

@@ -94,8 +94,21 @@ export async function handleRequest(
     case 'agent.abort':
       await runtime().abort();
       return null;
-    case 'agent.state':
-      return runtime().getState();
+    case 'agent.state': {
+      const state = await runtime().getState();
+      return {
+        model: state.model,
+        thinkingLevel: state.thinkingLevel,
+        isStreaming: state.isStreaming,
+        isCompacting: state.isCompacting,
+        persisted: state.persisted,
+        sessionId: state.sessionId,
+        sessionName: state.sessionName,
+        autoCompactionEnabled: state.autoCompactionEnabled,
+        messageCount: state.messageCount,
+        pendingMessageCount: state.pendingMessageCount,
+      };
+    }
     case 'agent.messages':
       return runtime().getMessages();
     case 'agent.entries':

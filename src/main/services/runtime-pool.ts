@@ -209,7 +209,7 @@ export class RuntimePool {
   /** Restarts the viewed transcript and lets its retained queue resume draining. */
   async restart(): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
-      const identity = this.current ? restartIdentity(this.current.snapshot()) : this.failedRestart;
+      const identity = this.current ? restartIdentity(this.current) : this.failedRestart;
       try {
         const snapshot = await this.startFresh({
           cwd: identity?.cwd ?? null,
@@ -276,12 +276,7 @@ export class RuntimePool {
         const target = targetFor(manager);
         this.queues.enqueue(target, 'follow-up', request.prompt);
         void this.schedule(manager);
-        const state = manager.snapshot().state;
-        return {
-          sessionId: target.sessionId,
-          sessionFile: state?.sessionFile ?? null,
-          cwd,
-        };
+        return { sessionId: target.sessionId, cwd };
       } catch (error) {
         await this.remove(manager);
         throw error;
@@ -344,7 +339,9 @@ export class RuntimePool {
       const state = manager.snapshot().state;
       return (
         state?.sessionId === (recent?.id ?? ref) ||
-        (recent?.path !== null && recent?.path !== undefined && state?.sessionFile === recent.path)
+        (recent?.path !== null &&
+          recent?.path !== undefined &&
+          manager.internalState?.sessionFile === recent.path)
       );
     });
     // Prefer a background candidate when returning from another process. A
@@ -444,29 +441,58 @@ export class RuntimePool {
   async importSession(path: string, target?: SessionTarget | null): Promise<RuntimeSnapshot> {
     return this.replaceSession(target, async (runtime, manager) => {
       if (!runtime.prepareImport) throw new Error('This runtime cannot safely prepare imports');
-      const prospective = await runtime.prepareImport(path);
-      this.assertIdentityAvailable(manager, prospective.sessionId, prospective.physicalKey);
-      await runtime.importJsonl(path);
+      let prospective: { sessionId: string; physicalKey: string };
+      try {
+        prospective = await runtime.prepareImport(path);
+        this.assertIdentityAvailable(manager, prospective.sessionId, prospective.physicalKey, true);
+      } catch (error) {
+        await runtime.discardPreparedImport?.();
+        throw new PreparedReplacementError(error);
+      }
+      const imported = await runtime.importJsonl(path);
+      if (!imported) throw new Error('Runtime did not report the activated import identity');
+      if (imported.sessionId !== prospective.sessionId) {
+        throw new Error('Activated import does not match its reserved logical identity');
+      }
+      return imported;
     });
   }
 
   private async replaceSession(
     target: SessionTarget | null | undefined,
-    replace: (runtime: AgentRuntime, manager: RuntimeManager) => Promise<void>,
+    replace: (
+      runtime: AgentRuntime,
+      manager: RuntimeManager,
+    ) => Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>,
   ): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
       const manager = this.managerFor(target);
       if (manager !== this.current) throw new Error('Select the session before replacing it');
       if (isBusy(manager)) throw new Error('Wait for the current session to finish');
-      const restart = restartIdentity(manager.snapshot());
+      const restart = restartIdentity(manager);
       try {
-        await replace(manager.active, manager);
+        const expected = await replace(manager.active, manager);
         await manager.refreshState();
+        if (expected) {
+          const finalState = manager.internalState;
+          const finalPhysical = finalState?.sessionFile
+            ? await inspectPhysicalFile(finalState.sessionFile).catch(() => null)
+            : null;
+          if (
+            finalState?.sessionId !== expected.sessionId ||
+            !finalPhysical ||
+            finalPhysical.key !== expected.physicalKey ||
+            finalPhysical.path !== expected.physicalPath
+          ) {
+            throw new Error('Activated import does not match its reserved physical identity');
+          }
+        }
         this.removeOwnership(manager);
         this.index(manager);
         await this.claimSnapshot(manager);
         return manager.snapshot();
       } catch (error) {
+        if (error instanceof PreparedReplacementError) throw error.originalError;
         await this.remove(manager);
         this.failedRestart = { ...restart, detail: boundedError(error) };
         this.broadcast({ type: 'status', snapshot: this.snapshot() });
@@ -645,7 +671,7 @@ export class RuntimePool {
    */
   private index(manager: RuntimeManager): void {
     const snapshot = manager.snapshot();
-    const state = snapshot.state;
+    const state = manager.internalState;
     if (!state?.sessionId) return;
     this.removeIndexes(manager);
     this.setIndex(sessionKey(snapshot.runtime, state.sessionId), manager);
@@ -663,7 +689,7 @@ export class RuntimePool {
 
   private async claimSnapshot(manager: RuntimeManager): Promise<void> {
     const snapshot = manager.snapshot();
-    const state = snapshot.state;
+    const state = manager.internalState;
     if (!state?.sessionId) return;
     const physical = state.sessionFile
       ? await inspectPhysicalFile(state.sessionFile).catch(() => null)
@@ -680,9 +706,10 @@ export class RuntimePool {
     manager: RuntimeManager,
     sessionId: string,
     physicalKey: string | null,
+    rejectCurrentOwner = false,
   ): void {
     const logical = this.owners.get(sessionKey(manager.kind, sessionId));
-    if (logical && logical !== manager && logical.isStarted) {
+    if (logical?.isStarted && (logical !== manager || rejectCurrentOwner)) {
       throw new Error('That persisted session already has a live owner');
     }
     const physical = physicalKey ? this.physicalOwners.get(physicalKey) : null;
@@ -720,6 +747,12 @@ export class RuntimePool {
   }
 }
 
+class PreparedReplacementError extends Error {
+  constructor(readonly originalError: unknown) {
+    super('Session replacement was rejected before mutation');
+  }
+}
+
 interface QueueRoute {
   target: SessionTarget;
   manager: RuntimeManager | null;
@@ -744,8 +777,9 @@ function freshLifecycle(sessionId: string | null): RunLifecycle {
   return { sessionId, phase: 'ready', turnOpen: false, turnEnded: false };
 }
 
-function restartIdentity(snapshot: RuntimeSnapshot): RestartIdentity {
-  const state = snapshot.state;
+function restartIdentity(manager: RuntimeManager): RestartIdentity {
+  const snapshot = manager.snapshot();
+  const state = manager.internalState;
   const sessionId = state?.sessionId ?? null;
   return {
     runtime: snapshot.runtime,

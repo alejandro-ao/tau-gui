@@ -69,7 +69,7 @@ describe('global shortcuts', () => {
         thinkingLevel: 'off',
         isStreaming: false,
         isCompacting: false,
-        sessionFile: '/work/project/.session.jsonl',
+        persisted: true,
         sessionId: 'session-1',
         sessionName: null,
         autoCompactionEnabled: true,

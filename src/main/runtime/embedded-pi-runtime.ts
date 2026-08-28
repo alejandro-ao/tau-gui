@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { copyFile, open, rm } from 'node:fs/promises';
+import { copyFile, open } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
@@ -12,12 +12,11 @@ import {
   type AgentSessionRuntime,
 } from '@earendil-works/pi-coding-agent';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { MAX_CONTEXT_FILES, type ContextFile } from '../../shared/ipc.js';
+import { MAX_CONTEXT_FILES, MAX_TREE_EDITOR_TEXT, type ContextFile } from '../../shared/ipc.js';
 import { RESOURCE_LIMITS } from '../../shared/resources.js';
 import { estimateTextTokens } from '../../shared/token-estimate.js';
 import type {
   AgentMessage,
-  AgentState,
   BashResult,
   CommandInfo,
   CompactionResult,
@@ -34,7 +33,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../shared/domain.js';
-import type { AgentRuntime, RuntimeSink } from './agent-runtime.js';
+import type { AgentRuntime, RuntimeAgentState, RuntimeSink } from './agent-runtime.js';
 import {
   normalizeEntries,
   normalizeEvent,
@@ -50,6 +49,7 @@ import {
   ensureCheckedDirectory,
   exclusiveCopy,
   inspectPhysicalFile,
+  removePhysicalFile,
   type PhysicalFile,
 } from './session-files.js';
 
@@ -93,6 +93,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private readonly agentDir: string;
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
+  private readonly importDestinationName: () => string;
   private readonly catalog = new Map<
     string,
     { path: string; sessionId: string; physical: PhysicalFile }
@@ -110,12 +111,15 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       agentDir?: string;
       home?: string;
       spawnSession?: SpawnSessionHandler;
+      /** Deterministic destination naming for filesystem adversarial tests. */
+      importDestinationName?: () => string;
     } = {},
   ) {
     this.sink = sink;
     this.agentDir = options.agentDir ?? getAgentDir();
     this.home = options.home ?? homedir();
     this.spawnSession = options.spawnSession ?? null;
+    this.importDestinationName = options.importDestinationName ?? (() => `${randomUUID()}.jsonl`);
   }
 
   get running(): boolean {
@@ -248,13 +252,14 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     return this.session.abort();
   }
 
-  getState(): Promise<AgentState> {
+  getState(): Promise<RuntimeAgentState> {
     const session = this.session;
     return Promise.resolve({
       model: normalizeModel(session.model),
       thinkingLevel: normalizeThinkingLevel(session.thinkingLevel),
       isStreaming: session.isStreaming,
       isCompacting: session.isCompacting,
+      persisted: session.sessionFile !== undefined,
       sessionFile: session.sessionFile ?? null,
       sessionId: session.sessionId,
       sessionName: session.sessionName ?? null,
@@ -384,14 +389,21 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       customInstructions?: string;
       label?: string;
     },
-  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }> {
+  ): Promise<{
+    editorText: string | null;
+    editorTextTruncated: boolean;
+    cancelled: boolean;
+    aborted: boolean;
+  }> {
     const result = await this.session.navigateTree(entryId, {
       summarize: options.summary !== 'none',
       customInstructions: options.summary === 'custom' ? options.customInstructions : undefined,
       label: options.label,
     });
+    const editorText = result.editorText ?? null;
     return {
-      editorText: result.editorText ?? null,
+      editorText: editorText?.slice(0, MAX_TREE_EDITOR_TEXT) ?? null,
+      editorTextTruncated: editorText !== null && editorText.length > MAX_TREE_EDITOR_TEXT,
       cancelled: result.cancelled,
       aborted: result.aborted === true,
     };
@@ -416,9 +428,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       const result = await this.host.switchSession(destination);
       if (result.cancelled) throw new Error('Session clone was cancelled');
     } catch (error) {
-      const current = await inspectPhysicalFile(destination, sessionDir).catch(() => null);
-      if (current?.key === artifact.key)
-        await rm(destination, { force: true }).catch(() => undefined);
+      await removePhysicalFile(artifact).catch(() => false);
       throw error;
     }
   }
@@ -438,30 +448,59 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       // Public SDK validation only; the application never parses JSONL.
       const manager = SessionManager.open(staged, stagingRoot);
       const sessionId = manager.getSessionId();
-      if (!sessionId || sessionId.length > 128)
-        throw new Error('Imported session identity is invalid');
+      assertValidImportedSessionId(sessionId);
+      await assertLogicalSessionIdAvailable(this.agentDir, sessionId);
       this.preparedImport = { source: resolve(path), staged, sessionId, physical };
       return { sessionId, physicalKey: physical.key };
     } catch (error) {
-      await rm(staged, { force: true });
+      await removePhysicalFile(physical).catch(() => false);
       throw error;
     }
   }
 
-  async importJsonl(path: string): Promise<void> {
+  async importJsonl(
+    path: string,
+  ): Promise<{ sessionId: string; physicalKey: string; physicalPath: string }> {
     const prepared = this.preparedImport;
     if (!prepared || prepared.source !== resolve(path))
       throw new Error('Import was not safely prepared');
     const sessionDir = await ensureCheckedDirectory(this.session.sessionManager.getSessionDir());
-    const destination = join(sessionDir, `${randomUUID()}.jsonl`);
+    const destinationName = this.importDestinationName();
+    if (!/^[A-Za-z0-9._-]+\.jsonl$/.test(destinationName)) {
+      throw new Error('Unsafe import destination name');
+    }
+    const destination = join(sessionDir, destinationName);
+    let created: PhysicalFile | null = null;
     try {
-      await exclusiveCopy(prepared.staged, destination);
+      created = await exclusiveCopy(prepared.staged, destination);
+      const stagedNow = await inspectPhysicalFile(prepared.staged, dirname(prepared.staged));
+      const destinationNow = await inspectPhysicalFile(destination, sessionDir);
+      if (
+        stagedNow.key !== prepared.physical.key ||
+        stagedNow.size !== prepared.physical.size ||
+        destinationNow.key !== created.key ||
+        destinationNow.size !== created.size
+      ) {
+        throw new Error('Prepared import identity changed before activation');
+      }
+      const destinationManager = SessionManager.open(destination, sessionDir);
+      const sessionId = destinationManager.getSessionId();
+      assertValidImportedSessionId(sessionId);
+      if (sessionId !== prepared.sessionId) {
+        throw new Error('Prepared import logical identity changed before activation');
+      }
+      // Last possible no-follow identity check before the public replacement API.
+      const finalDestination = await inspectPhysicalFile(destination, sessionDir);
+      if (finalDestination.key !== created.key || finalDestination.size !== created.size) {
+        throw new Error('Import destination changed before activation');
+      }
       const result = await this.host.switchSession(destination);
       if (result.cancelled) throw new Error('Session import was cancelled');
       this.preparedImport = null;
-      await rm(prepared.staged, { force: true });
+      await removePhysicalFile(prepared.physical).catch(() => false);
+      return { sessionId, physicalKey: created.key, physicalPath: created.path };
     } catch (error) {
-      await rm(destination, { force: true }).catch(() => undefined);
+      if (created) await removePhysicalFile(created).catch(() => false);
       throw error;
     }
   }
@@ -469,7 +508,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   async discardPreparedImport(): Promise<void> {
     const prepared = this.preparedImport;
     this.preparedImport = null;
-    if (prepared) await rm(prepared.staged, { force: true }).catch(() => undefined);
+    if (prepared) await removePhysicalFile(prepared.physical).catch(() => false);
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
@@ -667,9 +706,8 @@ export async function loadCatalog(
   for (const { info, physical } of listed.sessions) {
     try {
       if (cwd !== null && info.cwd !== cwd) continue;
-      if (typeof info.id !== 'string' || !info.id || info.id.length > 128) {
-        throw new Error('invalid session id');
-      }
+      if (typeof info.id !== 'string') throw new Error('invalid session id');
+      assertValidImportedSessionId(info.id);
       const createdAt = info.created instanceof Date ? info.created.getTime() : Number.NaN;
       const modifiedAt = info.modified instanceof Date ? info.modified.getTime() : Number.NaN;
       if (
@@ -742,6 +780,32 @@ export async function loadCatalog(
     .sort((left, right) => right.summary.modifiedAt - left.summary.modifiedAt)
     .slice(0, MAX_SESSION_CATALOG_ENTRIES);
   return { records, diagnostics };
+}
+
+async function assertLogicalSessionIdAvailable(agentDir: string, sessionId: string): Promise<void> {
+  const listed = await boundedSessionList(join(agentDir, 'sessions'));
+  if (
+    listed.sessions.some(({ info }) => {
+      if (typeof info.id !== 'string') return false;
+      try {
+        assertValidImportedSessionId(info.id);
+        return info.id === sessionId;
+      } catch {
+        return false;
+      }
+    })
+  ) {
+    throw new Error('A session with this identity already exists; portable re-import is refused');
+  }
+}
+
+function assertValidImportedSessionId(id: string): void {
+  // Mirrors Pi's declared public assertValidSessionId contract. Pi 0.84.2
+  // declares that helper but accidentally omits it from the package root export,
+  // so calling it through a forbidden deep import is not an option here.
+  if (id.length > 128 || !/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id)) {
+    throw new Error('Imported session identity is invalid');
+  }
 }
 
 async function resolveCatalogSession(ref: string, agentDir: string): Promise<CatalogRecord | null> {

@@ -47,6 +47,30 @@ describe('session catalog record isolation', () => {
     expect(catalog.diagnostics.join(' ')).toContain('Dropped malformed session record');
   });
 
+  it('drops IDs outside Pi public session identity grammar', async () => {
+    root = await mkdtemp(join(tmpdir(), 'tau-gui-catalog-'));
+    const directory = join(root, 'sessions', 'project');
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, 'invalid-id.jsonl');
+    await writeFile(path, '{}\n');
+    vi.spyOn(SessionManager, 'listAll').mockResolvedValue([
+      {
+        path: await realpath(path),
+        id: 'invalid/id\u202E',
+        cwd: '/work',
+        created: new Date(1),
+        modified: new Date(2),
+        messageCount: 1,
+        firstMessage: 'unsafe',
+        allMessagesText: 'unsafe',
+      },
+    ]);
+
+    const catalog = await loadCatalog(root, null);
+    expect(catalog.records).toEqual([]);
+    expect(catalog.diagnostics.join(' ')).toContain('session identity is invalid');
+  });
+
   it('drops every selectable record when one logical id names two physical files', async () => {
     root = await mkdtemp(join(tmpdir(), 'tau-gui-catalog-'));
     const directory = join(root, 'sessions', 'project');

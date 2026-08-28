@@ -252,7 +252,8 @@ export interface AgentState {
   thinkingLevel: ThinkingLevel;
   isStreaming: boolean;
   isCompacting: boolean;
-  sessionFile: string | null;
+  /** Whether the runtime has durable backing; its private file path stays in main. */
+  persisted: boolean;
   sessionId: string;
   sessionName: string | null;
   autoCompactionEnabled: boolean;
@@ -261,7 +262,7 @@ export interface AgentState {
 }
 
 export interface SessionStats {
-  sessionFile: string | null;
+  persisted: boolean;
   sessionId: string;
   userMessages: number;
   assistantMessages: number;
@@ -339,6 +340,8 @@ export interface TreeNavigateOptions {
 
 export interface TreeNavigateResult {
   editorText: string | null;
+  /** True when a larger editable message was deterministically capped for IPC. */
+  editorTextTruncated: boolean;
   cancelled: boolean;
   aborted: boolean;
 }

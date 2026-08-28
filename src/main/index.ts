@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
 import {
+  bridgeEventSchema,
   envelopeSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
@@ -45,8 +46,10 @@ let settings: SettingsStore;
 let manager: RuntimePool;
 
 function broadcast(event: BridgeEvent): void {
+  const parsed = bridgeEventSchema.safeParse(event);
+  if (!parsed.success) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC_EVENT_CHANNEL, event);
+    mainWindow.webContents.send(IPC_EVENT_CHANNEL, parsed.data);
   }
 }
 

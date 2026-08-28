@@ -88,6 +88,20 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
+    getState: () =>
+      Promise.resolve({
+        model: null,
+        thinkingLevel: 'off' as const,
+        isStreaming: false,
+        isCompacting: false,
+        persisted: true,
+        sessionFile: '/private/session.jsonl',
+        sessionId: 'session-1',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 1,
+        pendingMessageCount: 0,
+      }),
     abortShell: (): Promise<void> => {
       calls.abortShell += 1;
       return Promise.resolve();
@@ -394,6 +408,13 @@ describe('capability-gated and adapter-contract actions', () => {
       }),
     ).toBe(true);
     expect(calls.resolved).toEqual([{ id: 'prompt-1', outcome: 'restore', target: session }]);
+  });
+
+  it('redacts runtime-owned session paths from agent state', async () => {
+    const { context } = makeContext();
+    const state = await handleRequest(context, { action: 'agent.state' });
+    expect(state).toMatchObject({ persisted: true, sessionId: 'session-1' });
+    expect(state).not.toHaveProperty('sessionFile');
   });
 
   it('routes agent.entries with and without a cursor', async () => {

@@ -171,6 +171,7 @@ describe('RuntimeManager state machine', () => {
       fixture.manager.active.getState = vi.fn(() =>
         Promise.resolve({
           ...initial,
+          sessionFile: null,
           sessionName: 'Sidebar investigation',
           messageCount: 1,
         }),
