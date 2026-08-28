@@ -3,8 +3,10 @@ import {
   contextFilesSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
+  MAX_SESSION_CATALOG_ENTRIES,
   requestSchema,
   resourceCatalogSchema,
+  sessionCatalogSchema,
 } from '../src/shared/ipc.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
@@ -164,6 +166,74 @@ describe('IPC request validation', () => {
           origin: '~/.tau/prompts',
         })),
       }).success,
+    ).toBe(false);
+  });
+
+  it('strictly validates session lifecycle requests and bounded metadata', () => {
+    for (const request of [
+      { action: 'session.clone' },
+      { action: 'session.importJsonl' },
+      { action: 'session.list', payload: { scope: 'all' } },
+      { action: 'session.exportHtml' },
+      { action: 'session.exportJsonl', payload: {} },
+      { action: 'session.label', payload: { entryId: 'entry-1', label: 'bookmark' } },
+    ]) {
+      expect(requestSchema.safeParse(request).success, request.action).toBe(true);
+    }
+    expect(
+      requestSchema.safeParse({
+        action: 'session.exportHtml',
+        payload: { destination: '/renderer/chosen' },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'session.importJsonl',
+        payload: { path: '/renderer/chosen' },
+      }).success,
+    ).toBe(false);
+    expect(
+      sessionCatalogSchema.safeParse([
+        {
+          id: 'session-1',
+          name: 'Task',
+          firstMessage: 'Do work',
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 2,
+          parentSessionId: null,
+        },
+      ]).success,
+    ).toBe(true);
+    expect(
+      sessionCatalogSchema.safeParse(
+        Array.from({ length: MAX_SESSION_CATALOG_ENTRIES + 1 }, (_, index) => ({
+          id: `session-${index}`,
+          name: null,
+          firstMessage: null,
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 0,
+          parentSessionId: null,
+        })),
+      ).success,
+    ).toBe(false);
+    expect(
+      sessionCatalogSchema.safeParse([
+        {
+          id: 'session-1',
+          name: null,
+          firstMessage: null,
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 0,
+          parentSessionId: null,
+          path: '/must/not/cross-ipc.jsonl',
+        },
+      ]).success,
     ).toBe(false);
   });
 

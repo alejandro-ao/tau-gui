@@ -18,6 +18,7 @@ import type {
   RuntimeStatus,
   ResourceCatalog,
   SessionStats,
+  SessionSummary,
   ThinkingLevel,
   TreeSnapshot,
 } from '../../shared/domain.js';
@@ -68,7 +69,12 @@ export interface AgentRuntime {
   switchSession(ref: string): Promise<void>;
   nameSession(name: string): Promise<void>;
   fork(entryId: string): Promise<string>;
+  setLabel(entryId: string, label: string | null): Promise<void>;
+  clone(): Promise<void>;
+  importJsonl(path: string): Promise<void>;
+  listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
+  exportJsonl(path: string, sessionId?: string): Promise<string>;
   listCommands(): Promise<CommandInfo[]>;
   /** Direct SDK runtimes can expose authoritative resource metadata. */
   getResources?(): Promise<ResourceCatalog>;
@@ -89,9 +95,9 @@ export const CAPABILITY_RUNTIME_METHODS = {
   directBash: ['runShell'],
   abortBash: ['abortShell'],
   retryControls: null,
-  sessionTree: ['getTree', 'fork'],
-  sessionClone: null,
-  sessionList: null,
+  sessionTree: ['getTree', 'fork', 'setLabel'],
+  sessionClone: ['clone'],
+  sessionList: ['listSessions'],
   extensionDialogs: null,
   providerLogin: null,
   resourceReload: null,
@@ -510,10 +516,30 @@ export class JsonlAgentRuntime implements AgentRuntime {
     return typeof data['text'] === 'string' ? data['text'] : '';
   }
 
+  setLabel(): Promise<void> {
+    return Promise.reject(new Error('Session labels are unavailable in the test RPC runtime'));
+  }
+
+  clone(): Promise<void> {
+    return Promise.reject(new Error('Session cloning is unavailable in the test RPC runtime'));
+  }
+
+  importJsonl(): Promise<void> {
+    return Promise.reject(new Error('Session import is unavailable in the test RPC runtime'));
+  }
+
+  listSessions(): Promise<SessionSummary[]> {
+    return Promise.reject(new Error('Session listing is unavailable in the test RPC runtime'));
+  }
+
   async exportHtml(path?: string): Promise<string> {
     const params = path ? { outputPath: path } : {};
     const data = asRecord(await this.rpc.request('export_html', params, 0));
     return typeof data['path'] === 'string' ? data['path'] : '';
+  }
+
+  exportJsonl(): Promise<string> {
+    return Promise.reject(new Error('JSONL export is unavailable in the test RPC runtime'));
   }
 
   async listCommands(): Promise<CommandInfo[]> {

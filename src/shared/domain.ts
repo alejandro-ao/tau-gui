@@ -300,9 +300,10 @@ export interface SessionEntry {
     | 'session_info';
   /** Present for message-bearing entries. */
   message?: AgentMessage;
-  /** Short human-readable label used by the tree browser. */
+  /** Short human-readable preview used by the tree browser. */
   summary: string;
-  raw: Record<string, unknown>;
+  /** Resolved Pi bookmark label, when present. */
+  label?: string;
 }
 
 export interface EntrySnapshot {
@@ -380,6 +381,18 @@ export interface SessionRef {
   cwd: string | null;
   runtime: RuntimeKind;
   lastSeen: number;
+}
+
+/** Bounded Pi-native session metadata. Session file paths never cross IPC. */
+export interface SessionSummary {
+  id: string;
+  name: string | null;
+  firstMessage: string | null;
+  cwd: string | null;
+  createdAt: number;
+  modifiedAt: number;
+  messageCount: number;
+  parentSessionId: string | null;
 }
 
 /* ---------------------------------------------------------------- settings */

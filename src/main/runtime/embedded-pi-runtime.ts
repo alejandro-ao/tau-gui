@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { open } from 'node:fs/promises';
+import { copyFile, open, readdir } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import {
   SessionManager,
@@ -29,6 +29,7 @@ import type {
   RuntimeLaunchConfig,
   ResourceCatalog,
   SessionStats,
+  SessionSummary,
   ThinkingLevel,
   TreeSnapshot,
 } from '../../shared/domain.js';
@@ -59,8 +60,8 @@ export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   abortBash: false,
   retryControls: false,
   sessionTree: true,
-  sessionClone: false,
-  sessionList: false,
+  sessionClone: true,
+  sessionList: true,
   extensionDialogs: false,
   providerLogin: false,
   resourceReload: false,
@@ -359,8 +360,60 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     return result.editorText ?? '';
   }
 
+  setLabel(entryId: string, label: string | null): Promise<void> {
+    if (!this.session.sessionManager.getEntry(entryId)) throw new Error('Unknown session entry');
+    this.session.sessionManager.appendLabelChange(entryId, label?.trim() || undefined);
+    return Promise.resolve();
+  }
+
+  async clone(): Promise<void> {
+    const leafId = this.session.sessionManager.getLeafId();
+    if (!leafId) throw new Error('Send a message before cloning this session');
+    const result = await this.host.fork(leafId, { position: 'at' });
+    if (result.cancelled) throw new Error('Session clone was cancelled');
+  }
+
+  async importJsonl(path: string): Promise<void> {
+    const result = await this.host.importFromJsonl(path);
+    if (result.cancelled) throw new Error('Session import was cancelled');
+  }
+
+  async listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]> {
+    const sessionDir = join(this.agentDir, 'sessions');
+    const sessions =
+      scope === 'cwd'
+        ? await SessionManager.list(this.host.cwd, sessionDirFor(this.host.cwd, this.agentDir))
+        : await listAllSessions(sessionDir);
+    const idByPath = new Map(sessions.map((session) => [resolve(session.path), session.id]));
+    return sessions
+      .sort((left, right) => right.modified.getTime() - left.modified.getTime())
+      .slice(0, MAX_SESSION_CATALOG_ENTRIES)
+      .map((session) => ({
+        id: boundedMetadata(session.id, 128),
+        name: boundedNullable(session.name, 160),
+        firstMessage: boundedNullable(session.firstMessage, 500),
+        cwd: boundedNullable(session.cwd, 4_096),
+        createdAt: session.created.getTime(),
+        modifiedAt: session.modified.getTime(),
+        messageCount: Math.max(0, Math.min(session.messageCount, 1_000_000)),
+        parentSessionId: session.parentSessionPath
+          ? (idByPath.get(resolve(session.parentSessionPath)) ?? null)
+          : null,
+      }));
+  }
+
   exportHtml(path?: string): Promise<string> {
     return this.session.exportToHtml(path);
+  }
+
+  async exportJsonl(path: string, sessionId?: string): Promise<string> {
+    let source = this.session.sessionFile;
+    if (sessionId && sessionId !== this.session.sessionId) {
+      source = (await findSession(sessionId, this.agentDir))?.path;
+    }
+    if (!source) throw new Error('This session has not been saved yet');
+    await copyFile(source, path);
+    return path;
   }
 
   listCommands(): Promise<CommandInfo[]> {
@@ -421,6 +474,14 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       }));
     return { skills, prompts, diagnostics };
   }
+}
+
+const MAX_SESSION_CATALOG_ENTRIES = 500;
+
+function boundedNullable(value: string | undefined, limit: number): string | null {
+  if (!value) return null;
+  const bounded = boundedMetadata(value, limit);
+  return bounded || null;
 }
 
 function resourceDescription(value: string): string | null {
@@ -500,8 +561,30 @@ function slashPath(path: string): string {
   return path.split(sep).join('/');
 }
 
+async function listAllSessions(sessionRoot: string) {
+  // The public custom-directory overload scans one flat directory, while AO's
+  // SDK-created sessions use Pi's per-cwd subdirectories. Discover directory
+  // names only, then delegate every session file to SessionManager.listAll().
+  const directories = [sessionRoot];
+  try {
+    const entries = await readdir(sessionRoot, { withFileTypes: true });
+    directories.push(
+      ...entries
+        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
+        .slice(0, MAX_SESSION_CATALOG_ENTRIES)
+        .map((entry) => join(sessionRoot, entry.name)),
+    );
+  } catch {
+    return [];
+  }
+  const listed = await Promise.all(
+    directories.map((directory) => SessionManager.listAll(directory)),
+  );
+  return listed.flat();
+}
+
 async function findSession(ref: string, agentDir: string) {
-  const sessions = await SessionManager.listAll(join(agentDir, 'sessions'));
+  const sessions = await listAllSessions(join(agentDir, 'sessions'));
   return sessions.find((session) => session.id === ref || session.path === ref);
 }
 

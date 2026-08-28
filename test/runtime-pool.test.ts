@@ -83,6 +83,27 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
   });
 
+  it('serializes session replacement so one owner never clones concurrently', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const runtime = pool.runtimeFor(target);
+    let activeClones = 0;
+    let maximum = 0;
+    runtime.clone = async () => {
+      activeClones += 1;
+      maximum = Math.max(maximum, activeClones);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeClones -= 1;
+    };
+
+    await Promise.all([pool.cloneSession(target), pool.cloneSession(target)]);
+
+    expect(maximum).toBe(1);
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
   it('stops a subprocess whose session activation fails', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

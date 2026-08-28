@@ -21,6 +21,7 @@ import type {
   RuntimeCapabilities,
   RuntimeStatus,
   SessionStats,
+  SessionSummary,
   ThinkingLevel,
   TreeSnapshot,
 } from './domain.js';
@@ -76,6 +77,21 @@ export type ContextFile = z.infer<typeof contextFilesSchema>[number];
  * so the main process routes them to the process that owns that transcript,
  * never to whichever runtime happens to be selected when the call arrives.
  */
+export const MAX_SESSION_CATALOG_ENTRIES = 500;
+export const sessionSummarySchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    name: z.string().max(160).nullable(),
+    firstMessage: z.string().max(500).nullable(),
+    cwd: safePathText.nullable(),
+    createdAt: z.number().finite().nonnegative(),
+    modifiedAt: z.number().finite().nonnegative(),
+    messageCount: z.number().int().min(0).max(1_000_000),
+    parentSessionId: z.string().max(128).nullable(),
+  })
+  .strict();
+export const sessionCatalogSchema = z.array(sessionSummarySchema).max(MAX_SESSION_CATALOG_ENTRIES);
+
 export const sessionTargetSchema = z.object({
   runtime: runtimeKind,
   sessionId: z.string().min(1),
@@ -192,15 +208,34 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('session.name'), payload: z.object({ name: z.string().min(1) }) }),
   z.object({
     action: z.literal('session.fork'),
-    payload: z.object({ entryId: z.string().min(1) }),
+    payload: z.object({ entryId: z.string().min(1).max(128) }).strict(),
+  }),
+  z.object({
+    action: z.literal('session.label'),
+    payload: z
+      .object({
+        entryId: z.string().min(1).max(128),
+        label: z.string().trim().min(1).max(120).nullable(),
+      })
+      .strict(),
+  }),
+  z.object({ action: z.literal('session.clone') }).strict(),
+  z.object({ action: z.literal('session.importJsonl') }).strict(),
+  z.object({
+    action: z.literal('session.list'),
+    payload: z.object({ scope: z.enum(['cwd', 'all']) }).strict(),
   }),
   z.object({
     action: z.literal('session.compact'),
     payload: z.object({ instructions: z.string().optional() }).optional(),
   }),
+  z.object({ action: z.literal('session.exportHtml') }).strict(),
   z.object({
-    action: z.literal('session.exportHtml'),
-    payload: z.object({ destination: z.string().min(1) }).optional(),
+    action: z.literal('session.exportJsonl'),
+    payload: z
+      .object({ sessionId: z.string().min(1).max(128).optional() })
+      .strict()
+      .optional(),
   }),
   z.object({
     action: z.literal('session.autoCompaction'),
@@ -329,8 +364,13 @@ export interface IpcResultMap {
   'session.switch': null;
   'session.name': null;
   'session.fork': string;
+  'session.label': null;
+  'session.clone': null;
+  'session.importJsonl': null;
+  'session.list': SessionSummary[];
   'session.compact': CompactionResult;
   'session.exportHtml': string | null;
+  'session.exportJsonl': string | null;
   'session.autoCompaction': null;
   'shell.run': BashResult;
   'shell.abort': null;

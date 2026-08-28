@@ -42,8 +42,8 @@ describe('EmbeddedPiRuntime', () => {
       imagePrompt: false,
       abortBash: false,
       retryControls: false,
-      sessionClone: false,
-      sessionList: false,
+      sessionClone: true,
+      sessionList: true,
       extensionDialogs: false,
       providerLogin: false,
       resourceReload: false,
@@ -163,5 +163,81 @@ describe('EmbeddedPiRuntime', () => {
     expect(labels.get(globalContext)).toBe('~/.pi/agent/AGENTS.md');
     expect(labels.get(join(cwd, 'AGENTS.md'))).toBe('./AGENTS.md');
     expect(labels.get(join(project, 'AGENTS.md'))).toBe('../../../../../AGENTS.md');
+
+    const sessionInternals = runtime as unknown as {
+      runtime: {
+        session: {
+          sessionManager: {
+            appendMessage: (message: unknown) => string;
+          };
+        };
+      };
+    };
+    const originalId = (await runtime.getState()).sessionId;
+    const entryId = sessionInternals.runtime.session.sessionManager.appendMessage({
+      role: 'user',
+      content: 'Native catalog task',
+      timestamp: Date.now(),
+    });
+    sessionInternals.runtime.session.sessionManager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Ready' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    });
+    await runtime.setLabel(entryId, 'bookmark');
+    const tree = await runtime.getTree();
+    const labeled = tree.tree
+      .flatMap(function flatten(node): typeof tree.tree {
+        return [node, ...node.children.flatMap(flatten)];
+      })
+      .find((node) => node.entry.id === entryId);
+    expect(labeled?.entry.label).toBe('bookmark');
+
+    const catalog = await runtime.listSessions('all');
+    expect(catalog).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: originalId,
+          firstMessage: 'Native catalog task',
+          cwd,
+          messageCount: 2,
+        }),
+      ]),
+    );
+    expect(catalog[0]).not.toHaveProperty('path');
+
+    const portable = join(root, 'portable.jsonl');
+    await expect(runtime.exportJsonl(portable)).resolves.toBe(portable);
+    await runtime.clone();
+    const cloneId = (await runtime.getState()).sessionId;
+    expect(cloneId).not.toBe(originalId);
+    expect((await runtime.getMessages())[0]).toMatchObject({
+      role: 'user',
+      text: 'Native catalog task',
+    });
+    expect(await runtime.listSessions('all')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: cloneId, parentSessionId: originalId }),
+      ]),
+    );
+
+    await runtime.importJsonl(portable);
+    expect((await runtime.getState()).sessionId).toBe(originalId);
+    expect((await runtime.getMessages())[0]).toMatchObject({
+      role: 'user',
+      text: 'Native catalog task',
+    });
   });
 });

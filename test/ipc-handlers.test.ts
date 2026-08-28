@@ -6,11 +6,18 @@ import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn(), showOpenDialog: vi.fn() }));
+const electronMocks = vi.hoisted(() => ({
+  writeText: vi.fn(),
+  showOpenDialog: vi.fn(),
+  showSaveDialog: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   clipboard: { writeText: electronMocks.writeText },
-  dialog: { showSaveDialog: vi.fn(), showOpenDialog: electronMocks.showOpenDialog },
+  dialog: {
+    showSaveDialog: electronMocks.showSaveDialog,
+    showOpenDialog: electronMocks.showOpenDialog,
+  },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
 }));
@@ -49,6 +56,10 @@ interface Calls {
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
+  labels: { entryId: string; label: string | null }[];
+  clones: unknown[];
+  imports: string[];
+  jsonlExports: { path: string; sessionId?: string }[];
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -69,6 +80,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     resolved: [],
     openedDirectories: [],
     resourceDirectories: [],
+    labels: [],
+    clones: [],
+    imports: [],
+    jsonlExports: [],
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -80,6 +95,27 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     getEntries: (cursor?: string): Promise<EntrySnapshot> => {
       calls.entries.push(cursor);
       return Promise.resolve(snapshot);
+    },
+    setLabel: (entryId: string, label: string | null) => {
+      calls.labels.push({ entryId, label });
+      return Promise.resolve();
+    },
+    listSessions: () =>
+      Promise.resolve([
+        {
+          id: 'session-1',
+          name: null,
+          firstMessage: 'Task',
+          cwd: '/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 1,
+          parentSessionId: null,
+        },
+      ]),
+    exportJsonl: (path: string, sessionId?: string) => {
+      calls.jsonlExports.push({ path, ...(sessionId ? { sessionId } : {}) });
+      return Promise.resolve(path);
     },
   };
 
@@ -129,6 +165,14 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       openSession: (cwd: string) => {
         calls.openedDirectories.push(cwd);
         return Promise.resolve({ runtime: 'tau', cwd });
+      },
+      cloneSession: (target: unknown) => {
+        calls.clones.push(target);
+        return Promise.resolve({ runtime: 'pi' });
+      },
+      importSession: (path: string) => {
+        calls.imports.push(path);
+        return Promise.resolve({ runtime: 'pi' });
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
@@ -355,5 +399,51 @@ describe('capability-gated and adapter-contract actions', () => {
     });
     await handleRequest(context, { action: 'agent.entries', payload: { cursor: 'entry-1' } });
     expect(calls.entries).toEqual([undefined, 'entry-1']);
+  });
+
+  it('routes bounded session catalog, labels, and clone through main ownership', async () => {
+    const { context, calls } = makeContext();
+    const target = { runtime: 'pi' as const, sessionId: 'session-1' };
+    await expect(
+      handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+        session: target,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ id: 'session-1' })]);
+    await handleRequest(context, {
+      action: 'session.label',
+      payload: { entryId: 'entry-1', label: 'bookmark' },
+      session: target,
+    });
+    await handleRequest(context, { action: 'session.clone', session: target });
+    expect(calls.labels).toEqual([{ entryId: 'entry-1', label: 'bookmark' }]);
+    expect(calls.clones).toEqual([target]);
+  });
+
+  it('gets import and export paths only from native dialogs', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/chosen/import.jsonl'],
+    });
+    electronMocks.showSaveDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePath: '/chosen/export.jsonl',
+    });
+    const { context, calls } = makeContext();
+    const target = { runtime: 'pi' as const, sessionId: 'session-1' };
+
+    await handleRequest(context, { action: 'session.importJsonl', session: target });
+    await handleRequest(context, {
+      action: 'session.exportJsonl',
+      payload: { sessionId: 'session-1' },
+      session: target,
+    });
+
+    expect(calls.imports).toEqual(['/chosen/import.jsonl']);
+    expect(calls.jsonlExports).toEqual([{ path: '/chosen/export.jsonl', sessionId: 'session-1' }]);
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: ['openFile'] }),
+    );
   });
 });

@@ -1,7 +1,7 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
+import { contextFilesSchema, resourceCatalogSchema, sessionCatalogSchema } from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
@@ -137,26 +137,32 @@ export async function handleRequest(
       return null;
     case 'session.fork':
       return runtime().fork(request.payload.entryId);
+    case 'session.label':
+      await runtime().setLabel(request.payload.entryId, request.payload.label);
+      return null;
+    case 'session.clone':
+      await manager.cloneSession(target);
+      return null;
+    case 'session.importJsonl': {
+      const input = await pickSessionFile(context);
+      if (!input) return null;
+      await manager.importSession(input, target);
+      return null;
+    }
+    case 'session.list':
+      return sessionCatalogSchema.parse(await runtime().listSessions(request.payload.scope));
     case 'session.compact':
       return runtime().compact(request.payload?.instructions);
     case 'session.autoCompaction':
       await runtime().setAutoCompaction(request.payload.enabled);
       return null;
     case 'session.exportHtml': {
-      if (request.payload?.destination) {
-        return runtime().exportHtml(request.payload.destination);
-      }
-      const window = context.window();
-      const options = {
-        title: 'Export session as HTML',
-        defaultPath: 'session.html',
-        filters: [{ name: 'HTML', extensions: ['html'] }],
-      };
-      const result = window
-        ? await dialog.showSaveDialog(window, options)
-        : await dialog.showSaveDialog(options);
-      if (result.canceled || !result.filePath) return null;
-      return runtime().exportHtml(result.filePath);
+      const destination = await pickExportPath(context, 'html');
+      return destination ? runtime().exportHtml(destination) : null;
+    }
+    case 'session.exportJsonl': {
+      const destination = await pickExportPath(context, 'jsonl');
+      return destination ? runtime().exportJsonl(destination, request.payload?.sessionId) : null;
     }
 
     case 'shell.run':
@@ -248,6 +254,35 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+async function pickSessionFile(context: HandlerContext): Promise<string | null> {
+  const options = {
+    title: 'Import Pi session',
+    properties: ['openFile' as const],
+    filters: [{ name: 'Pi session', extensions: ['jsonl'] }],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
+async function pickExportPath(
+  context: HandlerContext,
+  extension: 'html' | 'jsonl',
+): Promise<string | null> {
+  const options = {
+    title: `Export session as ${extension.toUpperCase()}`,
+    defaultPath: `session.${extension}`,
+    filters: [{ name: extension === 'html' ? 'HTML' : 'Pi session', extensions: [extension] }],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showSaveDialog(window, options)
+    : await dialog.showSaveDialog(options);
+  return result.canceled ? null : (result.filePath ?? null);
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {

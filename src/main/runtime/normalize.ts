@@ -390,12 +390,11 @@ export function normalizeEntry(value: unknown): SessionEntry | null {
     : 'custom';
   const message = normalizeMessage(value['message']) ?? undefined;
   const entry: SessionEntry = {
-    id: str(value['id']),
-    parentId: typeof value['parentId'] === 'string' ? value['parentId'] : null,
-    timestamp: str(value['timestamp']),
+    id: str(value['id']).slice(0, 128),
+    parentId: typeof value['parentId'] === 'string' ? value['parentId'].slice(0, 128) : null,
+    timestamp: str(value['timestamp']).slice(0, 64),
     kind,
-    summary: entrySummary(kind, value, message),
-    raw: value,
+    summary: entrySummary(kind, value, message).slice(0, 2_000),
   };
   if (message) entry.message = message;
   return entry;
@@ -455,6 +454,7 @@ export function normalizeTree(value: unknown): TreeNode[] {
       if (!isWire(node)) return null;
       const entry = normalizeEntry(node['entry']);
       if (!entry) return null;
+      if (typeof node['label'] === 'string') entry.label = node['label'].slice(0, 120);
       return { entry, children: normalizeTree(node['children']) } satisfies TreeNode;
     })
     .filter((node): node is TreeNode => node !== null);
