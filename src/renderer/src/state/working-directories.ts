@@ -24,7 +24,7 @@ export function catalogSessions(
       cwd: session.cwd,
       createdAt: session.lastSeen,
       modifiedAt: session.lastSeen,
-      messageCount: session.messageCount ?? 0,
+      messageCount: session.messageCount ?? (session.name || session.firstMessage ? 1 : 0),
       parentSessionId: null,
     }));
   return [...nativeSessions, ...remembered].sort(
