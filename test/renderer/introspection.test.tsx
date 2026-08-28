@@ -1,5 +1,8 @@
 // @vitest-environment jsdom
+import { act } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
+import type { AgentState } from '../../src/shared/domain.js';
+import type { IpcAction } from '../../src/shared/ipc.js';
 import type { Mounted } from './harness.js';
 import { composer, press, renderApp, type } from './ui.js';
 
@@ -8,6 +11,19 @@ afterEach(() => {
   mounted?.unmount();
   mounted = null;
 });
+
+const AGENT: AgentState = {
+  model: null,
+  thinkingLevel: 'medium',
+  isStreaming: false,
+  isCompacting: false,
+  sessionFile: null,
+  sessionId: 'session-a',
+  sessionName: null,
+  autoCompactionEnabled: true,
+  messageCount: 0,
+  pendingMessageCount: 0,
+};
 
 async function run(view: Mounted, command: string): Promise<void> {
   const input = composer(view);
@@ -20,6 +36,7 @@ describe('local-only Pi introspection', () => {
   it('renders /system locally without prompting or changing the draft transcript', async () => {
     const { view, bridge } = await renderApp({
       capabilities: { systemPromptInspection: true },
+      agent: AGENT,
       results: {
         'agent.inspectSystemPrompt': {
           text: 'Private system instructions\nDo not leak.',
@@ -45,6 +62,7 @@ describe('local-only Pi introspection', () => {
   it('renders bounded tool metadata and schemas as text', async () => {
     const { view, bridge } = await renderApp({
       capabilities: { toolCatalog: true },
+      agent: AGENT,
       results: {
         'tools.list': {
           tools: [
@@ -74,9 +92,79 @@ describe('local-only Pi introspection', () => {
     expect(bridge.payloads('tools.list')).toEqual([undefined]);
   });
 
+  it.each([
+    ['agent.inspectSystemPrompt', '/system', 'system'],
+    ['tools.list', '/tools', 'tools'],
+    ['resources.reload', '/reload', 'reload'],
+  ] as const)(
+    'drops a delayed %s response after switching sessions',
+    async (action: IpcAction, command, modalName) => {
+      const { view, bridge } = await renderApp({
+        capabilities: {
+          systemPromptInspection: true,
+          toolCatalog: true,
+          resourceReload: true,
+        },
+        agent: AGENT,
+      });
+      mounted = view;
+      let resolve!: (value: unknown) => void;
+      bridge.setHandler(action, () => new Promise((done) => (resolve = done)));
+
+      const input = composer(view);
+      await type(input, command);
+      await press(input, 'Enter');
+      await view.flush();
+      expect(bridge.calls.find((call) => call.action === action)?.session).toEqual({
+        runtime: 'tau',
+        sessionId: 'session-a',
+      });
+      await act(async () => {
+        bridge.emit({
+          type: 'status',
+          snapshot: { ...bridge.snapshot, state: { ...AGENT, sessionId: 'session-b' } },
+        });
+        await Promise.resolve();
+      });
+      await act(async () =>
+        resolve(
+          action === 'agent.inspectSystemPrompt'
+            ? { text: 'stale secret', totalCharacters: 12, truncated: false, origin: 'test' }
+            : action === 'tools.list'
+              ? { tools: [], total: 0, truncated: false, diagnostics: ['stale tools'] }
+              : {
+                  before: {
+                    skills: 0,
+                    prompts: 0,
+                    themes: 0,
+                    contextFiles: 0,
+                    extensions: 0,
+                    tools: 0,
+                  },
+                  after: {
+                    skills: 1,
+                    prompts: 0,
+                    themes: 0,
+                    contextFiles: 0,
+                    extensions: 0,
+                    tools: 0,
+                  },
+                  diagnostics: ['stale reload'],
+                },
+        ),
+      );
+      await view.flush();
+      await view.flush();
+
+      expect(view.container.querySelector(`[data-modal-name="${modalName}"]`)).toBeNull();
+      expect(view.container.textContent).not.toContain('stale');
+    },
+  );
+
   it('runs /reload in place, shows category counts, and refreshes resource metadata', async () => {
     const { view, bridge } = await renderApp({
       capabilities: { resourceReload: true },
+      agent: AGENT,
       results: {
         'resources.reload': {
           before: { skills: 1, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },

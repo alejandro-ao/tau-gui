@@ -143,6 +143,21 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     (): SessionTarget | undefined => snapshotTarget(stateRef.current.snapshot),
     [],
   );
+  const beginScopedOperation = useCallback(() => {
+    const target = viewed();
+    return target ? { target, navigation: navigationEpoch.current } : null;
+  }, [viewed]);
+  const scopedOperationIsCurrent = useCallback(
+    (operation: { target: SessionTarget; navigation: number }): boolean => {
+      const current = viewed();
+      return (
+        operation.navigation === navigationEpoch.current &&
+        current?.runtime === operation.target.runtime &&
+        current.sessionId === operation.target.sessionId
+      );
+    },
+    [viewed],
+  );
 
   /** Reloads everything that describes the current session from the runtime. */
   const refresh = useCallback(
@@ -671,24 +686,35 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         if (messages) dispatch({ type: 'diagnostics', messages });
       },
       inspectSystemPrompt: async () => {
-        const inspection = await attempt('agent.inspectSystemPrompt', undefined, notice, viewed());
-        if (!inspection) return;
+        const operation = beginScopedOperation();
+        if (!operation) return;
+        const inspection = await attempt(
+          'agent.inspectSystemPrompt',
+          undefined,
+          notice,
+          operation.target,
+        );
+        if (!inspection || !scopedOperationIsCurrent(operation)) return;
         // Local UI state only: never create a transcript block or call agent.prompt.
-        dispatch({ type: 'systemPromptInspection', inspection });
-        dispatch({ type: 'modal', modal: 'system' });
+        dispatch({ type: 'systemPromptInspection', inspection, target: operation.target });
+        if (scopedOperationIsCurrent(operation)) dispatch({ type: 'modal', modal: 'system' });
       },
       inspectTools: async () => {
-        const catalog = await attempt('tools.list', undefined, notice, viewed());
-        if (!catalog) return;
-        dispatch({ type: 'toolCatalog', catalog });
-        dispatch({ type: 'modal', modal: 'tools' });
+        const operation = beginScopedOperation();
+        if (!operation) return;
+        const catalog = await attempt('tools.list', undefined, notice, operation.target);
+        if (!catalog || !scopedOperationIsCurrent(operation)) return;
+        dispatch({ type: 'toolCatalog', catalog, target: operation.target });
+        if (scopedOperationIsCurrent(operation)) dispatch({ type: 'modal', modal: 'tools' });
       },
       reloadResources: async () => {
-        const result = await run(() => invoke('resources.reload', undefined, viewed()));
-        if (!result) return;
-        dispatch({ type: 'resourceReload', result });
-        await refresh();
-        dispatch({ type: 'modal', modal: 'reload' });
+        const operation = beginScopedOperation();
+        if (!operation) return;
+        const result = await run(() => invoke('resources.reload', undefined, operation.target));
+        if (!result || !scopedOperationIsCurrent(operation)) return;
+        dispatch({ type: 'resourceReload', result, target: operation.target });
+        await refresh(operation.target);
+        if (scopedOperationIsCurrent(operation)) dispatch({ type: 'modal', modal: 'reload' });
       },
       completePaths: async (query) => (await attempt('fs.complete', { query }, notice)) ?? [],
       relativize: async (paths) => (await attempt('fs.relativize', { paths }, notice)) ?? paths,
@@ -698,7 +724,16 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       notice,
       refresh,
     };
-  }, [beginNavigation, finishNavigation, invalidateRefresh, notice, refresh, viewed]);
+  }, [
+    beginNavigation,
+    beginScopedOperation,
+    finishNavigation,
+    invalidateRefresh,
+    notice,
+    refresh,
+    scopedOperationIsCurrent,
+    viewed,
+  ]);
 
   const value = useMemo<Store>(() => ({ state, dispatch, actions }), [state, actions]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

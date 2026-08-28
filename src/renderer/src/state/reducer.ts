@@ -21,6 +21,10 @@ export function snapshotTarget(snapshot: RuntimeSnapshot): SessionTarget | undef
     : (snapshot.recoveryTarget ?? undefined);
 }
 
+function sameTarget(left: SessionTarget | undefined, right: SessionTarget): boolean {
+  return left?.runtime === right.runtime && left.sessionId === right.sessionId;
+}
+
 export const INITIAL_STATE: AppState = {
   snapshot: INITIAL_SNAPSHOT,
   settings: DEFAULT_SETTINGS,
@@ -171,11 +175,17 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'contextFiles':
       return { ...state, contextFiles: action.files };
     case 'systemPromptInspection':
-      return { ...state, systemPromptInspection: action.inspection };
+      return sameTarget(snapshotTarget(state.snapshot), action.target)
+        ? { ...state, systemPromptInspection: action.inspection }
+        : state;
     case 'toolCatalog':
-      return { ...state, toolCatalog: action.catalog };
+      return sameTarget(snapshotTarget(state.snapshot), action.target)
+        ? { ...state, toolCatalog: action.catalog }
+        : state;
     case 'resourceReload':
-      return { ...state, resourceReload: action.result };
+      return sameTarget(snapshotTarget(state.snapshot), action.target)
+        ? { ...state, resourceReload: action.result }
+        : state;
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.

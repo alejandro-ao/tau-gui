@@ -19,6 +19,7 @@ import type {
   PromptQueueSnapshot,
   RuntimeSnapshot,
   SessionActivity,
+  SessionTarget,
 } from '../../../shared/ipc.js';
 
 export type ToolState = 'running' | 'success' | 'error';
@@ -199,9 +200,13 @@ export type Action =
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
   | { type: 'contextFiles'; files: ContextFile[] }
-  | { type: 'systemPromptInspection'; inspection: SystemPromptInspection }
-  | { type: 'toolCatalog'; catalog: ToolCatalog }
-  | { type: 'resourceReload'; result: ResourceReloadResult }
+  | {
+      type: 'systemPromptInspection';
+      inspection: SystemPromptInspection;
+      target: SessionTarget;
+    }
+  | { type: 'toolCatalog'; catalog: ToolCatalog; target: SessionTarget }
+  | { type: 'resourceReload'; result: ResourceReloadResult; target: SessionTarget }
   | {
       type: 'hydrate';
       messages: AgentMessage[];
