@@ -48,9 +48,11 @@
   runtime `kind`; the binary always comes from persisted settings, and the
   reported version is reduced to the first line, stripped of control
   characters, and truncated to 80 characters before it leaves the main process.
-- Pi-session results are strictly parsed in main and again in preload. Status,
-  settings, activity, queue, diagnostics, and focus events are size/shape checked
-  in preload before reaching React; malformed or oversized payloads are dropped.
+- Renderer-visible runtime/settings state and the complete bounded `BridgeEvent`
+  union are strictly parsed in main before send and again in preload before React.
+  Every agent-event variant, nested message, tool payload, queue, activity,
+  diagnostic, settings record, and null lifecycle result is checked; malformed,
+  extra-field, deeply nested, or oversized payloads are rejected.
 
 ## Embedded agent safety
 
@@ -60,7 +62,9 @@
   most 500 bounded metadata records and omit session-file paths. Native and
   remembered records are tagged; native resume/export uses a physical-file-derived
   opaque ID, while legacy paths remain only in main-owned settings (renderer
-  settings redact them). Conflicting logical IDs or physical files are omitted.
+  settings redact them). Runtime snapshots, status events, agent state, and
+  details expose only a persisted/ephemeral flag, never the backing session path.
+  Conflicting logical IDs or physical files are omitted.
   SDK sessions, credentials, provider headers, environment values, resource
   contents, and extension implementations never enter renderer state.
 - Third-party Pi extensions are disabled by the embedded resource loader until a
@@ -114,9 +118,13 @@
 - The GUI never parses Pi session JSONL. Public `SessionManager` APIs perform
   validation/listing/tree work. Import first opens a no-follow, singly-linked,
   bounded source, copies it into an app-owned staging file, validates that file
-  with `SessionManager.open()`, then uses an exclusive random destination and
-  public runtime switching. Existing files are never overwritten; staged and
-  known destination artifacts are removed on cancellation/failure. Clone uses
+  with `SessionManager.open()`, rejects any logical ID already in the owned
+  catalog (including portable copies of the selected session), then uses an
+  exclusive random destination and public runtime switching. The staged and
+  destination no-follow identities are rechecked immediately before switching,
+  and the final runtime snapshot must match the reserved logical and physical
+  identity exactly. Existing files are never overwritten; only an exact
+  app-created identity is removed on cancellation/failure. Clone uses
   public branch creation plus switching so its exact artifact can be cleaned up.
 - Catalog discovery uses iterative directory handles and directory/file/byte/time
   metadata budgets. Roots, children, and files are lstat/realpath checked for
@@ -124,10 +132,16 @@
   and malformed SDK records are isolated. Pi 0.84.2's public `list/listAll` API
   has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
   mutation between the final metadata recheck and Pi's read cannot be eliminated
-  portably. The app fails closed before calls when metadata budgets are exceeded;
+  portably. Every approved file is rechecked immediately before each SDK listing
+  call; mutation after that recheck remains possible because the API cannot
+  consume pre-opened handles. The app fails closed before calls when metadata budgets are exceeded;
   a truly cancellable hard deadline requires an upstream bounded listing API.
 - Tree IPC is a flat, iterative, presentation-only row list (2,000 rows, depth
   128, 500-character previews). It never carries images, full messages, tool
-  arguments/results, or extension/custom details. Portable export is an opaque
-  main-process copy to an Electron-dialog-selected destination; renderer requests
-  cannot supply import/export paths.
+  arguments/results, or extension/custom details. Editable navigation text is
+  capped at 100,000 characters after Pi mutates the branch and carries an explicit
+  truncation flag, so successful mutation is never reported as schema failure.
+  Portable export is an opaque main-process copy to an Electron-dialog-selected
+  destination; renderer requests cannot supply import/export paths. The selected
+  export destination is the sole intentional session-related path returned to the
+  renderer, only after the user chose it in the native save dialog.

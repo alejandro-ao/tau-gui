@@ -192,11 +192,13 @@ claims.
   stays in the main process; only bounded labels and paths cross IPC.
 - Pi-native session picker and working-directory rail use metadata-budgeted
   `SessionManager.listAll` records with unique opaque catalog identities; app
-  recents are tagged main-resolved fallbacks and their paths are redacted from
-  renderer settings.
-- New/switch/name, bounded flat-row tree navigation with editable user turns,
+  recents are tagged main-resolved fallbacks; backing paths are absent from all
+  renderer settings/state/status DTOs and renderer fallback never creates IDs.
+- New/switch/name, bounded flat-row tree navigation with explicitly truncated editable user turns,
   labels, no/default/custom branch summaries, clone, staged exclusive JSONL
-  import/export, HTML export, compaction, settings, and diagnostics modals.
+  duplicate-ID-safe import/export, HTML export, compaction, settings, and diagnostics modals.
+  Renderer-visible runtime/settings state and every bounded bridge event variant
+  are schema-parsed in main and preload.
 - Concurrent live sessions through a main-process runtime pool: selecting a
   session no longer switches or stops a running session process, and background
   stream events cannot leak into the active transcript.
