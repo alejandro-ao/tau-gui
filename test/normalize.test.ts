@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MAX_SESSION_STRUCTURE_BYTES,
+  normalizeEntries,
   normalizeEntry,
   normalizeEvent,
   normalizeMessage,
@@ -376,9 +378,11 @@ describe('entries and trees', () => {
       },
     };
     const entry = normalizeEntry(wire);
-    const tree = normalizeTree([{ entry: wire, children: [] }]);
+    const entries = normalizeEntries(Array.from({ length: 100 }, () => wire));
+    const tree = normalizeTree(Array.from({ length: 100 }, () => ({ entry: wire, children: [] })));
     expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThan(140 * 1024);
-    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(140 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
     expect(JSON.stringify(entry)).not.toContain(huge.slice(0, 100_000));
     expect(entry).not.toHaveProperty('raw');
   });

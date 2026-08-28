@@ -46,6 +46,9 @@ const boundedText = (value: unknown): string => boundedToolText(str(value));
 const MAX_MESSAGE_BLOCKS = 100;
 const MAX_ENTRY_NODES = 1_000;
 const MAX_TREE_DEPTH = 50;
+/** Aggregate serialized-byte budget for one restored entry/tree collection. */
+export const MAX_SESSION_STRUCTURE_BYTES = 1024 * 1024;
+const TREE_NODE_SERIALIZATION_OVERHEAD = 32;
 
 export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
   const level = str(value, 'medium');
@@ -461,14 +464,22 @@ function entrySummary(
 }
 
 export function normalizeEntries(value: unknown): SessionEntry[] {
-  return list(value)
-    .slice(0, MAX_ENTRY_NODES)
-    .map(normalizeEntry)
-    .filter((entry): entry is SessionEntry => entry !== null);
+  const output: SessionEntry[] = [];
+  let bytes = 1_024;
+  for (const value_ of list(value).slice(0, MAX_ENTRY_NODES)) {
+    const entry = normalizeEntry(value_);
+    if (!entry) continue;
+    const entryBytes = Buffer.byteLength(JSON.stringify(entry)) + (output.length ? 1 : 0);
+    if (bytes + entryBytes > MAX_SESSION_STRUCTURE_BYTES) break;
+    bytes += entryBytes;
+    output.push(entry);
+  }
+  return output;
 }
 
 export function normalizeTree(value: unknown): TreeNode[] {
   let nodes = 0;
+  let bytes = 1_024;
   const visit = (input: unknown, depth: number): TreeNode[] => {
     if (depth > MAX_TREE_DEPTH || nodes >= MAX_ENTRY_NODES) return [];
     const output: TreeNode[] = [];
@@ -477,6 +488,10 @@ export function normalizeTree(value: unknown): TreeNode[] {
       if (!isWire(node)) continue;
       const entry = normalizeEntry(node['entry']);
       if (!entry) continue;
+      const entryBytes =
+        Buffer.byteLength(JSON.stringify(entry)) + TREE_NODE_SERIALIZATION_OVERHEAD;
+      if (bytes + entryBytes > MAX_SESSION_STRUCTURE_BYTES) break;
+      bytes += entryBytes;
       nodes += 1;
       output.push({ entry, children: visit(node['children'], depth + 1) });
     }
