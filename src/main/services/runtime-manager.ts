@@ -17,6 +17,7 @@ import {
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
 import type { SettingsStore } from './settings.js';
+import { rendererSettings } from './session-identity.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_DIAGNOSTICS = 500;
@@ -370,7 +371,7 @@ export class RuntimeManager {
       },
       touch,
     );
-    this.broadcast({ type: 'settings', settings: this.settings.current });
+    this.broadcast({ type: 'settings', settings: rendererSettings(this.settings.current) });
   }
 
   private setStatus(status: RuntimeStatus, detail: string | null = null): void {

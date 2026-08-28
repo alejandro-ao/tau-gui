@@ -14,7 +14,7 @@ import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
-import { recentSummary } from './services/session-identity.js';
+import { recentSummary, rendererSettings } from './services/session-identity.js';
 
 export interface HandlerContext {
   settings: SettingsStore;
@@ -37,25 +37,27 @@ export async function handleRequest(
 
   switch (request.action) {
     case 'settings.get':
-      return settings.current;
+      return rendererSettings(settings.current);
     case 'settings.update':
-      return settings.update(request.payload);
+      return rendererSettings(settings.update(request.payload));
     case 'settings.toggleScopedModel':
-      return settings.toggleScopedModel(request.payload.runtime, request.payload);
+      return rendererSettings(settings.toggleScopedModel(request.payload.runtime, request.payload));
     case 'settings.addResourceDirectory': {
       const kind = request.payload.kind;
       const path = await pickDirectory(
         context,
         kind === 'skills' ? 'Add skills directory' : 'Add prompt templates directory',
       );
-      return path ? settings.addResourceDirectory(kind, path) : null;
+      return path ? rendererSettings(settings.addResourceDirectory(kind, path)) : null;
     }
     case 'settings.removeResourceDirectory':
-      return settings.removeResourceDirectory(request.payload.kind, request.payload.path);
+      return rendererSettings(
+        settings.removeResourceDirectory(request.payload.kind, request.payload.path),
+      );
     case 'settings.rememberWorkingDirectory':
-      return settings.rememberWorkingDirectory(request.payload.cwd);
+      return rendererSettings(settings.rememberWorkingDirectory(request.payload.cwd));
     case 'settings.forgetSession':
-      return settings.forgetSession(request.payload.id);
+      return rendererSettings(settings.forgetSession(request.payload.id));
 
     case 'runtime.start':
       return manager.start({ cwd: request.payload.cwd ?? null });
