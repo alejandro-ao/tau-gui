@@ -54,16 +54,13 @@ export function boundJson(value: unknown): { value: BoundedJson; truncated: bool
       }
       if (array) {
         const lengthDescriptor = descriptors['length'];
-        if (
-          !lengthDescriptor ||
-          !('value' in lengthDescriptor) ||
-          !Number.isSafeInteger(lengthDescriptor.value) ||
-          lengthDescriptor.value < 0
-        ) {
+        const rawLength: unknown =
+          lengthDescriptor && 'value' in lengthDescriptor ? lengthDescriptor.value : null;
+        if (typeof rawLength !== 'number' || !Number.isSafeInteger(rawLength) || rawLength < 0) {
           return sentinel();
         }
-        const length = Math.min(lengthDescriptor.value, INTROSPECTION_LIMITS.schemaArrayItems);
-        if (length < lengthDescriptor.value) truncated = true;
+        const length = Math.min(rawLength, INTROSPECTION_LIMITS.schemaArrayItems);
+        if (length < rawLength) truncated = true;
         const output: BoundedJson[] = [];
         for (let index = 0; index < length; index += 1) {
           const descriptor = descriptors[String(index)];

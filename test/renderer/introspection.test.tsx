@@ -126,7 +126,7 @@ describe('local-only Pi introspection', () => {
         });
         await Promise.resolve();
       });
-      await act(async () =>
+      await act(async () => {
         resolve(
           action === 'agent.inspectSystemPrompt'
             ? { text: 'stale secret', totalCharacters: 12, truncated: false, origin: 'test' }
@@ -151,8 +151,9 @@ describe('local-only Pi introspection', () => {
                   },
                   diagnostics: ['stale reload'],
                 },
-        ),
-      );
+        );
+        await Promise.resolve();
+      });
       await view.flush();
       await view.flush();
 
