@@ -21,6 +21,8 @@ export class RuntimePool {
   private readonly owners = new Map<string, RuntimeManager>();
   /** Queue scheduling state is independent of RuntimeManager's presentation status. */
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
+  /** AgentSession mutations claimed before reload reservation are counted per manager. */
+  private readonly activeMutations = new Map<RuntimeManager, number>();
   /** Requested/in-progress reloads reserve a manager before entering the transition queue. */
   private readonly reloadReservations = new Map<RuntimeManager, number>();
   /** Exact sessions awaiting an idle scheduling boundary after lifecycle transitions. */
@@ -66,16 +68,44 @@ export class RuntimePool {
     return this.managerFor(target).active;
   }
 
+  /** Explicitly classified read-only AgentSession access; reads do not block reload. */
+  readRuntime<T>(
+    target: SessionTarget | null | undefined,
+    read: (runtime: AgentRuntime) => Promise<T>,
+  ): Promise<T> {
+    return read(this.managerFor(target).active);
+  }
+
+  /**
+   * Atomically excludes one AgentSession mutation from resource reload. The
+   * callback remains main-owned; no operation authority crosses IPC/preload.
+   */
+  async mutateRuntime<T>(
+    target: SessionTarget | null | undefined,
+    mutate: (runtime: AgentRuntime) => Promise<T>,
+  ): Promise<T> {
+    const manager = this.managerFor(target);
+    const runtime = manager.active;
+    const release = this.claimMutation(manager);
+    try {
+      return await mutate(runtime);
+    } finally {
+      release();
+    }
+  }
+
   /** Starts direct work only after atomically claiming the target manager. */
   async prompt(text: string, target?: SessionTarget | null): Promise<void> {
     const manager = this.managerFor(target);
-    const lifecycle = this.claimWorkStart(manager);
+    const claimed = this.claimWorkStart(manager);
     try {
       await manager.active.prompt({ text });
     } catch (error) {
       // A rejected handoff did not start agent work; release it for reload/retry.
-      if (lifecycle.phase === 'handoff') lifecycle.phase = 'ready';
+      if (claimed.lifecycle.phase === 'handoff') claimed.lifecycle.phase = 'ready';
       throw error;
+    } finally {
+      claimed.release();
     }
   }
 
@@ -405,6 +435,7 @@ export class RuntimePool {
       this.removeOwnership(manager);
       this.managers.delete(manager);
       this.runLifecycles.delete(manager);
+      this.activeMutations.delete(manager);
       this.pendingSchedules.delete(manager);
       this.spawned.delete(manager);
       if (this.current === manager) this.current = null;
@@ -420,6 +451,7 @@ export class RuntimePool {
       this.owners.clear();
       this.managers.clear();
       this.runLifecycles.clear();
+      this.activeMutations.clear();
       this.pendingSchedules.clear();
       this.spawned.clear();
       await Promise.allSettled(managers.map((manager) => manager.stop()));
@@ -498,11 +530,11 @@ export class RuntimePool {
   }
 
   private createManager(): RuntimeManager {
-    const manager = new RuntimeManager(
-      this.settings,
-      (event) => this.handleEvent(manager, event),
-      this.managerOptions,
-    );
+    let manager!: RuntimeManager;
+    manager = new RuntimeManager(this.settings, (event) => this.handleEvent(manager, event), {
+      ...this.managerOptions,
+      claimSessionMutation: (): (() => void) => this.claimMutation(manager),
+    });
     this.managers.add(manager);
     this.runLifecycles.set(manager, freshLifecycle(null));
     return manager;
@@ -655,29 +687,56 @@ export class RuntimePool {
       } catch (error) {
         // A rejected RPC never started a run, so the reinstated item may be
         // attempted again at the next idle scheduling boundary.
-        if (claimed.phase === 'handoff') claimed.phase = 'ready';
+        if (claimed.lifecycle.phase === 'handoff') claimed.lifecycle.phase = 'ready';
         throw error;
+      } finally {
+        claimed.release();
       }
     });
   }
 
-  private claimWorkStart(manager: RuntimeManager): RunLifecycle {
-    const lifecycle = this.lifecycleFor(manager);
+  private claimWorkStart(manager: RuntimeManager): WorkClaim {
+    const release = this.claimMutation(manager);
+    try {
+      const lifecycle = this.lifecycleFor(manager);
+      if (isBusy(manager) || lifecycle.phase !== 'ready') {
+        throw new Error('Cannot start agent work while other agent work is active');
+      }
+      lifecycle.phase = 'handoff';
+      return { lifecycle, release };
+    } catch (error) {
+      release();
+      throw error;
+    }
+  }
+
+  private claimMutation(manager: RuntimeManager): () => void {
     if (this.isReloadReserved(manager)) {
-      throw new Error('Cannot start agent work while resources are reloading');
+      throw new Error('Cannot mutate the session while resources are reloading');
     }
-    if (isBusy(manager) || lifecycle.phase !== 'ready') {
-      throw new Error('Cannot start agent work while other agent work is active');
-    }
-    lifecycle.phase = 'handoff';
-    return lifecycle;
+    this.activeMutations.set(manager, (this.activeMutations.get(manager) ?? 0) + 1);
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      const remaining = (this.activeMutations.get(manager) ?? 1) - 1;
+      if (remaining > 0) this.activeMutations.set(manager, remaining);
+      else this.activeMutations.delete(manager);
+    };
   }
 
   private reserveReload(manager: RuntimeManager): void {
     const existing = this.reloadReservations.get(manager) ?? 0;
     const lifecycle = this.lifecycleFor(manager);
-    if (existing === 0 && (isBusy(manager) || lifecycle.phase !== 'ready')) {
-      throw new Error('Cannot reload resources while agent work is active');
+    if (
+      existing === 0 &&
+      ((this.activeMutations.get(manager) ?? 0) > 0 ||
+        isBusy(manager) ||
+        lifecycle.phase !== 'ready')
+    ) {
+      throw new Error(
+        'Cannot reload resources while agent work is active or a session mutation is active',
+      );
     }
     this.reloadReservations.set(manager, existing + 1);
   }
@@ -763,6 +822,7 @@ export class RuntimePool {
     this.removeOwnership(manager);
     this.managers.delete(manager);
     this.runLifecycles.delete(manager);
+    this.activeMutations.delete(manager);
     this.pendingSchedules.delete(manager);
     this.spawned.delete(manager);
     if (this.current === manager) this.current = null;
@@ -786,6 +846,11 @@ interface RunLifecycle {
   phase: 'ready' | 'handoff' | 'running' | 'ended' | 'blocked';
   turnOpen: boolean;
   turnEnded: boolean;
+}
+
+interface WorkClaim {
+  lifecycle: RunLifecycle;
+  release: () => void;
 }
 
 function freshLifecycle(sessionId: string | null): RunLifecycle {

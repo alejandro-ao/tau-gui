@@ -152,6 +152,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     manager: {
       active,
       runtimeFor: () => active,
+      readRuntime: (_target: unknown, operation: (runtime: typeof active) => Promise<unknown>) =>
+        operation(active),
+      mutateRuntime: (_target: unknown, operation: (runtime: typeof active) => Promise<unknown>) =>
+        operation(active),
       prompt: (text: string, target: unknown) => {
         calls.prompts.push({ text, target });
         return Promise.resolve();
