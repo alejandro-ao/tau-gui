@@ -48,16 +48,21 @@
   runtime `kind`; the binary always comes from persisted settings, and the
   reported version is reduced to the first line, stripped of control
   characters, and truncated to 80 characters before it leaves the main process.
-- Inbound events are shape-checked in the preload before reaching React.
+- Pi-session results are strictly parsed in main and again in preload. Status,
+  settings, activity, queue, diagnostics, and focus events are size/shape checked
+  in preload before reaching React; malformed or oversized payloads are dropped.
 
 ## Embedded agent safety
 
 - Production imports a pinned Pi SDK in Electron's main process; no user-selected
   runtime executable or shell-built launch command exists.
 - Pi events and objects are normalized before IPC. Session catalogs contain at
-  most 500 bounded metadata records and omit session-file paths. SDK sessions,
-  credentials, provider headers, environment values, resource contents, and
-  extension implementations never enter renderer state.
+  most 500 bounded metadata records and omit session-file paths. Native and
+  remembered records are tagged; native resume/export uses a physical-file-derived
+  opaque ID, while legacy paths remain only in main-owned settings (renderer
+  settings redact them). Conflicting logical IDs or physical files are omitted.
+  SDK sessions, credentials, provider headers, environment values, resource
+  contents, and extension implementations never enter renderer state.
 - Third-party Pi extensions are disabled by the embedded resource loader until a
   desktop trust decision and bounded UI contract exist. Extensions execute
   arbitrary Node.js and are not a sandbox.
@@ -106,7 +111,23 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- The GUI never parses Pi session JSONL. Listing, import, tree/label operations,
-  and cloning use public Pi SDK APIs. Portable export performs an opaque
-  main-process copy from a Pi-owned path to an Electron-dialog-selected path;
-  renderer requests cannot supply import or export filesystem paths.
+- The GUI never parses Pi session JSONL. Public `SessionManager` APIs perform
+  validation/listing/tree work. Import first opens a no-follow, singly-linked,
+  bounded source, copies it into an app-owned staging file, validates that file
+  with `SessionManager.open()`, then uses an exclusive random destination and
+  public runtime switching. Existing files are never overwritten; staged and
+  known destination artifacts are removed on cancellation/failure. Clone uses
+  public branch creation plus switching so its exact artifact can be cleaned up.
+- Catalog discovery uses iterative directory handles and directory/file/byte/time
+  metadata budgets. Roots, children, and files are lstat/realpath checked for
+  containment, symlinks and hardlinks are rejected, SDK calls are sequential,
+  and malformed SDK records are isolated. Pi 0.84.2's public `list/listAll` API
+  has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
+  mutation between the final metadata recheck and Pi's read cannot be eliminated
+  portably. The app fails closed before calls when metadata budgets are exceeded;
+  a truly cancellable hard deadline requires an upstream bounded listing API.
+- Tree IPC is a flat, iterative, presentation-only row list (2,000 rows, depth
+  128, 500-character previews). It never carries images, full messages, tool
+  arguments/results, or extension/custom details. Portable export is an opaque
+  main-process copy to an Electron-dialog-selected destination; renderer requests
+  cannot supply import/export paths.

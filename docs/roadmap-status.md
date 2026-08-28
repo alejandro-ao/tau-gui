@@ -33,22 +33,22 @@ domain operations and usable desktop flows.
 minimum runtime operation for every capability; IPC, renderer, and test coverage
 are additional requirements.
 
-| Capability               | Runtime operation                  | IPC / renderer   | Advertised | Next action                                       |
-| ------------------------ | ---------------------------------- | ---------------- | ---------- | ------------------------------------------------- |
-| text prompts             | `prompt`                           | complete         | yes        | maintain contract tests                           |
-| steering / follow-ups    | `steer`, `followUp`                | complete         | yes        | maintain queue and E2E coverage                   |
-| direct bash              | `runShell`                         | complete         | yes        | maintain contract tests                           |
-| cancellable bash         | `abortShell`                       | no renderer flow | no         | add cancellation UX and E2E coverage              |
-| session tree / fork      | `getTree`, `navigateTree`, labels  | complete         | yes        | optional branch-summary controls                  |
-| image prompts            | no image-bearing prompt operation  | missing          | no         | add bounded attachment DTOs and UI                |
-| retry controls           | retry events only                  | missing          | no         | add policy, progress, and cancellation operations |
-| session clone            | `AgentSessionRuntime.fork(...at)`  | complete         | yes        | maintain lifecycle/E2E coverage                   |
-| session listing          | `SessionManager.list/listAll`      | complete         | yes        | maintain bounded metadata DTO                     |
-| extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
-| provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
-| resource reload          | loader exists; no reload operation | missing          | no         | add counts, diagnostics, and refresh flow         |
-| system prompt inspection | active prompt exists only in main  | missing          | no         | add bounded local-only inspection                 |
-| tool catalog             | active tools exist only in main    | missing          | no         | add bounded schemas/origins and picker            |
+| Capability               | Runtime operation                    | IPC / renderer   | Advertised | Next action                                       |
+| ------------------------ | ------------------------------------ | ---------------- | ---------- | ------------------------------------------------- |
+| text prompts             | `prompt`                             | complete         | yes        | maintain contract tests                           |
+| steering / follow-ups    | `steer`, `followUp`                  | complete         | yes        | maintain queue and E2E coverage                   |
+| direct bash              | `runShell`                           | complete         | yes        | maintain contract tests                           |
+| cancellable bash         | `abortShell`                         | no renderer flow | no         | add cancellation UX and E2E coverage              |
+| session tree / fork      | bounded rows, `navigateTree`, labels | complete         | yes        | maintain cancellation/adversarial coverage        |
+| image prompts            | no image-bearing prompt operation    | missing          | no         | add bounded attachment DTOs and UI                |
+| retry controls           | retry events only                    | missing          | no         | add policy, progress, and cancellation operations |
+| session clone            | public branch create + switch        | complete         | yes        | maintain cleanup/lifecycle coverage               |
+| session listing          | preflight + `SessionManager.listAll` | complete         | yes        | upstream abortable bounded listing API            |
+| extension dialogs        | extensions intentionally disabled    | missing          | no         | define trust and isolation first                  |
+| provider login/logout    | Pi SDK primitive only                | missing          | no         | add main-owned auth flows                         |
+| resource reload          | loader exists; no reload operation   | missing          | no         | add counts, diagnostics, and refresh flow         |
+| system prompt inspection | active prompt exists only in main    | missing          | no         | add bounded local-only inspection                 |
+| tool catalog             | active tools exist only in main      | missing          | no         | add bounded schemas/origins and picker            |
 
 The next implementation order is:
 
@@ -190,10 +190,13 @@ claims.
   `AGENTS.md` files loaded by Pi, including its global agent file and the files
   discovered while walking up from the session working directory. Discovery
   stays in the main process; only bounded labels and paths cross IPC.
-- Pi-native session picker and working-directory rail use bounded
-  `SessionManager.list/listAll` metadata; app recents remain fallback UI state.
-- New/switch/name, in-place tree navigation with editable user turns and labels,
-  clone, JSONL import/export, HTML export, compaction, settings, and diagnostics modals.
+- Pi-native session picker and working-directory rail use metadata-budgeted
+  `SessionManager.listAll` records with unique opaque catalog identities; app
+  recents are tagged main-resolved fallbacks and their paths are redacted from
+  renderer settings.
+- New/switch/name, bounded flat-row tree navigation with editable user turns,
+  labels, no/default/custom branch summaries, clone, staged exclusive JSONL
+  import/export, HTML export, compaction, settings, and diagnostics modals.
 - Concurrent live sessions through a main-process runtime pool: selecting a
   session no longer switches or stops a running session process, and background
   stream events cannot leak into the active transcript.
