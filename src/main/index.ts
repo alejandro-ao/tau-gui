@@ -140,7 +140,8 @@ void app.whenReady().then(() => {
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
     const parsed = envelopeSchema.safeParse(raw);
     if (!parsed.success) {
-      return { ok: false, error: `Invalid IPC request: ${parsed.error.issues[0]?.message ?? ''}` };
+      const issue = parsed.error.issues[0]?.message ?? '';
+      return { ok: false, error: `Invalid IPC request: ${issue}`.slice(0, 1_000) };
     }
     try {
       const value = await handleRequest(
