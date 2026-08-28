@@ -155,6 +155,7 @@ export const entrySnapshotSchema = z
 
 const shallowTreeNodeSchema = z.object({ entry: entrySchema, children: z.unknown() }).strict();
 const treeSnapshotWrapperSchema = z.object({ tree: z.unknown(), leafId: leafIdSchema }).strict();
+const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
 
 /**
  * Validate tree structure iteratively before any recursive parser or serializer
@@ -162,7 +163,7 @@ const treeSnapshotWrapperSchema = z.object({ tree: z.unknown(), leafId: leafIdSc
  * bound is crossed, including cyclic input and hostile deep/wide adapter data.
  */
 export const treeSnapshotSchema = treeSnapshotWrapperSchema.transform((value, context) => {
-  if (!Array.isArray(value.tree)) {
+  if (!isUnknownArray(value.tree)) {
     context.addIssue({ code: z.ZodIssueCode.custom, message: 'session tree must be an array' });
     return z.NEVER;
   }
@@ -203,7 +204,7 @@ export const treeSnapshotSchema = treeSnapshotWrapperSchema.transform((value, co
       return z.NEVER;
     }
     const children = parsed.data.children;
-    if (!Array.isArray(children)) {
+    if (!isUnknownArray(children)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'session tree children must be an array',
