@@ -4,9 +4,12 @@ import {
   envelopeSchema,
   MAX_CONTEXT_FILES,
   MAX_SESSION_CATALOG_ENTRIES,
+  MAX_TREE_ROWS,
+  parseSessionIpcResult,
   requestSchema,
   resourceCatalogSchema,
   sessionCatalogSchema,
+  treeSnapshotSchema,
 } from '../src/shared/ipc.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
@@ -247,6 +250,45 @@ describe('IPC request validation', () => {
         },
       ]).success,
     ).toBe(false);
+  });
+
+  it('strictly bounds tree and export responses at both IPC boundaries', () => {
+    const row = {
+      id: 'entry',
+      parentId: null,
+      depth: 0,
+      kind: 'message' as const,
+      role: 'user' as const,
+      timestamp: '2026-01-01T00:00:00Z',
+      preview: 'safe',
+      label: null,
+    };
+    expect(
+      treeSnapshotSchema.safeParse({ rows: [row], leafId: 'entry', truncated: false }).success,
+    ).toBe(true);
+    expect(
+      treeSnapshotSchema.safeParse({
+        rows: Array.from({ length: MAX_TREE_ROWS + 1 }, () => row),
+        leafId: null,
+        truncated: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      treeSnapshotSchema.safeParse({
+        rows: [{ ...row, message: { images: ['forbidden'] } }],
+        leafId: null,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+    expect(() => parseSessionIpcResult('session.exportJsonl', '/x'.repeat(5_000))).toThrow();
+    expect(() =>
+      parseSessionIpcResult('session.fork', {
+        editorText: null,
+        cancelled: false,
+        aborted: false,
+        extra: true,
+      }),
+    ).toThrow();
   });
 
   it('rejects unknown actions', () => {

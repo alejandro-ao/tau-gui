@@ -104,6 +104,45 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
   });
 
+  it('serializes simultaneous import preparation and replacement', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const runtime = pool.runtimeFor(target);
+    let activeImports = 0;
+    let maximum = 0;
+    runtime.prepareImport = async () => {
+      activeImports += 1;
+      maximum = Math.max(maximum, activeImports);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeImports -= 1;
+      return { sessionId: 'fake-session-1', physicalKey: 'prepared-file' };
+    };
+    runtime.importJsonl = () => Promise.resolve();
+
+    await Promise.all([
+      pool.importSession('/first', target),
+      pool.importSession('/second', target),
+    ]);
+    expect(maximum).toBe(1);
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
+  it('reuses an owner found by prospective logical/physical identity', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const runtime = pool.active;
+    runtime.describeSession = () =>
+      Promise.resolve({ sessionId: 'fake-session-1', physicalKey: 'same-file' });
+
+    const snapshot = await pool.activateSession('opaque-catalog-id');
+    expect(snapshot.state?.sessionId).toBe('fake-session-1');
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
+
   it('removes a destructively replaced runtime after recreation failure', async () => {
     const settings = makeSettings();
     const events: BridgeEvent[] = [];

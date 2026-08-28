@@ -656,7 +656,7 @@ function catalogId(physical: PhysicalFile): string {
   return `pi-${createHash('sha256').update(`${physical.key}\0${physical.path}`).digest('hex').slice(0, 32)}`;
 }
 
-async function loadCatalog(
+export async function loadCatalog(
   agentDir: string,
   cwd: string | null,
 ): Promise<{ records: CatalogRecord[]; diagnostics: string[] }> {

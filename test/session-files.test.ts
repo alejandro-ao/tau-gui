@@ -56,6 +56,13 @@ describe('privileged session filesystem guards', () => {
     const childResult = await boundedSessionList(sessions);
     expect(childResult.sessions).toEqual([]);
 
+    const fileTarget = join(outside, 'outside.jsonl');
+    await writeFile(fileTarget, '{}');
+    await symlink(fileTarget, join(sessions, 'escaped.jsonl'));
+    const fileResult = await boundedSessionList(sessions);
+    expect(fileResult.sessions).toEqual([]);
+    expect(fileResult.diagnostics.join(' ')).toContain('Unsafe session file');
+
     const rootLink = join(directory, 'sessions-link');
     await symlink(sessions, rootLink);
     const rootResult = await boundedSessionList(rootLink);
