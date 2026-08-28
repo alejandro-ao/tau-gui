@@ -418,34 +418,93 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   listTools(): Promise<ToolCatalog> {
-    const all = this.session.getAllTools();
-    const active = new Set(this.session.getActiveToolNames());
     const diagnostics: string[] = [];
-    const tools = all.slice(0, INTROSPECTION_LIMITS.toolEntries).map((tool) => {
-      const bounded = boundJson(tool.parameters);
-      if (bounded.truncated) diagnostics.push(`${tool.name}: parameter schema was truncated`);
-      return {
-        name: boundedMetadata(tool.name, INTROSPECTION_LIMITS.toolNameCharacters),
+    const diagnose = (message: string): void => {
+      if (diagnostics.length >= INTROSPECTION_LIMITS.diagnostics) return;
+      diagnostics.push(
+        boundedMetadata(message, INTROSPECTION_LIMITS.diagnosticCharacters) ||
+          'tool descriptor omitted',
+      );
+    };
+
+    let allValue: unknown = [];
+    try {
+      allValue = this.session.getAllTools();
+    } catch {
+      diagnose('tool catalog could not be reflected; all tools omitted');
+    }
+    const all = reflectArrayData(allValue, INTROSPECTION_LIMITS.toolEntries, 'tool catalog');
+    for (const message of all.diagnostics) diagnose(message);
+
+    let activeValue: unknown = [];
+    try {
+      activeValue = this.session.getActiveToolNames();
+    } catch {
+      diagnose('active tool names could not be reflected; all tools marked inactive');
+    }
+    const activeData = reflectArrayData(
+      activeValue,
+      INTROSPECTION_LIMITS.toolEntries,
+      'active tool names',
+    );
+    for (const message of activeData.diagnostics) diagnose(message);
+    const active = new Set(
+      activeData.items
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => boundedMetadata(value, INTROSPECTION_LIMITS.toolNameCharacters))
+        .filter(Boolean),
+    );
+
+    const tools: ToolCatalog['tools'] = [];
+    const names = new Set<string>();
+    let omitted = all.truncated;
+    for (const [index, value] of all.items.entries()) {
+      const reflected = reflectToolDescriptor(value);
+      if (!reflected.ok) {
+        omitted = true;
+        diagnose(`tool ${index + 1} omitted: ${reflected.reason}`);
+        continue;
+      }
+      const name = boundedMetadata(reflected.name, INTROSPECTION_LIMITS.toolNameCharacters);
+      if (!name) {
+        omitted = true;
+        diagnose(`tool ${index + 1} omitted: invalid name`);
+        continue;
+      }
+      if (names.has(name)) {
+        omitted = true;
+        diagnose(`${name}: duplicate normalized tool name omitted`);
+        continue;
+      }
+      names.add(name);
+
+      const bounded = boundJson(reflected.parameters);
+      if (bounded.truncated) diagnose(`${name}: parameter schema was truncated`);
+      let origin = 'unknown';
+      if (reflected.sourceInfo !== undefined) {
+        const source = reflectSource(reflected.sourceInfo);
+        if (source === null) diagnose(`${name}: malformed source metadata replaced with unknown`);
+        else origin = boundedMetadata(source, INTROSPECTION_LIMITS.originCharacters) || 'unknown';
+      }
+      tools.push({
+        name,
         description: boundedMetadata(
-          tool.description,
+          reflected.description,
           INTROSPECTION_LIMITS.toolDescriptionCharacters,
         ),
-        origin:
-          boundedMetadata(tool.sourceInfo.source, INTROSPECTION_LIMITS.originCharacters) ||
-          'unknown',
-        active: active.has(tool.name),
+        origin,
+        active: active.has(name),
         parameters: bounded.value,
         schemaTruncated: bounded.truncated,
-      };
-    });
-    if (all.length > tools.length)
-      diagnostics.push('tool catalog limit reached; remaining tools ignored');
+      });
+    }
+    if (all.truncated) diagnose('tool catalog limit reached; remaining tools ignored');
     return Promise.resolve(
       toolCatalogSchema.parse({
         tools,
-        total: all.length,
-        truncated: all.length > tools.length,
-        diagnostics: diagnostics.slice(0, INTROSPECTION_LIMITS.diagnostics),
+        total: all.total,
+        truncated: omitted || tools.length < all.total,
+        diagnostics,
       }),
     );
   }
@@ -512,6 +571,121 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 }
 
+interface ReflectedArrayData {
+  items: unknown[];
+  total: number;
+  truncated: boolean;
+  diagnostics: string[];
+}
+
+/** Reflects array data without ordinary index/length reads or accessor invocation. */
+function reflectArrayData(value: unknown, limit: number, label: string): ReflectedArrayData {
+  try {
+    if (typeof value !== 'object' || value === null || !Array.isArray(value)) {
+      return {
+        items: [],
+        total: 0,
+        truncated: true,
+        diagnostics: [`${label} is not a data array; values omitted`],
+      };
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value) as Record<
+      string,
+      PropertyDescriptor
+    >;
+    const length = descriptors['length'];
+    const rawLength: unknown = length && 'value' in length ? length.value : null;
+    if (typeof rawLength !== 'number' || !Number.isSafeInteger(rawLength) || rawLength < 0) {
+      return {
+        items: [],
+        total: 0,
+        truncated: true,
+        diagnostics: [`${label} has an invalid length; values omitted`],
+      };
+    }
+    const total = rawLength;
+    const count = Math.min(total, limit);
+    const items: unknown[] = [];
+    const diagnostics: string[] = [];
+    let truncated = total > count;
+    for (let index = 0; index < count; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !('value' in descriptor)) {
+        truncated = true;
+        diagnostics.push(`${label} item ${index + 1} is missing or accessor-backed; omitted`);
+        continue;
+      }
+      items.push(descriptor.value);
+    }
+    return { items, total, truncated, diagnostics };
+  } catch {
+    return {
+      items: [],
+      total: 0,
+      truncated: true,
+      diagnostics: [`${label} reflection failed; values omitted`],
+    };
+  }
+}
+
+type ReflectedToolDescriptor =
+  | {
+      ok: true;
+      name: string;
+      description: string;
+      parameters: unknown;
+      sourceInfo: unknown;
+    }
+  | { ok: false; reason: string };
+
+/** Reflects only own data properties; Proxy/accessor failures omit the descriptor. */
+function reflectToolDescriptor(value: unknown): ReflectedToolDescriptor {
+  if (typeof value !== 'object' || value === null) {
+    return { ok: false, reason: 'descriptor is not an object' };
+  }
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const name = descriptors['name'];
+    const description = descriptors['description'];
+    const parameters = descriptors['parameters'];
+    const sourceInfo = descriptors['sourceInfo'];
+    if (!name || !('value' in name) || typeof name.value !== 'string') {
+      return { ok: false, reason: 'name is missing, accessor-backed, or malformed' };
+    }
+    if (description && (!('value' in description) || typeof description.value !== 'string')) {
+      return { ok: false, reason: 'description is accessor-backed or malformed' };
+    }
+    if (!parameters || !('value' in parameters)) {
+      return { ok: false, reason: 'parameters are missing or accessor-backed' };
+    }
+    if (sourceInfo && !('value' in sourceInfo)) {
+      return { ok: false, reason: 'source metadata is accessor-backed' };
+    }
+    return {
+      ok: true,
+      name: name.value,
+      description: description?.value ?? '',
+      parameters: parameters.value,
+      sourceInfo: sourceInfo?.value,
+    };
+  } catch {
+    return { ok: false, reason: 'descriptor reflection failed' };
+  }
+}
+
+/** Returns null for malformed/accessor-backed source metadata. */
+function reflectSource(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptors(value)['source'];
+    return descriptor && 'value' in descriptor && typeof descriptor.value === 'string'
+      ? descriptor.value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 function resourceCounts(session: AgentSession) {
   const loader = session.resourceLoader;
   return {
@@ -531,7 +705,7 @@ function resourceDescription(value: string): string | null {
 
 /** Pi permits YAML-folded descriptions that retain a trailing newline. */
 function boundedMetadata(value: string, limit: number): string {
-  return [...value]
+  return [...value.slice(0, limit)]
     .map((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint <= 0x1f || codePoint === 0x7f ? ' ' : character;
