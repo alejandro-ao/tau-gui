@@ -145,7 +145,7 @@ describe('command registry', () => {
 
     expect(commands.filter((command) => command.slash === '/compact')).toHaveLength(1);
     expect(commands.find((command) => command.slash === '/review')?.unavailable).toContain(
-      'does not expose command execution over RPC',
+      'desktop application contract does not expose its execution',
     );
   });
 

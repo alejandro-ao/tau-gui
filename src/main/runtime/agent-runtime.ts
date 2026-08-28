@@ -75,6 +75,30 @@ export interface AgentRuntime {
   getContextFiles?(): Promise<ContextFile[]>;
 }
 
+/**
+ * Runtime operations required by each capability at the application-domain
+ * boundary. A null entry means the current AgentRuntime contract has no such
+ * operation, so no production adapter may advertise that capability yet.
+ * Renderer and IPC coverage remain additional requirements.
+ */
+export const CAPABILITY_RUNTIME_METHODS = {
+  textPrompt: ['prompt'],
+  imagePrompt: null,
+  steering: ['steer'],
+  followUps: ['followUp'],
+  directBash: ['runShell'],
+  abortBash: ['abortShell'],
+  retryControls: null,
+  sessionTree: ['getTree', 'fork'],
+  sessionClone: null,
+  sessionList: null,
+  extensionDialogs: null,
+  providerLogin: null,
+  resourceReload: null,
+  systemPromptInspection: null,
+  toolCatalog: null,
+} as const satisfies Record<keyof RuntimeCapabilities, readonly (keyof AgentRuntime)[] | null>;
+
 /** Extension status text may carry terminal colour codes meant for a TUI. */
 function stripAnsi(text: string): string {
   // eslint-disable-next-line no-control-regex

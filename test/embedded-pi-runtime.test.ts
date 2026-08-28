@@ -2,7 +2,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EmbeddedPiRuntime } from '../src/main/runtime/embedded-pi-runtime.js';
+import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
+import {
+  EMBEDDED_PI_CAPABILITIES,
+  EmbeddedPiRuntime,
+} from '../src/main/runtime/embedded-pi-runtime.js';
 import type { RuntimeStatus } from '../src/shared/domain.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
@@ -17,6 +21,37 @@ afterEach(async () => {
 });
 
 describe('EmbeddedPiRuntime', () => {
+  it('advertises only capabilities represented by executable runtime operations', () => {
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+
+    for (const [capability, enabled] of Object.entries(EMBEDDED_PI_CAPABILITIES)) {
+      if (!enabled) continue;
+      const methods =
+        CAPABILITY_RUNTIME_METHODS[capability as keyof typeof CAPABILITY_RUNTIME_METHODS];
+      expect(methods, `${capability} has no application-domain operation`).not.toBeNull();
+      for (const method of methods ?? []) {
+        expect(typeof runtime[method], `${capability} requires ${method}`).toBe('function');
+      }
+    }
+
+    expect(EMBEDDED_PI_CAPABILITIES).toMatchObject({
+      imagePrompt: false,
+      abortBash: false,
+      retryControls: false,
+      sessionClone: false,
+      sessionList: false,
+      extensionDialogs: false,
+      providerLogin: false,
+      resourceReload: false,
+      systemPromptInspection: false,
+      toolCatalog: false,
+    });
+  });
+
   it('starts without an external executable and exposes Pi-owned resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-embedded-pi-'));
     roots.push(root);

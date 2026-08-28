@@ -54,10 +54,12 @@ function parseExport(
     if (part === '--format') {
       const format = parts[++index];
       if (!format) return { error: usage };
-      if (format !== 'html') return { error: 'JSONL export is not exposed by the runtime RPC.' };
+      if (format !== 'html') {
+        return { error: 'JSONL export is not exposed by the desktop application contract.' };
+      }
     } else if (part.startsWith('--format=')) {
       if (part.slice('--format='.length) !== 'html') {
-        return { error: 'JSONL export is not exposed by the runtime RPC.' };
+        return { error: 'JSONL export is not exposed by the desktop application contract.' };
       }
     } else if (part.startsWith('-') || destination) {
       return { error: usage };
@@ -75,7 +77,7 @@ const SIDEBARS: SidebarPosition[] = ['right', 'left', 'off'];
  * Single source of truth for the palette and slash completion.
  *
  * Capability-gated commands are always listed with the reason they cannot run so
- * missing RPC surfaces are visible instead of silently failing.
+ * missing desktop application surfaces are visible instead of silently failing.
  */
 export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   const capabilities = state.snapshot.capabilities;
@@ -263,7 +265,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     title: '/scoped-models',
     description: 'Manage app-owned scoped/favourite models',
     group: 'model',
-    // No runtime exposes scoped models over RPC, so the GUI owns the list.
+    // Scoped models are app-owned presentation state, so the GUI owns the list.
     origin: 'frontend',
     slash: '/scoped-models',
     unavailable: null,
@@ -430,7 +432,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     slash: '/tools',
     unavailable: missing(
       capabilities.toolCatalog,
-      'tool catalog inspection needs runtime RPC support',
+      'tool catalog inspection is not exposed by the desktop application contract',
     ),
   });
   add({
@@ -442,7 +444,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     slash: '/system',
     unavailable: missing(
       capabilities.systemPromptInspection,
-      'system prompt inspection needs runtime RPC support',
+      'system prompt inspection is not exposed by the desktop application contract',
     ),
   });
   add({
@@ -452,7 +454,10 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'runtime',
     origin: 'backend',
     slash: '/reload',
-    unavailable: missing(capabilities.resourceReload, 'resource reload needs runtime RPC support'),
+    unavailable: missing(
+      capabilities.resourceReload,
+      'resource reload is not exposed by the desktop application contract',
+    ),
   });
   for (const action of ['login', 'logout'] as const) {
     add({
@@ -464,7 +469,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       slash: `/${action}`,
       unavailable: missing(
         capabilities.providerLogin,
-        'provider credential management needs runtime RPC support',
+        'provider credential management is not exposed by the desktop application contract',
       ),
     });
   }
@@ -484,7 +489,8 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       group: 'runtime',
       origin: command.source === 'runtime' ? 'backend' : 'frontend',
       slash: `/${command.name}`,
-      unavailable: 'the runtime lists this command but does not expose command execution over RPC',
+      unavailable:
+        'the runtime lists this command but the desktop application contract does not expose its execution',
     });
   }
 

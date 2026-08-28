@@ -42,16 +42,30 @@ import {
   normalizeThinkingLevel,
   normalizeTree,
 } from './normalize.js';
-import { CAPABILITIES } from './spec.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
 
-const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
-  ...CAPABILITIES.pi,
-  sessionList: true,
-  providerLogin: true,
-  resourceReload: true,
-  systemPromptInspection: true,
-  toolCatalog: true,
+/**
+ * Features executable through the complete desktop application contract.
+ *
+ * Pi SDK support alone is not enough to enable a flag: the operation must also
+ * have an AgentRuntime method, validated IPC, and a usable renderer flow.
+ */
+export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
+  textPrompt: true,
+  imagePrompt: false,
+  steering: true,
+  followUps: true,
+  directBash: true,
+  abortBash: false,
+  retryControls: false,
+  sessionTree: true,
+  sessionClone: false,
+  sessionList: false,
+  extensionDialogs: false,
+  providerLogin: false,
+  resourceReload: false,
+  systemPromptInspection: false,
+  toolCatalog: false,
 };
 
 /**
