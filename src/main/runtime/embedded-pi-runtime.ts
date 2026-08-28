@@ -800,10 +800,13 @@ async function assertLogicalSessionIdAvailable(agentDir: string, sessionId: stri
 }
 
 function assertValidImportedSessionId(id: string): void {
-  // Mirrors Pi's declared public assertValidSessionId contract. Pi 0.84.2
-  // declares that helper but accidentally omits it from the package root export,
-  // so calling it through a forbidden deep import is not an option here.
-  if (id.length > 128 || !/^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$/.test(id)) {
+  if (id.length > 128) throw new Error('Imported session identity is invalid');
+  try {
+    // Pi 0.84.2 declares assertValidSessionId but omits it from the package-root
+    // exports. The public in-memory factory invokes that exact validator for an
+    // explicit ID, without filesystem access or a forbidden deep import.
+    SessionManager.inMemory('/', { id });
+  } catch {
     throw new Error('Imported session identity is invalid');
   }
 }
