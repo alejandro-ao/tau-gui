@@ -635,7 +635,8 @@ export class RuntimePool {
     if (remaining > 0) this.reloadReservations.set(manager, remaining);
     else this.reloadReservations.delete(manager);
     // Queue work deferred by this reservation gets one fresh idle boundary.
-    if (remaining <= 0 && manager.isStarted && this.managers.has(manager)) void this.schedule(manager);
+    if (remaining <= 0 && manager.isStarted && this.managers.has(manager))
+      void this.schedule(manager);
   }
 
   private isReloadReserved(manager: RuntimeManager): boolean {

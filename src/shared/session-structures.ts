@@ -30,9 +30,7 @@ const messageSchema = z.discriminatedUnion('role', [
       role: z.literal('user'),
       text: boundedString(),
       images: z
-        .array(
-          z.object({ mimeType: boundedString(), data: boundedString() }).strict(),
-        )
+        .array(z.object({ mimeType: boundedString(), data: boundedString() }).strict())
         .max(MAX_MESSAGE_BLOCKS),
       timestamp: finiteNumber,
     })
@@ -143,7 +141,10 @@ const serializedBytes = (value: unknown): number => {
 };
 const enforceResponseBytes = (value: unknown, context: z.RefinementCtx): void => {
   if (serializedBytes(value) > MAX_SESSION_STRUCTURE_BYTES) {
-    context.addIssue({ code: z.ZodIssueCode.custom, message: 'session structure byte limit exceeded' });
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'session structure byte limit exceeded',
+    });
   }
 };
 
@@ -163,13 +164,19 @@ export const treeSnapshotSchema = z
     let nodes = 0;
     const visit = (children: TreeNode[], depth: number): void => {
       if (depth > MAX_TREE_DEPTH) {
-        context.addIssue({ code: z.ZodIssueCode.custom, message: 'session tree depth limit exceeded' });
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: 'session tree depth limit exceeded',
+        });
         return;
       }
       for (const node of children) {
         nodes += 1;
         if (nodes > MAX_ENTRY_NODES) {
-          context.addIssue({ code: z.ZodIssueCode.custom, message: 'session tree node limit exceeded' });
+          context.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: 'session tree node limit exceeded',
+          });
           return;
         }
         visit(node.children, depth + 1);

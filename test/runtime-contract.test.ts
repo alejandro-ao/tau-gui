@@ -84,14 +84,13 @@ describe.each<RuntimeKind>(['tau', 'pi'])('%s adapter contract', (kind) => {
       status: () => undefined,
       diagnostic: () => undefined,
     });
-    (runtime as unknown as { client: { request: (command: string) => Promise<unknown> } }).client = {
-      request: (command) =>
-        Promise.resolve(
-          command === 'get_tree'
-            ? { tree: [], leafId: huge }
-            : { entries: [], leafId: huge },
-        ),
-    };
+    (runtime as unknown as { client: { request: (command: string) => Promise<unknown> } }).client =
+      {
+        request: (command) =>
+          Promise.resolve(
+            command === 'get_tree' ? { tree: [], leafId: huge } : { entries: [], leafId: huge },
+          ),
+      };
 
     const entries = await runtime.getEntries();
     const tree = await runtime.getTree();
