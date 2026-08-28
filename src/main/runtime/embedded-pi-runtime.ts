@@ -428,9 +428,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     };
 
     let allValue: unknown = [];
+    let allReadFailed = false;
     try {
       allValue = this.session.getAllTools();
     } catch {
+      allReadFailed = true;
       diagnose('tool catalog could not be reflected; all tools omitted');
     }
     const all = reflectArrayData(allValue, INTROSPECTION_LIMITS.toolEntries, 'tool catalog');
@@ -457,7 +459,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
     const tools: ToolCatalog['tools'] = [];
     const names = new Set<string>();
-    let omitted = all.truncated;
+    let omitted = all.truncated || allReadFailed;
     for (const [index, value] of all.items.entries()) {
       const reflected = reflectToolDescriptor(value);
       if (!reflected.ok) {

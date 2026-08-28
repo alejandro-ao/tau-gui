@@ -161,8 +161,10 @@ describe('EmbeddedPiRuntime', () => {
       valid('dup\n'),
       valid('dup '),
       null,
+      42,
+      false,
     ];
-    Object.defineProperty(rawTools, '9', {
+    Object.defineProperty(rawTools, '11', {
       configurable: true,
       enumerable: true,
       get: () => {
@@ -220,6 +222,18 @@ describe('EmbeddedPiRuntime', () => {
     (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
       'getAllTools'
     ] = () => revokedArray.proxy;
+    await expect(runtime.listTools()).resolves.toMatchObject({ tools: [], truncated: true });
+
+    (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
+      'getAllTools'
+    ] = () => {
+      throw new Error('catalog failure');
+    };
+    (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
+      'getActiveToolNames'
+    ] = () => {
+      throw new Error('active failure');
+    };
     await expect(runtime.listTools()).resolves.toMatchObject({ tools: [], truncated: true });
   });
 
