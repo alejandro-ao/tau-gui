@@ -39,6 +39,9 @@ describe('EmbeddedPiRuntime', () => {
     }
 
     expect(EMBEDDED_PI_CAPABILITIES).toMatchObject({
+      resourceReload: true,
+      systemPromptInspection: true,
+      toolCatalog: true,
       imagePrompt: false,
       abortBash: false,
       retryControls: false,
@@ -46,9 +49,6 @@ describe('EmbeddedPiRuntime', () => {
       sessionList: false,
       extensionDialogs: false,
       providerLogin: false,
-      resourceReload: false,
-      systemPromptInspection: false,
-      toolCatalog: false,
     });
   });
 
@@ -156,6 +156,35 @@ describe('EmbeddedPiRuntime', () => {
     );
     const review = resources.skills.find((skill) => skill.name === 'review');
     expect(review?.estimatedTokens).toBe(estimateTextTokens(skillText));
+
+    const messagesBeforeInspection = await runtime.getMessages();
+    const systemPrompt = await runtime.inspectSystemPrompt();
+    expect(systemPrompt.text).toContain('Global instructions');
+    expect(systemPrompt.origin).toBe('active Pi session');
+    expect(systemPrompt.truncated).toBe(false);
+
+    const tools = await runtime.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(['read', 'bash', 'edit', 'write', 'spawn_session']),
+    );
+    expect(tools.tools.find((tool) => tool.name === 'read')).toMatchObject({
+      active: true,
+      origin: 'builtin',
+      schemaTruncated: false,
+    });
+    expect(await runtime.getMessages()).toEqual(messagesBeforeInspection);
+
+    mkdirSync(join(customSkills, 'after-reload'), { recursive: true });
+    writeFileSync(
+      join(customSkills, 'after-reload', 'SKILL.md'),
+      '---\nname: after-reload\ndescription: Added later\n---\n# Later\n',
+    );
+    const reload = await runtime.reloadResources();
+    expect(reload.after.skills).toBe(reload.before.skills + 1);
+    expect((await runtime.getResources()).skills.map((skill) => skill.name)).toContain(
+      'after-reload',
+    );
+    expect(await runtime.getMessages()).toEqual(messagesBeforeInspection);
 
     const contextFiles = await runtime.getContextFiles();
     const labels = new Map(contextFiles.map((file) => [file.path, file.label]));

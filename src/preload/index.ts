@@ -11,6 +11,9 @@ import {
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
 } from '../shared/ipc.js';
 
 /**
@@ -49,6 +52,15 @@ const bridge: TauBridge = {
     }
     if (action === 'context.list') {
       return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'agent.inspectSystemPrompt') {
+      return systemPromptInspectionSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'tools.list') {
+      return toolCatalogSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'resources.reload') {
+      return resourceReloadResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return response.value as IpcResult<typeof action>;
   },

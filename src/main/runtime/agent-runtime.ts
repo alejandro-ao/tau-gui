@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { ContextFile } from '../../shared/ipc.js';
 import type {
+  ResourceReloadResult,
+  SystemPromptInspection,
+  ToolCatalog,
+} from '../../shared/introspection.js';
+import type {
   AgentEvent,
   AgentMessage,
   AgentState,
@@ -73,6 +78,10 @@ export interface AgentRuntime {
   /** Direct SDK runtimes can expose authoritative resource metadata. */
   getResources?(): Promise<ResourceCatalog>;
   getContextFiles?(): Promise<ContextFile[]>;
+  /** Local-only inspection; callers must never append this result to session messages. */
+  inspectSystemPrompt?(): Promise<SystemPromptInspection>;
+  listTools?(): Promise<ToolCatalog>;
+  reloadResources?(): Promise<ResourceReloadResult>;
 }
 
 /**
@@ -94,9 +103,9 @@ export const CAPABILITY_RUNTIME_METHODS = {
   sessionList: null,
   extensionDialogs: null,
   providerLogin: null,
-  resourceReload: null,
-  systemPromptInspection: null,
-  toolCatalog: null,
+  resourceReload: ['reloadResources'],
+  systemPromptInspection: ['inspectSystemPrompt'],
+  toolCatalog: ['listTools'],
 } as const satisfies Record<keyof RuntimeCapabilities, readonly (keyof AgentRuntime)[] | null>;
 
 /** Extension status text may carry terminal colour codes meant for a TUI. */

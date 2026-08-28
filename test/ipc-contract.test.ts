@@ -5,7 +5,11 @@ import {
   MAX_CONTEXT_FILES,
   requestSchema,
   resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
 } from '../src/shared/ipc.js';
+import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
@@ -88,6 +92,71 @@ describe('IPC request validation', () => {
         kind: 'tau',
       },
     );
+  });
+
+  it('accepts only payload-free introspection and reload requests', () => {
+    for (const action of ['agent.inspectSystemPrompt', 'tools.list', 'resources.reload'] as const) {
+      expect(requestSchema.safeParse({ action }).success).toBe(true);
+      expect(requestSchema.safeParse({ action, payload: { prompt: 'leak it' } }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('strictly bounds local-only introspection results', () => {
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'local prompt',
+        totalCharacters: 12,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(true);
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'x'.repeat(INTROSPECTION_LIMITS.systemPromptCharacters + 1),
+        totalCharacters: INTROSPECTION_LIMITS.systemPromptCharacters + 1,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(false);
+
+    const catalog = {
+      tools: [
+        {
+          name: 'read',
+          description: 'Read a file',
+          origin: 'builtin',
+          active: true,
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+          schemaTruncated: false,
+        },
+      ],
+      total: 1,
+      truncated: false,
+      diagnostics: [],
+    };
+    expect(toolCatalogSchema.safeParse(catalog).success).toBe(true);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], secret: process.env }],
+      }).success,
+    ).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], parameters: { value: 'x'.repeat(5_000) } }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      resourceReloadResultSchema.safeParse({
+        before: { skills: 1, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        after: { skills: 2, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        diagnostics: [],
+      }).success,
+    ).toBe(true);
   });
 
   it('accepts only the payload-free resources.list request', () => {

@@ -1,7 +1,13 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
+import {
+  contextFilesSchema,
+  resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+} from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
@@ -167,6 +173,23 @@ export async function handleRequest(
 
     case 'commands.list':
       return runtime().listCommands();
+    case 'agent.inspectSystemPrompt': {
+      const active = runtime();
+      if (!active.inspectSystemPrompt) throw new Error('System prompt inspection is unavailable');
+      return systemPromptInspectionSchema.parse(await active.inspectSystemPrompt());
+    }
+    case 'tools.list': {
+      const active = runtime();
+      if (!active.listTools) throw new Error('Tool catalog inspection is unavailable');
+      return toolCatalogSchema.parse(await active.listTools());
+    }
+    case 'resources.reload': {
+      const active = runtime();
+      if (!active.reloadResources) throw new Error('Resource reload is unavailable');
+      const result = resourceReloadResultSchema.parse(await active.reloadResources());
+      await manager.refreshState(false, target);
+      return result;
+    }
     case 'resources.list': {
       const active = runtime();
       if (active.getResources) {

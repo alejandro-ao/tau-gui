@@ -49,6 +49,7 @@ interface Calls {
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
+  refreshed: number;
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -69,6 +70,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     resolved: [],
     openedDirectories: [],
     resourceDirectories: [],
+    refreshed: 0,
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -81,6 +83,35 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       calls.entries.push(cursor);
       return Promise.resolve(snapshot);
     },
+    inspectSystemPrompt: () =>
+      Promise.resolve({
+        text: 'private system prompt',
+        totalCharacters: 21,
+        truncated: false,
+        origin: 'active Pi session',
+      }),
+    listTools: () =>
+      Promise.resolve({
+        tools: [
+          {
+            name: 'read',
+            description: 'Read files',
+            origin: 'builtin',
+            active: true,
+            parameters: { type: 'object' },
+            schemaTruncated: false,
+          },
+        ],
+        total: 1,
+        truncated: false,
+        diagnostics: [],
+      }),
+    reloadResources: () =>
+      Promise.resolve({
+        before: { skills: 1, prompts: 1, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        after: { skills: 2, prompts: 1, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        diagnostics: [],
+      }),
   };
 
   const context = {
@@ -132,6 +163,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
+      refreshState: () => {
+        calls.refreshed += 1;
+        return Promise.resolve();
+      },
     } as unknown as Context['manager'],
     window: () => null,
   } as Context;
@@ -310,6 +345,29 @@ describe('context.list handler', () => {
 });
 
 describe('capability-gated and adapter-contract actions', () => {
+  it('routes bounded local-only introspection and reload to the adapter', async () => {
+    const { context, calls } = makeContext();
+    const session = { runtime: 'pi' as const, sessionId: 'session-1' };
+
+    await expect(
+      handleRequest(context, { action: 'agent.inspectSystemPrompt', session }),
+    ).resolves.toMatchObject({ text: 'private system prompt' });
+    await expect(handleRequest(context, { action: 'tools.list', session })).resolves.toMatchObject({
+      total: 1,
+    });
+    await expect(
+      handleRequest(context, { action: 'resources.reload', session }),
+    ).resolves.toMatchObject({ after: { skills: 2 } });
+    expect(calls.refreshed).toBe(1);
+  });
+
+  it('rejects malformed introspection output at the main boundary', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor(null);
+    active.inspectSystemPrompt = () => Promise.resolve({ text: process.env } as never);
+    await expect(handleRequest(context, { action: 'agent.inspectSystemPrompt' })).rejects.toThrow();
+  });
+
   it('routes shell.abort to the adapter', async () => {
     const { context, calls } = makeContext();
     expect(await handleRequest(context, { action: 'shell.abort' })).toBeNull();

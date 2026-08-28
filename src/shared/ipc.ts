@@ -5,6 +5,14 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import {
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  type ResourceReloadResult,
+  type SystemPromptInspection,
+  type ToolCatalog,
+} from './introspection.js';
 import { resourceCatalogSchema } from './resources.js';
 import type {
   AgentEvent,
@@ -215,6 +223,9 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({ action: z.literal('commands.list') }),
   z.object({ action: z.literal('resources.list') }).strict(),
+  z.object({ action: z.literal('resources.reload') }).strict(),
+  z.object({ action: z.literal('agent.inspectSystemPrompt') }).strict(),
+  z.object({ action: z.literal('tools.list') }).strict(),
   z.object({ action: z.literal('context.list') }).strict(),
 
   z.object({
@@ -237,7 +248,12 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
 
-export { resourceCatalogSchema };
+export {
+  resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+};
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
@@ -336,6 +352,9 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'resources.reload': ResourceReloadResult;
+  'agent.inspectSystemPrompt': SystemPromptInspection;
+  'tools.list': ToolCatalog;
   'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;
