@@ -250,8 +250,13 @@ describe('normalizeEvent', () => {
     for (let index = 0; index <= INTROSPECTION_LIMITS.schemaDepth; index += 1) deep = { deep };
     expect(toolCatalogSchema.safeParse(catalog(deep)).success).toBe(false);
     expect(
-      toolCatalogSchema.safeParse(catalog('é'.repeat(INTROSPECTION_LIMITS.schemaBytes / 2 + 1)))
+      toolCatalogSchema.safeParse(catalog(Array.from({ length: 20 }, () => 'é'.repeat(2_000))))
         .success,
+    ).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse(
+        catalog(Array.from({ length: 21 }, () => Array.from({ length: 100 }, () => null))),
+      ).success,
     ).toBe(false);
     const cyclic: Record<string, unknown> = {};
     cyclic['self'] = cyclic;
