@@ -116,9 +116,9 @@ describe('EmbeddedPiRuntime', () => {
       sourceInfo,
     });
     const nonthrowing = new Proxy(valid('proxy-safe'), {
-      get(target, key, receiver) {
+      get(target, key, receiver): unknown {
         descriptorGets += 1;
-        return Reflect.get(target, key, receiver);
+        return Reflect.get(target, key, receiver) as unknown;
       },
     });
     const throwingGet = new Proxy(valid('proxy-throwing-get'), {
@@ -171,9 +171,9 @@ describe('EmbeddedPiRuntime', () => {
       },
     });
     const tools = new Proxy(rawTools, {
-      get(target, key, receiver) {
+      get(target, key, receiver): unknown {
         arrayGets += 1;
-        return Reflect.get(target, key, receiver);
+        return Reflect.get(target, key, receiver) as unknown;
       },
     });
     const active = ['read', 'proxy-safe', 'proxy-throwing-get'];

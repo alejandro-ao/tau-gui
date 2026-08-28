@@ -652,7 +652,9 @@ function reflectToolDescriptor(value: unknown): ReflectedToolDescriptor {
     if (!name || !('value' in name) || typeof name.value !== 'string') {
       return { ok: false, reason: 'name is missing, accessor-backed, or malformed' };
     }
-    if (description && (!('value' in description) || typeof description.value !== 'string')) {
+    const descriptionValue: unknown =
+      description && 'value' in description ? description.value : '';
+    if (description && (!('value' in description) || typeof descriptionValue !== 'string')) {
       return { ok: false, reason: 'description is accessor-backed or malformed' };
     }
     if (!parameters || !('value' in parameters)) {
@@ -661,12 +663,15 @@ function reflectToolDescriptor(value: unknown): ReflectedToolDescriptor {
     if (sourceInfo && !('value' in sourceInfo)) {
       return { ok: false, reason: 'source metadata is accessor-backed' };
     }
+    const parametersValue: unknown = parameters.value;
+    const sourceInfoValue: unknown =
+      sourceInfo && 'value' in sourceInfo ? sourceInfo.value : undefined;
     return {
       ok: true,
       name: name.value,
-      description: description?.value ?? '',
-      parameters: parameters.value,
-      sourceInfo: sourceInfo?.value,
+      description: descriptionValue as string,
+      parameters: parametersValue,
+      sourceInfo: sourceInfoValue,
     };
   } catch {
     return { ok: false, reason: 'descriptor reflection failed' };
