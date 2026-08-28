@@ -4,7 +4,12 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
-import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
+import {
+  envelopeSchema,
+  IPC_EVENT_CHANNEL,
+  IPC_INVOKE_CHANNEL,
+  parseSessionIpcResult,
+} from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
@@ -142,9 +147,16 @@ void app.whenReady().then(() => {
         { settings, manager, window: () => mainWindow },
         parsed.data,
       );
-      return { ok: true, value };
+      return {
+        ok: true,
+        value: parseSessionIpcResult(parsed.data.action, value) as typeof value,
+      };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: message.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ').slice(0, 1_000),
+      };
     }
   });
 

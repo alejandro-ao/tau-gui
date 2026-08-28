@@ -20,7 +20,7 @@ export function SessionModal(): ReactNode {
         label: sessionLabel(session) ?? session.id,
         hint: new Date(session.modifiedAt).toISOString().slice(0, 16).replace('T', ' '),
         detail: describe(session),
-        current: session.id === activeId,
+        current: session.sessionId === activeId,
         keywords: `${session.name ?? ''} ${session.firstMessage ?? ''} ${session.cwd ?? ''}`,
       })),
     [sessions, activeId],
@@ -35,19 +35,23 @@ export function SessionModal(): ReactNode {
       items={items}
       emptyLabel="no saved Pi sessions yet"
       onClose={() => actions.openModal(null)}
-      rowActions={(item) => (
-        <button
-          type="button"
-          className="ghost-button"
-          title="Export portable Pi JSONL"
-          onClick={(event) => {
-            event.stopPropagation();
-            void actions.exportJsonl(item.id);
-          }}
-        >
-          export
-        </button>
-      )}
+      rowActions={(item) => {
+        const session = sessions.find((candidate) => candidate.id === item.id);
+        if (!session?.exportable) return null;
+        return (
+          <button
+            type="button"
+            className="ghost-button"
+            title="Export portable Pi JSONL"
+            onClick={(event) => {
+              event.stopPropagation();
+              void actions.exportJsonl(item.id);
+            }}
+          >
+            export
+          </button>
+        );
+      }}
       onAccept={(item) => {
         const session = sessions.find((candidate) => candidate.id === item.id);
         if (!session) return;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_SETTINGS, type SessionRef } from '../../src/shared/domain.js';
+import { DEFAULT_SETTINGS, type SessionRef, type SessionSummary } from '../../src/shared/domain.js';
 import { groupSessionsByWorkingDirectory } from '../../src/renderer/src/state/working-directories.js';
 
 const session = (id: string, cwd: string | null, lastSeen: number): SessionRef => ({
@@ -14,17 +14,35 @@ const session = (id: string, cwd: string | null, lastSeen: number): SessionRef =
 
 describe('working directory grouping', () => {
   it('preserves managed directory and recent-session order without cross-group leakage', () => {
-    const groups = groupSessionsByWorkingDirectory({
-      ...DEFAULT_SETTINGS,
-      cwd: '/work/current',
-      workingDirectories: ['/work/saved', '/work/current'],
-      recentSessions: [
-        session('saved-new', '/work/saved', 3),
-        session('other', '/work/other', 2),
-        session('saved-old', '/work/saved', 1),
-        session('unknown', null, 0),
-      ],
-    });
+    const recents = [
+      session('saved-new', '/work/saved', 3),
+      session('other', '/work/other', 2),
+      session('saved-old', '/work/saved', 1),
+      session('unknown', null, 0),
+    ];
+    const summaries: SessionSummary[] = recents.map((item) => ({
+      id: item.id,
+      source: 'recent',
+      runtime: item.runtime,
+      sessionId: item.id,
+      exportable: false,
+      name: item.name,
+      firstMessage: null,
+      cwd: item.cwd,
+      createdAt: item.lastSeen,
+      modifiedAt: item.lastSeen,
+      messageCount: item.messageCount ?? 0,
+      parentSessionId: null,
+    }));
+    const groups = groupSessionsByWorkingDirectory(
+      {
+        ...DEFAULT_SETTINGS,
+        cwd: '/work/current',
+        workingDirectories: ['/work/saved', '/work/current'],
+        recentSessions: recents,
+      },
+      summaries,
+    );
 
     expect(groups.map((group) => group.cwd)).toEqual([
       '/work/saved',

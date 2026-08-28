@@ -103,7 +103,11 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     listSessions: () =>
       Promise.resolve([
         {
-          id: 'session-1',
+          id: `pi-${'a'.repeat(32)}`,
+          source: 'native' as const,
+          runtime: 'pi' as const,
+          sessionId: 'session-1',
+          exportable: true,
           name: null,
           firstMessage: 'Task',
           cwd: '/project',
@@ -410,7 +414,7 @@ describe('capability-gated and adapter-contract actions', () => {
         payload: { scope: 'all' },
         session: target,
       }),
-    ).resolves.toEqual([expect.objectContaining({ id: 'session-1' })]);
+    ).resolves.toEqual([expect.objectContaining({ sessionId: 'session-1' })]);
     await handleRequest(context, {
       action: 'session.label',
       payload: { entryId: 'entry-1', label: 'bookmark' },

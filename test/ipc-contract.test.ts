@@ -195,7 +195,11 @@ describe('IPC request validation', () => {
     expect(
       sessionCatalogSchema.safeParse([
         {
-          id: 'session-1',
+          id: `pi-${'a'.repeat(32)}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: 'session-1',
+          exportable: true,
           name: 'Task',
           firstMessage: 'Do work',
           cwd: '/work/project',
@@ -209,7 +213,11 @@ describe('IPC request validation', () => {
     expect(
       sessionCatalogSchema.safeParse(
         Array.from({ length: MAX_SESSION_CATALOG_ENTRIES + 1 }, (_, index) => ({
-          id: `session-${index}`,
+          id: `pi-${index.toString(16).padStart(32, '0')}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: `session-${index}`,
+          exportable: true,
           name: null,
           firstMessage: null,
           cwd: '/work/project',
@@ -223,7 +231,11 @@ describe('IPC request validation', () => {
     expect(
       sessionCatalogSchema.safeParse([
         {
-          id: 'session-1',
+          id: `pi-${'b'.repeat(32)}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: 'session-1',
+          exportable: true,
           name: null,
           firstMessage: null,
           cwd: '/work/project',

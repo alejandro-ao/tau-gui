@@ -208,7 +208,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'pi',
+          runtime: 'tau',
           status: 'running',
           responseReady: null,
         },
@@ -225,7 +225,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'pi',
+          runtime: 'tau',
           status: 'idle',
           responseReady: true,
         },
@@ -328,15 +328,29 @@ describe('SessionsRail', () => {
     await click(item);
     await settle(view);
     await view.flush();
-    expect(bridge.payloads('session.switch')).toEqual([]);
-    expect(bridge.payloads('runtime.start')).toEqual([
-      { cwd: '/work/project', sessionRef: 'here-1' },
-    ]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'here-1' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
   });
 
   it('exports a catalog session without resuming it', async () => {
     const { bridge, view } = await render({
-      settings: { recentSessions: [session({ id: 'here-1', name: 'local work' })] },
+      runtime: 'pi',
+      capabilities: { sessionList: true },
+      settings: { recentSessions: [] },
+      results: {
+        'session.list': [
+          {
+            id: 'here-1',
+            name: 'local work',
+            firstMessage: null,
+            cwd: '/work/project',
+            createdAt: 1,
+            modifiedAt: 2,
+            messageCount: 1,
+            parentSessionId: null,
+          },
+        ],
+      },
     });
     const exportButton = view.container.querySelector<HTMLButtonElement>('.sessions-rail-forget');
     if (!exportButton) throw new Error('export button missing');

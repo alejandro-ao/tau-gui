@@ -6,19 +6,21 @@ export interface WorkingDirectoryGroup {
   sessions: SessionSummary[];
 }
 
-/**
- * Pi's catalog is authoritative. App-owned recents remain a fallback for
- * previously remembered Pi sessions and keep only UI ordering metadata.
- */
+/** Main returns a tagged, deduplicated catalog. Renderer never resolves legacy paths. */
 export function catalogSessions(
   settings: AppSettings,
-  nativeSessions: SessionSummary[],
+  sessions: SessionSummary[],
 ): SessionSummary[] {
-  const ids = new Set(nativeSessions.map((session) => session.id));
-  const remembered = settings.recentSessions
-    .filter((session) => !ids.has(session.id))
+  const identities = new Set(sessions.map((session) => `${session.runtime}:${session.sessionId}`));
+  const remembered: SessionSummary[] = settings.recentSessions
+    .filter((session) => !identities.has(`${session.runtime}:${session.id}`))
     .map((session) => ({
+      // Legacy id is an opaque settings key here; its path never enters a renderer request.
       id: session.id,
+      source: 'recent',
+      runtime: session.runtime,
+      sessionId: session.id,
+      exportable: false,
       name: session.name,
       firstMessage: session.firstMessage ?? null,
       cwd: session.cwd,
@@ -27,9 +29,14 @@ export function catalogSessions(
       messageCount: session.messageCount ?? (session.name || session.firstMessage ? 1 : 0),
       parentSessionId: null,
     }));
-  return [...nativeSessions, ...remembered].sort(
-    (left, right) => right.modifiedAt - left.modifiedAt,
-  );
+  const seen = new Set<string>();
+  return [...sessions, ...remembered]
+    .filter((session) => {
+      if (seen.has(session.id)) return false;
+      seen.add(session.id);
+      return true;
+    })
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
 }
 
 export function groupSessionsByWorkingDirectory(

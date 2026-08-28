@@ -68,10 +68,20 @@ export interface AgentRuntime {
   newSession(): Promise<void>;
   switchSession(ref: string): Promise<void>;
   nameSession(name: string): Promise<void>;
-  fork(entryId: string): Promise<string>;
+  fork(
+    entryId: string,
+    options: {
+      summary: 'none' | 'default' | 'custom';
+      customInstructions?: string;
+      label?: string;
+    },
+  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }>;
   setLabel(entryId: string, label: string | null): Promise<void>;
   clone(): Promise<void>;
+  prepareImport?(path: string): Promise<{ sessionId: string; physicalKey: string }>;
   importJsonl(path: string): Promise<void>;
+  discardPreparedImport?(): Promise<void>;
+  describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
   listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
   exportJsonl(path: string, sessionId?: string): Promise<string>;
@@ -406,9 +416,11 @@ export class JsonlAgentRuntime implements AgentRuntime {
 
   async getTree(): Promise<TreeSnapshot> {
     const data = asRecord(await this.rpc.request('get_tree'));
+    const normalized = normalizeTree(data['tree']);
     return {
-      tree: normalizeTree(data['tree']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      rows: normalized.rows,
+      leafId: typeof data['leafId'] === 'string' ? data['leafId'].slice(0, 128) : null,
+      truncated: normalized.truncated,
     };
   }
 
@@ -511,9 +523,20 @@ export class JsonlAgentRuntime implements AgentRuntime {
     await this.rpc.request('set_session_name', { name });
   }
 
-  async fork(entryId: string): Promise<string> {
+  async fork(
+    entryId: string,
+    _options: {
+      summary: 'none' | 'default' | 'custom';
+      customInstructions?: string;
+      label?: string;
+    },
+  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }> {
     const data = asRecord(await this.rpc.request('fork', { entryId }));
-    return typeof data['text'] === 'string' ? data['text'] : '';
+    return {
+      editorText: typeof data['text'] === 'string' ? data['text'].slice(0, 100_000) : null,
+      cancelled: false,
+      aborted: false,
+    };
   }
 
   setLabel(): Promise<void> {

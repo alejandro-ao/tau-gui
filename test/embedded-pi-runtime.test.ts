@@ -1,6 +1,6 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
 import {
@@ -169,6 +169,7 @@ describe('EmbeddedPiRuntime', () => {
         session: {
           sessionManager: {
             appendMessage: (message: unknown) => string;
+            appendSessionInfo: (name: string) => string;
           };
         };
       };
@@ -196,20 +197,19 @@ describe('EmbeddedPiRuntime', () => {
       stopReason: 'stop',
       timestamp: Date.now(),
     });
+    sessionInternals.runtime.session.sessionManager.appendSessionInfo('safe\u202Eevil');
     await runtime.setLabel(entryId, 'bookmark');
     const tree = await runtime.getTree();
-    const labeled = tree.tree
-      .flatMap(function flatten(node): typeof tree.tree {
-        return [node, ...node.children.flatMap(flatten)];
-      })
-      .find((node) => node.entry.id === entryId);
-    expect(labeled?.entry.label).toBe('bookmark');
+    const labeled = tree.rows.find((row) => row.id === entryId);
+    expect(labeled?.label).toBe('bookmark');
 
     const catalog = await runtime.listSessions('all');
     expect(catalog).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: originalId,
+          sessionId: originalId,
+          source: 'native',
+          name: 'safe evil',
           firstMessage: 'Native catalog task',
           cwd,
           messageCount: 2,
@@ -228,16 +228,28 @@ describe('EmbeddedPiRuntime', () => {
       text: 'Native catalog task',
     });
     expect(await runtime.listSessions('all')).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ id: cloneId, parentSessionId: originalId }),
-      ]),
+      expect.arrayContaining([expect.objectContaining({ sessionId: cloneId })]),
     );
 
+    const collision = join(dirname((await runtime.getState()).sessionFile!), 'portable.jsonl');
+    writeFileSync(collision, 'owned destination');
+    await runtime.prepareImport(portable);
     await runtime.importJsonl(portable);
+    expect(readFileSync(collision, 'utf8')).toBe('owned destination');
     expect((await runtime.getState()).sessionId).toBe(originalId);
     expect((await runtime.getMessages())[0]).toMatchObject({
       role: 'user',
       text: 'Native catalog task',
     });
+
+    await expect(runtime.prepareImport((await runtime.getState()).sessionFile!)).rejects.toThrow(
+      'active session',
+    );
+
+    const malformed = join(root, 'malformed.jsonl');
+    writeFileSync(malformed, '{not-jsonl}\n');
+    await expect(runtime.prepareImport(malformed)).rejects.toThrow();
+    const staging = join(agentDir, 'import-staging');
+    expect(readdirSync(staging)).toEqual([]);
   });
 });

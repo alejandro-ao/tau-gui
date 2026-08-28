@@ -102,7 +102,8 @@ export function SessionsRail(): ReactNode {
                 <ul>
                   {group.sessions.map((session) => {
                     const label = sessionLabel(session)!;
-                    const activity = state.sessionActivity[`pi:${session.id}`];
+                    const activity =
+                      state.sessionActivity[`${session.runtime}:${session.sessionId}`];
                     const working =
                       activity?.status === 'starting' ||
                       activity?.status === 'running' ||
@@ -114,20 +115,20 @@ export function SessionsRail(): ReactNode {
                         ? 'response'
                         : null;
                     return (
-                      <li key={`pi:${session.id}`} data-active={session.id === activeId}>
+                      <li key={session.id} data-active={session.sessionId === activeId}>
                         <button
                           type="button"
                           className="sessions-rail-item"
-                          data-active={session.id === activeId}
+                          data-active={session.sessionId === activeId}
                           data-pending={session.id === pendingSessionId}
-                          aria-current={session.id === activeId ? 'true' : undefined}
+                          aria-current={session.sessionId === activeId ? 'true' : undefined}
                           aria-busy={session.id === pendingSessionId}
                           title={session.cwd ?? session.id}
                           onClick={() => {
-                            setPendingSessionId(session.id);
+                            setPendingSessionId(session.sessionId);
                             void actions.resumeSession(session).finally(() => {
                               setPendingSessionId((pending) =>
-                                pending === session.id ? null : pending,
+                                pending === session.sessionId ? null : pending,
                               );
                             });
                           }}
@@ -154,15 +155,17 @@ export function SessionsRail(): ReactNode {
                             </span>
                           </span>
                         </button>
-                        <button
-                          type="button"
-                          className="sessions-rail-forget"
-                          aria-label={`export ${label} as JSONL`}
-                          title="export portable Pi session"
-                          onClick={() => void actions.exportJsonl(session.id)}
-                        >
-                          ⇩
-                        </button>
+                        {session.exportable ? (
+                          <button
+                            type="button"
+                            className="sessions-rail-forget"
+                            aria-label={`export ${label} as JSONL`}
+                            title="export portable Pi session"
+                            onClick={() => void actions.exportJsonl(session.id)}
+                          >
+                            ⇩
+                          </button>
+                        ) : null}
                       </li>
                     );
                   })}

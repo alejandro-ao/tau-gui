@@ -1,13 +1,20 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { contextFilesSchema, resourceCatalogSchema, sessionCatalogSchema } from '../shared/ipc.js';
+import {
+  contextFilesSchema,
+  resourceCatalogSchema,
+  sessionCatalogSchema,
+  treeNavigateResultSchema,
+  treeSnapshotSchema,
+} from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
+import { recentSummary } from './services/session-identity.js';
 
 export interface HandlerContext {
   settings: SettingsStore;
@@ -51,10 +58,7 @@ export async function handleRequest(
       return settings.forgetSession(request.payload.id);
 
     case 'runtime.start':
-      return manager.start({
-        cwd: request.payload.cwd ?? null,
-        sessionRef: request.payload.sessionRef ?? null,
-      });
+      return manager.start({ cwd: request.payload.cwd ?? null });
     case 'runtime.openSession':
       return manager.openSession(request.payload.cwd);
     case 'runtime.stop':
@@ -95,7 +99,7 @@ export async function handleRequest(
     case 'agent.entries':
       return runtime().getEntries(request.payload?.cursor);
     case 'agent.tree':
-      return runtime().getTree();
+      return treeSnapshotSchema.parse(await runtime().getTree());
     case 'agent.stats':
       return runtime().getStats();
 
@@ -136,7 +140,9 @@ export async function handleRequest(
       await manager.nameSession(request.payload.name, target);
       return null;
     case 'session.fork':
-      return runtime().fork(request.payload.entryId);
+      return treeNavigateResultSchema.parse(
+        await runtime().fork(request.payload.entryId, request.payload),
+      );
     case 'session.label':
       await runtime().setLabel(request.payload.entryId, request.payload.label);
       return null;
@@ -149,8 +155,23 @@ export async function handleRequest(
       await manager.importSession(input, target);
       return null;
     }
-    case 'session.list':
-      return sessionCatalogSchema.parse(await runtime().listSessions(request.payload.scope));
+    case 'session.list': {
+      const snapshot = manager.snapshot();
+      const active = snapshot.capabilities ?? runtime().capabilities;
+      const native =
+        active?.sessionList !== false ? await runtime().listSessions(request.payload.scope) : [];
+      const nativeSessions = new Set(
+        native.map((session) => `${session.runtime}:${session.sessionId}`),
+      );
+      const recent = settings.current.recentSessions
+        .filter(
+          (session) =>
+            !nativeSessions.has(`${session.runtime}:${session.id}`) &&
+            (request.payload.scope === 'all' || session.cwd === snapshot.cwd),
+        )
+        .map(recentSummary);
+      return sessionCatalogSchema.parse([...native, ...recent].slice(0, 500));
+    }
     case 'session.compact':
       return runtime().compact(request.payload?.instructions);
     case 'session.autoCompaction':

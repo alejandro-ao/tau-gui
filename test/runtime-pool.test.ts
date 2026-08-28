@@ -104,6 +104,22 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
   });
 
+  it('removes a destructively replaced runtime after recreation failure', async () => {
+    const settings = makeSettings();
+    const events: BridgeEvent[] = [];
+    pool = new RuntimePool(settings, (event) => events.push(event));
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    pool.runtimeFor(target).clone = () => Promise.reject(new Error('rebind failed'));
+
+    await expect(pool.cloneSession(target)).rejects.toThrow('rebind failed');
+    expect(pool.snapshot()).toMatchObject({ status: 'failed', recoveryTarget: target });
+    expect(() => pool?.runtimeFor(target)).toThrow('Session is no longer available');
+    expect(
+      events.some((event) => event.type === 'status' && event.snapshot.status === 'failed'),
+    ).toBe(true);
+  });
+
   it('stops a subprocess whose session activation fails', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

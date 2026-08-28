@@ -67,6 +67,30 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   };
   const settings: AppSettings = { ...DEFAULT_SETTINGS, ...options.settings };
 
+  const sessionList = (
+    (options.results?.['session.list'] as Array<Record<string, unknown>> | undefined) ??
+    settings.recentSessions.map((session) => ({
+      id: session.id,
+      source: 'recent',
+      runtime: session.runtime,
+      sessionId: session.id,
+      exportable: false,
+      name: session.name,
+      firstMessage: session.firstMessage ?? null,
+      cwd: session.cwd,
+      createdAt: session.lastSeen,
+      modifiedAt: session.lastSeen,
+      messageCount: session.messageCount ?? 0,
+      parentSessionId: null,
+    }))
+  ).map((session) => ({
+    ...session,
+    source: session['source'] ?? 'native',
+    runtime: session['runtime'] ?? 'pi',
+    sessionId: session['sessionId'] ?? session['id'],
+    exportable: session['exportable'] ?? true,
+  }));
+
   const results: Partial<Record<IpcAction, unknown>> = {
     'settings.get': settings,
     'settings.update': settings,
@@ -89,12 +113,13 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'agent.abort': null,
     'shell.run': { command: '', output: 'ok', exitCode: 0, cancelled: false, truncated: false },
     'agent.state': options.agent ?? null,
-    'agent.tree': { tree: [], leafId: null },
+    'agent.tree': { rows: [], leafId: null, truncated: false },
     'fs.complete': [],
     'fs.relativize': [],
     'diagnostics.list': [],
-    'session.fork': '',
+    'session.fork': { editorText: null, cancelled: false, aborted: false },
     ...options.results,
+    'session.list': sessionList,
   };
 
   const handlers = new Map<IpcAction, (payload: Record<string, unknown> | undefined) => unknown>();

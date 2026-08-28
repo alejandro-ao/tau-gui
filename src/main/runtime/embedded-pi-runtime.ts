@@ -1,5 +1,6 @@
 import { existsSync } from 'node:fs';
-import { copyFile, open, readdir } from 'node:fs/promises';
+import { copyFile, open, rm } from 'node:fs/promises';
+import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
   SessionManager,
@@ -44,6 +45,13 @@ import {
   normalizeTree,
 } from './normalize.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
+import {
+  boundedSessionList,
+  ensureCheckedDirectory,
+  exclusiveCopy,
+  inspectPhysicalFile,
+  type PhysicalFile,
+} from './session-files.js';
 
 /**
  * Features executable through the complete desktop application contract.
@@ -85,6 +93,16 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private readonly agentDir: string;
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
+  private readonly catalog = new Map<
+    string,
+    { path: string; sessionId: string; physical: PhysicalFile }
+  >();
+  private preparedImport: {
+    source: string;
+    staged: string;
+    sessionId: string;
+    physical: PhysicalFile;
+  } | null = null;
 
   constructor(
     sink: RuntimeSink,
@@ -185,6 +203,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.runtime = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    await this.discardPreparedImport();
     if (runtime) await runtime.dispose();
     this.sink.status('stopped');
   }
@@ -259,9 +278,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   getTree(): Promise<TreeSnapshot> {
+    const normalized = normalizeTree(this.session.sessionManager.getTree());
     return Promise.resolve({
-      tree: normalizeTree(this.session.sessionManager.getTree()),
+      rows: normalized.rows,
       leafId: this.session.sessionManager.getLeafId(),
+      truncated: normalized.truncated,
     });
   }
 
@@ -346,8 +367,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async switchSession(ref: string): Promise<void> {
-    const info = await findSession(ref, this.agentDir);
-    await this.host.switchSession(info?.path ?? ref);
+    const info = this.catalog.get(ref) ?? (await resolveCatalogSession(ref, this.agentDir));
+    if (!info) throw new Error('Pi session reference is not in the main-owned catalog');
+    await this.host.switchSession(info.path);
   }
 
   nameSession(name: string): Promise<void> {
@@ -355,9 +377,24 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     return Promise.resolve();
   }
 
-  async fork(entryId: string): Promise<string> {
-    const result = await this.session.navigateTree(entryId);
-    return result.editorText ?? '';
+  async fork(
+    entryId: string,
+    options: {
+      summary: 'none' | 'default' | 'custom';
+      customInstructions?: string;
+      label?: string;
+    },
+  ): Promise<{ editorText: string | null; cancelled: boolean; aborted: boolean }> {
+    const result = await this.session.navigateTree(entryId, {
+      summarize: options.summary !== 'none',
+      customInstructions: options.summary === 'custom' ? options.customInstructions : undefined,
+      label: options.label,
+    });
+    return {
+      editorText: result.editorText ?? null,
+      cancelled: result.cancelled,
+      aborted: result.aborted === true,
+    };
   }
 
   setLabel(entryId: string, label: string | null): Promise<void> {
@@ -368,38 +405,85 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async clone(): Promise<void> {
     const leafId = this.session.sessionManager.getLeafId();
-    if (!leafId) throw new Error('Send a message before cloning this session');
-    const result = await this.host.fork(leafId, { position: 'at' });
-    if (result.cancelled) throw new Error('Session clone was cancelled');
+    const source = this.session.sessionFile;
+    if (!leafId || !source) throw new Error('Send a message before cloning this session');
+    const sessionDir = await ensureCheckedDirectory(this.session.sessionManager.getSessionDir());
+    const manager = SessionManager.open(source, sessionDir);
+    const destination = manager.createBranchedSession(leafId);
+    if (!destination) throw new Error('Failed to create cloned session');
+    const artifact = await inspectPhysicalFile(destination, sessionDir);
+    try {
+      const result = await this.host.switchSession(destination);
+      if (result.cancelled) throw new Error('Session clone was cancelled');
+    } catch (error) {
+      const current = await inspectPhysicalFile(destination, sessionDir).catch(() => null);
+      if (current?.key === artifact.key)
+        await rm(destination, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async prepareImport(path: string): Promise<{ sessionId: string; physicalKey: string }> {
+    await this.discardPreparedImport();
+    const source = await inspectPhysicalFile(path);
+    const current = this.session.sessionFile
+      ? await inspectPhysicalFile(this.session.sessionFile).catch(() => null)
+      : null;
+    if (current?.key === source.key) throw new Error('Cannot import the active session file');
+
+    const stagingRoot = await ensureCheckedDirectory(join(this.agentDir, 'import-staging'));
+    const staged = join(stagingRoot, `${randomUUID()}.jsonl`);
+    const physical = await exclusiveCopy(source.path, staged);
+    try {
+      // Public SDK validation only; the application never parses JSONL.
+      const manager = SessionManager.open(staged, stagingRoot);
+      const sessionId = manager.getSessionId();
+      if (!sessionId || sessionId.length > 128)
+        throw new Error('Imported session identity is invalid');
+      this.preparedImport = { source: resolve(path), staged, sessionId, physical };
+      return { sessionId, physicalKey: physical.key };
+    } catch (error) {
+      await rm(staged, { force: true });
+      throw error;
+    }
   }
 
   async importJsonl(path: string): Promise<void> {
-    const result = await this.host.importFromJsonl(path);
-    if (result.cancelled) throw new Error('Session import was cancelled');
+    const prepared = this.preparedImport;
+    if (!prepared || prepared.source !== resolve(path))
+      throw new Error('Import was not safely prepared');
+    const sessionDir = await ensureCheckedDirectory(this.session.sessionManager.getSessionDir());
+    const destination = join(sessionDir, `${randomUUID()}.jsonl`);
+    try {
+      await exclusiveCopy(prepared.staged, destination);
+      const result = await this.host.switchSession(destination);
+      if (result.cancelled) throw new Error('Session import was cancelled');
+      this.preparedImport = null;
+      await rm(prepared.staged, { force: true });
+    } catch (error) {
+      await rm(destination, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async discardPreparedImport(): Promise<void> {
+    const prepared = this.preparedImport;
+    this.preparedImport = null;
+    if (prepared) await rm(prepared.staged, { force: true }).catch(() => undefined);
+  }
+
+  async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
+    const record = this.catalog.get(ref) ?? (await resolveCatalogSession(ref, this.agentDir));
+    if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
+    return { sessionId: record.sessionId, physicalKey: record.physical.key };
   }
 
   async listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]> {
-    const sessionDir = join(this.agentDir, 'sessions');
-    const sessions =
-      scope === 'cwd'
-        ? await SessionManager.list(this.host.cwd, sessionDirFor(this.host.cwd, this.agentDir))
-        : await listAllSessions(sessionDir);
-    const idByPath = new Map(sessions.map((session) => [resolve(session.path), session.id]));
-    return sessions
-      .sort((left, right) => right.modified.getTime() - left.modified.getTime())
-      .slice(0, MAX_SESSION_CATALOG_ENTRIES)
-      .map((session) => ({
-        id: boundedMetadata(session.id, 128),
-        name: boundedNullable(session.name, 160),
-        firstMessage: boundedNullable(session.firstMessage, 500),
-        cwd: boundedNullable(session.cwd, 4_096),
-        createdAt: session.created.getTime(),
-        modifiedAt: session.modified.getTime(),
-        messageCount: Math.max(0, Math.min(session.messageCount, 1_000_000)),
-        parentSessionId: session.parentSessionPath
-          ? (idByPath.get(resolve(session.parentSessionPath)) ?? null)
-          : null,
-      }));
+    const result = await loadCatalog(this.agentDir, scope === 'cwd' ? this.host.cwd : null);
+    this.catalog.clear();
+    for (const record of result.records) this.catalog.set(record.summary.id, record);
+    for (const message of result.diagnostics.slice(0, 20)) this.sink.diagnostic(message);
+    return result.records.map((record) => record.summary);
   }
 
   exportHtml(path?: string): Promise<string> {
@@ -408,8 +492,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async exportJsonl(path: string, sessionId?: string): Promise<string> {
     let source = this.session.sessionFile;
-    if (sessionId && sessionId !== this.session.sessionId) {
-      source = (await findSession(sessionId, this.agentDir))?.path;
+    if (sessionId) {
+      const record =
+        this.catalog.get(sessionId) ?? (await resolveCatalogSession(sessionId, this.agentDir));
+      if (!record) throw new Error('Inactive export requires a native catalog record');
+      source = record.path;
     }
     if (!source) throw new Error('This session has not been saved yet');
     await copyFile(source, path);
@@ -491,11 +578,8 @@ function resourceDescription(value: string): string | null {
 
 /** Pi permits YAML-folded descriptions that retain a trailing newline. */
 function boundedMetadata(value: string, limit: number): string {
-  return [...value]
-    .map((character) => {
-      const codePoint = character.codePointAt(0) ?? 0;
-      return codePoint <= 0x1f || codePoint === 0x7f ? ' ' : character;
-    })
+  return [...value.normalize('NFC')]
+    .map((character) => (/\p{Cc}|\p{Cf}|\p{Cs}/u.test(character) ? ' ' : character))
     .join('')
     .trim()
     .slice(0, limit);
@@ -561,38 +645,124 @@ function slashPath(path: string): string {
   return path.split(sep).join('/');
 }
 
-async function listAllSessions(sessionRoot: string) {
-  // The public custom-directory overload scans one flat directory, while AO's
-  // SDK-created sessions use Pi's per-cwd subdirectories. Discover directory
-  // names only, then delegate every session file to SessionManager.listAll().
-  const directories = [sessionRoot];
-  try {
-    const entries = await readdir(sessionRoot, { withFileTypes: true });
-    directories.push(
-      ...entries
-        .filter((entry) => entry.isDirectory() && !entry.isSymbolicLink())
-        .slice(0, MAX_SESSION_CATALOG_ENTRIES)
-        .map((entry) => join(sessionRoot, entry.name)),
-    );
-  } catch {
-    return [];
-  }
-  const listed = await Promise.all(
-    directories.map((directory) => SessionManager.listAll(directory)),
-  );
-  return listed.flat();
+interface CatalogRecord {
+  summary: SessionSummary;
+  path: string;
+  sessionId: string;
+  physical: PhysicalFile;
 }
 
-async function findSession(ref: string, agentDir: string) {
-  const sessions = await listAllSessions(join(agentDir, 'sessions'));
-  return sessions.find((session) => session.id === ref || session.path === ref);
+function catalogId(physical: PhysicalFile): string {
+  return `pi-${createHash('sha256').update(`${physical.key}\0${physical.path}`).digest('hex').slice(0, 32)}`;
+}
+
+async function loadCatalog(
+  agentDir: string,
+  cwd: string | null,
+): Promise<{ records: CatalogRecord[]; diagnostics: string[] }> {
+  const listed = await boundedSessionList(join(agentDir, 'sessions'));
+  const diagnostics = [...listed.diagnostics];
+  const candidates: CatalogRecord[] = [];
+  const pathIds = new Map<string, string>();
+  for (const { info, physical } of listed.sessions) {
+    try {
+      if (cwd !== null && info.cwd !== cwd) continue;
+      if (typeof info.id !== 'string' || !info.id || info.id.length > 128) {
+        throw new Error('invalid session id');
+      }
+      const createdAt = info.created instanceof Date ? info.created.getTime() : Number.NaN;
+      const modifiedAt = info.modified instanceof Date ? info.modified.getTime() : Number.NaN;
+      if (
+        !Number.isFinite(createdAt) ||
+        createdAt < 0 ||
+        !Number.isFinite(modifiedAt) ||
+        modifiedAt < 0
+      ) {
+        throw new Error('invalid session date');
+      }
+      const id = catalogId(physical);
+      pathIds.set(resolve(info.path), id);
+      candidates.push({
+        path: physical.path,
+        sessionId: info.id,
+        physical,
+        summary: {
+          id,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: info.id,
+          exportable: true,
+          name: boundedNullable(typeof info.name === 'string' ? info.name : undefined, 160),
+          firstMessage: boundedNullable(
+            typeof info.firstMessage === 'string' ? info.firstMessage : undefined,
+            500,
+          ),
+          cwd: boundedNullable(typeof info.cwd === 'string' ? info.cwd : undefined, 4_096),
+          createdAt,
+          modifiedAt,
+          messageCount:
+            typeof info.messageCount === 'number' && Number.isFinite(info.messageCount)
+              ? Math.max(0, Math.min(Math.trunc(info.messageCount), 1_000_000))
+              : 0,
+          parentSessionId: null,
+        },
+      });
+    } catch (error) {
+      diagnostics.push(`Dropped malformed session record: ${(error as Error).message}`);
+    }
+  }
+
+  // Conflicting logical IDs are non-selectable. Physical duplicates are also dropped.
+  const idCounts = new Map<string, number>();
+  const physicalCounts = new Map<string, number>();
+  for (const record of candidates) {
+    idCounts.set(record.sessionId, (idCounts.get(record.sessionId) ?? 0) + 1);
+    physicalCounts.set(record.physical.key, (physicalCounts.get(record.physical.key) ?? 0) + 1);
+  }
+  const records = candidates
+    .filter((record) => {
+      const unique =
+        idCounts.get(record.sessionId) === 1 && physicalCounts.get(record.physical.key) === 1;
+      if (!unique) diagnostics.push(`Dropped conflicting session identity: ${record.sessionId}`);
+      return unique;
+    })
+    .map((record) => {
+      const source = listed.sessions.find(({ physical }) => physical.path === record.path)?.info;
+      return {
+        ...record,
+        summary: {
+          ...record.summary,
+          parentSessionId:
+            source?.parentSessionPath && typeof source.parentSessionPath === 'string'
+              ? (pathIds.get(resolve(source.parentSessionPath)) ?? null)
+              : null,
+        },
+      };
+    })
+    .sort((left, right) => right.summary.modifiedAt - left.summary.modifiedAt)
+    .slice(0, MAX_SESSION_CATALOG_ENTRIES);
+  return { records, diagnostics };
+}
+
+async function resolveCatalogSession(ref: string, agentDir: string): Promise<CatalogRecord | null> {
+  if (!/^pi-[a-f0-9]{32}$/.test(ref)) return null;
+  const catalog = await loadCatalog(agentDir, null);
+  return catalog.records.find((record) => record.summary.id === ref) ?? null;
 }
 
 async function openSession(ref: string, cwd: string, agentDir: string): Promise<SessionManager> {
-  if (existsSync(ref)) return SessionManager.open(ref, dirname(ref), cwd);
-  const info = await findSession(ref, agentDir);
-  if (!info) throw new Error(`Pi session not found: ${ref}`);
-  return SessionManager.open(info.path, dirname(info.path), info.cwd || cwd);
+  // Legacy paths can enter only through main-owned persisted settings. Renderer
+  // IPC cannot carry a path-shaped session reference.
+  if (isAbsolute(ref)) {
+    const physical = await inspectPhysicalFile(ref);
+    return SessionManager.open(physical.path, dirname(physical.path), cwd);
+  }
+  const catalog = await loadCatalog(agentDir, null);
+  const record = catalog.records.find(
+    (candidate) => candidate.summary.id === ref || candidate.sessionId === ref,
+  );
+  if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
+  return SessionManager.open(record.path, dirname(record.path), record.summary.cwd ?? cwd);
 }
 
 /** Pi accepts a host-selected session directory through its public SDK. */

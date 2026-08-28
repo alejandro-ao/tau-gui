@@ -311,14 +311,36 @@ export interface EntrySnapshot {
   leafId: string | null;
 }
 
-export interface TreeNode {
-  entry: SessionEntry;
-  children: TreeNode[];
+/** Bounded, presentation-only tree row. Full messages and extension details never cross IPC. */
+export interface TreeRow {
+  id: string;
+  parentId: string | null;
+  depth: number;
+  kind: SessionEntry['kind'];
+  role: MessageRole | null;
+  timestamp: string;
+  preview: string;
+  label: string | null;
 }
 
 export interface TreeSnapshot {
-  tree: TreeNode[];
+  rows: TreeRow[];
   leafId: string | null;
+  truncated: boolean;
+}
+
+export type TreeSummaryMode = 'none' | 'default' | 'custom';
+
+export interface TreeNavigateOptions {
+  summary: TreeSummaryMode;
+  customInstructions?: string;
+  label?: string;
+}
+
+export interface TreeNavigateResult {
+  editorText: string | null;
+  cancelled: boolean;
+  aborted: boolean;
 }
 
 /* ----------------------------------------------------------------- actions */
@@ -385,7 +407,14 @@ export interface SessionRef {
 
 /** Bounded Pi-native session metadata. Session file paths never cross IPC. */
 export interface SessionSummary {
+  /** Opaque main-owned catalog identity used for resume/export and React keys. */
   id: string;
+  source: 'native' | 'recent';
+  runtime: RuntimeKind;
+  /** Runtime transcript identity, used only to correlate activity/current state. */
+  sessionId: string;
+  /** Only native records can be resolved for inactive portable export. */
+  exportable: boolean;
   name: string | null;
   firstMessage: string | null;
   cwd: string | null;

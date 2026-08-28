@@ -12,9 +12,9 @@ import type {
   AppSettings,
   ModelRef,
   RuntimeKind,
-  SessionRef,
   SessionSummary,
   ThinkingLevel,
+  TreeNavigateOptions,
   TreeSnapshot,
 } from '../../../shared/domain.js';
 import type {
@@ -46,7 +46,7 @@ export interface QueueRecall extends PromptQueueItem {
 }
 
 export interface Actions {
-  start: (cwd?: string | null, sessionRef?: string | null) => Promise<void>;
+  start: (cwd?: string | null) => Promise<void>;
   stop: () => Promise<void>;
   submit: (text: string) => Promise<void>;
   steer: (text: string) => Promise<void>;
@@ -67,9 +67,9 @@ export interface Actions {
   newSessionFromDirectoryPicker: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
   /** Resumes a recent session, switching runtime or restarting if needed. */
-  resumeSession: (ref: SessionRef | SessionSummary) => Promise<void>;
+  resumeSession: (ref: SessionSummary) => Promise<void>;
   nameSession: (name: string) => Promise<void>;
-  fork: (entryId: string) => Promise<string | null>;
+  fork: (entryId: string, options: TreeNavigateOptions) => Promise<string | null>;
   setLabel: (entryId: string, label: string | null) => Promise<void>;
   cloneSession: () => Promise<void>;
   importJsonl: () => Promise<void>;
@@ -169,6 +169,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       // session's messages. Failed restart snapshots retain this address even
       // though no process can provide agent state.
       const target = snapshotTarget(snapshot);
+      const catalog = await attempt('session.list', { scope: 'all' }, notice, target ?? undefined);
+      if (epoch === refreshEpoch.current && catalog)
+        dispatch({ type: 'sessions', sessions: catalog });
       if (snapshot.status === 'stopped' || snapshot.status === 'failed') {
         if (target) {
           const queue = await attempt('queue.snapshot', undefined, notice, target);
@@ -180,9 +183,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         await Promise.all([
           attempt('agent.messages', undefined, notice, target),
           attempt('agent.stats', undefined, notice, target),
-          snapshot.capabilities.sessionList
-            ? attempt('session.list', { scope: 'all' }, notice, target)
-            : Promise.resolve(null),
+          Promise.resolve(null),
           attempt('models.list', undefined, notice, target),
           attempt('thinking.list', undefined, notice, target),
           attempt('commands.list', undefined, notice, target),
@@ -371,13 +372,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     };
 
     return {
-      start: async (cwd, sessionRef) => {
+      start: async (cwd) => {
         invalidateRefresh();
         await run(async () => {
-          const snapshot = await invoke('runtime.start', {
-            cwd: cwd ?? null,
-            sessionRef: sessionRef ?? null,
-          });
+          const snapshot = await invoke('runtime.start', { cwd: cwd ?? null });
           dispatch({ type: 'snapshot', snapshot });
           dispatch({ type: 'clearTranscript' });
           await refresh();
@@ -532,13 +530,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       resumeSession: async (ref) => {
         const previousStatus = stateRef.current.snapshot.status;
-        const native = 'modifiedAt' in ref;
-        const runtime: RuntimeKind = native ? 'pi' : ref.runtime;
+        const runtime: RuntimeKind = ref.runtime;
         const navigation = beginNavigation(runtime);
         try {
-          // Native Pi metadata carries only an opaque session id. Legacy
-          // app-owned references may still contain a path, consumed only here.
-          const target = native ? ref.id : ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
+          // Both native and remembered records expose only a main-owned opaque id.
+          const target = ref.id;
           if (runtime !== stateRef.current.settings.agentRuntime) {
             const settings = await attempt('settings.update', { agentRuntime: runtime }, notice);
             if (!settings) return;
@@ -553,12 +549,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             await navigate(navigation, () => invoke('session.switch', { ref: target }));
             return;
           }
-          await navigate(navigation, () =>
-            invoke('runtime.start', {
-              cwd: ref.cwd ?? stateRef.current.settings.cwd ?? null,
-              sessionRef: target,
-            }),
-          );
+          await navigate(navigation, () => invoke('session.switch', { ref: target }));
         } finally {
           finishNavigation(navigation);
         }
@@ -566,15 +557,14 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       nameSession: async (name) => {
         await attempt('session.name', { name }, notice, viewed());
       },
-      fork: async (entryId) => {
+      fork: async (entryId, options) => {
         const target = viewed();
         invalidateRefresh();
-        const text = await attempt('session.fork', { entryId }, notice, target);
-        if (text !== null) {
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        }
-        return text;
+        const result = await attempt('session.fork', { entryId, ...options }, notice, target);
+        if (result === null || result.cancelled || result.aborted) return null;
+        dispatch({ type: 'clearTranscript' });
+        await refresh();
+        return result.editorText;
       },
       setLabel: async (entryId, label) => {
         await attempt('session.label', { entryId, label }, notice, viewed());

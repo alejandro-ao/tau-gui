@@ -23,6 +23,7 @@ import type {
   SessionStats,
   SessionSummary,
   ThinkingLevel,
+  TreeNavigateResult,
   TreeSnapshot,
 } from './domain.js';
 import { MAX_SCOPED_MODELS, isScopedModelKey, modelKey } from './scoped-models.js';
@@ -80,7 +81,11 @@ export type ContextFile = z.infer<typeof contextFilesSchema>[number];
 export const MAX_SESSION_CATALOG_ENTRIES = 500;
 export const sessionSummarySchema = z
   .object({
-    id: z.string().min(1).max(128),
+    id: z.string().regex(/^(?:pi|recent)-[a-f0-9]{32}$/),
+    source: z.enum(['native', 'recent']),
+    runtime: runtimeKind,
+    sessionId: z.string().min(1).max(128),
+    exportable: z.boolean(),
     name: z.string().max(160).nullable(),
     firstMessage: z.string().max(500).nullable(),
     cwd: safePathText.nullable(),
@@ -91,6 +96,56 @@ export const sessionSummarySchema = z
   })
   .strict();
 export const sessionCatalogSchema = z.array(sessionSummarySchema).max(MAX_SESSION_CATALOG_ENTRIES);
+
+export const MAX_TREE_ROWS = 2_000;
+export const MAX_TREE_DEPTH = 128;
+export const MAX_TREE_PREVIEW = 500;
+export const treeRowSchema = z
+  .object({
+    id: z.string().min(1).max(128),
+    parentId: z.string().min(1).max(128).nullable(),
+    depth: z.number().int().min(0).max(MAX_TREE_DEPTH),
+    kind: z.enum([
+      'message',
+      'custom_message',
+      'model_change',
+      'thinking_level_change',
+      'compaction',
+      'branch_summary',
+      'custom',
+      'label',
+      'session_info',
+    ]),
+    role: z
+      .enum([
+        'user',
+        'assistant',
+        'toolResult',
+        'bashExecution',
+        'custom',
+        'branchSummary',
+        'compactionSummary',
+      ])
+      .nullable(),
+    timestamp: z.string().max(64),
+    preview: z.string().max(MAX_TREE_PREVIEW),
+    label: z.string().max(120).nullable(),
+  })
+  .strict();
+export const treeSnapshotSchema = z
+  .object({
+    rows: z.array(treeRowSchema).max(MAX_TREE_ROWS),
+    leafId: z.string().max(128).nullable(),
+    truncated: z.boolean(),
+  })
+  .strict();
+export const treeNavigateResultSchema = z
+  .object({
+    editorText: z.string().max(100_000).nullable(),
+    cancelled: z.boolean(),
+    aborted: z.boolean(),
+  })
+  .strict();
 
 export const sessionTargetSchema = z.object({
   runtime: runtimeKind,
@@ -151,10 +206,7 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({
     action: z.literal('runtime.start'),
-    payload: z.object({
-      cwd: z.string().nullable().optional(),
-      sessionRef: z.string().nullable().optional(),
-    }),
+    payload: z.object({ cwd: z.string().nullable().optional() }).strict(),
   }),
   z.object({
     action: z.literal('runtime.openSession'),
@@ -204,11 +256,32 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('thinking.cycle') }),
 
   z.object({ action: z.literal('session.new') }),
-  z.object({ action: z.literal('session.switch'), payload: z.object({ ref: z.string().min(1) }) }),
+  z.object({
+    action: z.literal('session.switch'),
+    payload: z.object({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) }).strict(),
+  }),
   z.object({ action: z.literal('session.name'), payload: z.object({ name: z.string().min(1) }) }),
   z.object({
     action: z.literal('session.fork'),
-    payload: z.object({ entryId: z.string().min(1).max(128) }).strict(),
+    payload: z
+      .object({
+        entryId: z.string().min(1).max(128),
+        summary: z.enum(['none', 'default', 'custom']),
+        customInstructions: z.string().trim().min(1).max(2_000).optional(),
+        label: z.string().trim().min(1).max(120).optional(),
+      })
+      .strict()
+      .superRefine((value, context) => {
+        if (value.summary === 'custom' && !value.customInstructions) {
+          context.addIssue({ code: 'custom', message: 'Custom summary instructions are required' });
+        }
+        if (value.summary !== 'custom' && value.customInstructions !== undefined) {
+          context.addIssue({
+            code: 'custom',
+            message: 'Custom instructions require custom summary mode',
+          });
+        }
+      }),
   }),
   z.object({
     action: z.literal('session.label'),
@@ -363,7 +436,7 @@ export interface IpcResultMap {
   'session.new': null;
   'session.switch': null;
   'session.name': null;
-  'session.fork': string;
+  'session.fork': TreeNavigateResult;
   'session.label': null;
   'session.clone': null;
   'session.importJsonl': null;
@@ -388,6 +461,30 @@ export interface IpcResultMap {
 }
 
 export type IpcResult<A extends IpcAction> = IpcResultMap[A];
+
+const nullableExportPathSchema = safePathText.nullable();
+const nullResultSchema = z.null();
+
+/** Strict second-boundary schemas for the Pi-native session slice. */
+export function parseSessionIpcResult(action: IpcAction, value: unknown): unknown {
+  switch (action) {
+    case 'agent.tree':
+      return treeSnapshotSchema.parse(value);
+    case 'session.list':
+      return sessionCatalogSchema.parse(value);
+    case 'session.fork':
+      return treeNavigateResultSchema.parse(value);
+    case 'session.clone':
+    case 'session.importJsonl':
+    case 'session.label':
+      return nullResultSchema.parse(value);
+    case 'session.exportHtml':
+    case 'session.exportJsonl':
+      return nullableExportPathSchema.parse(value);
+    default:
+      return value;
+  }
+}
 
 export type IpcResponse<A extends IpcAction = IpcAction> =
   { ok: true; value: IpcResult<A> } | { ok: false; error: string };
