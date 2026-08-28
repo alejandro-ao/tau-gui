@@ -1,13 +1,22 @@
 # Electron end-to-end tests
 
 Playwright drives the **built** app (`out/main/index.js`) through
-`_electron.launch`. Every launch is isolated and credential-free.
+`_electron.launch`. Every launch is isolated and credential-free. Local launches
+are hidden from the desktop so test runs do not steal focus or open visible
+windows.
 
 ## How the harness works
 
 - `helpers.ts` creates a temporary `userData` directory per launch and passes it
   to the main process through the `TAU_GUI_USER_DATA_DIR` environment hook
   (`src/main/index.ts`). Developer settings are never read or written.
+- For local runs, the harness also sets `TAU_GUI_E2E_HIDDEN=1`. The app keeps
+  its native `BrowserWindow` hidden and disables background throttling while
+  Playwright continues to drive the renderer through CDP. The hidden mode is
+  accepted only alongside isolated test data, so it cannot accidentally hide a
+  normal launch. Linux CI already runs in an isolated Xvfb display and keeps its
+  window visible there because Chromium throttles some streaming scenarios in a
+  hidden X11 window; the startup spec still exercises hidden mode directly.
 - A `settings.json` is seeded into that directory pointing the runtime binary at
   `test/fake/fake-runtime.mjs` with `cwd` set to a temporary project directory,
   so no provider credentials are ever needed.
