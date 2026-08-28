@@ -1351,7 +1351,7 @@ describe('RuntimePool', () => {
         return value;
       });
 
-      const operation = handleRequest(context, { ...request, session: target } as never);
+      const operation = handleRequest(context, { ...request, session: target });
       await waitFor(() => operationEntered);
       await expect(pool.reloadResources(target)).rejects.toThrow('session mutation is active');
       operationGate.resolve();
@@ -1366,9 +1366,9 @@ describe('RuntimePool', () => {
       };
       const reload = pool.reloadResources(target);
       await waitFor(() => reloadEntered);
-      await expect(
-        handleRequest(context, { ...request, session: target } as never),
-      ).rejects.toThrow('resources are reloading');
+      await expect(handleRequest(context, { ...request, session: target })).rejects.toThrow(
+        'resources are reloading',
+      );
       reloadGate.resolve();
       await reload;
       expect(active[method]).toHaveBeenCalledTimes(1);
@@ -1383,7 +1383,7 @@ describe('RuntimePool', () => {
     await expect(
       pool.mutateRuntime(target, () => Promise.reject(new Error('mutation failed'))),
     ).rejects.toThrow('mutation failed');
-    pool.active.reloadResources = async () => reloadResult();
+    pool.active.reloadResources = () => Promise.resolve(reloadResult());
     await expect(pool.reloadResources(target)).resolves.toEqual(reloadResult());
 
     const reloadGate = deferred<void>();
@@ -1398,7 +1398,9 @@ describe('RuntimePool', () => {
     await waitFor(() => reloadEntered);
     reloadGate.resolve();
     await expect(observedReload).resolves.toMatchObject({ message: 'reload failed' });
-    await expect(pool.mutateRuntime(target, async () => undefined)).resolves.toBeUndefined();
+    await expect(
+      pool.mutateRuntime(target, () => Promise.resolve(undefined)),
+    ).resolves.toBeUndefined();
   });
 
   it('gates mutations by exact background manager while allowing classified reads', async () => {
@@ -1418,9 +1420,9 @@ describe('RuntimePool', () => {
     await pool.activateSession('other-session');
 
     const mutationGate = deferred<void>();
-    const mutation = pool.mutateRuntime(background, async () => mutationGate.promise);
+    const mutation = pool.mutateRuntime(background, () => mutationGate.promise);
     await expect(pool.reloadResources(background)).rejects.toThrow('session mutation is active');
-    pool.active.reloadResources = async () => reloadResult();
+    pool.active.reloadResources = () => Promise.resolve(reloadResult());
     await expect(pool.reloadResources()).resolves.toEqual(reloadResult());
     mutationGate.resolve();
     await mutation;

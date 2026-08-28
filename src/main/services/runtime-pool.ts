@@ -530,11 +530,20 @@ export class RuntimePool {
   }
 
   private createManager(): RuntimeManager {
-    let manager!: RuntimeManager;
-    manager = new RuntimeManager(this.settings, (event) => this.handleEvent(manager, event), {
-      ...this.managerOptions,
-      claimSessionMutation: (): (() => void) => this.claimMutation(manager),
-    });
+    const holder: { manager: RuntimeManager | null } = { manager: null };
+    const requireManager = (): RuntimeManager => {
+      if (!holder.manager) throw new Error('Runtime manager is not initialized');
+      return holder.manager;
+    };
+    const manager = new RuntimeManager(
+      this.settings,
+      (event) => this.handleEvent(requireManager(), event),
+      {
+        ...this.managerOptions,
+        claimSessionMutation: (): (() => void) => this.claimMutation(requireManager()),
+      },
+    );
+    holder.manager = manager;
     this.managers.add(manager);
     this.runLifecycles.set(manager, freshLifecycle(null));
     return manager;
