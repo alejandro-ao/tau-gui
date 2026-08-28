@@ -54,9 +54,10 @@
 
 - Production imports a pinned Pi SDK in Electron's main process; no user-selected
   runtime executable or shell-built launch command exists.
-- Pi events and objects are normalized before IPC. SDK sessions, credentials,
-  provider headers, environment values, resource contents, and extension
-  implementations never enter renderer state.
+- Pi events and objects are normalized before IPC. Session catalogs contain at
+  most 500 bounded metadata records and omit session-file paths. SDK sessions,
+  credentials, provider headers, environment values, resource contents, and
+  extension implementations never enter renderer state.
 - Third-party Pi extensions are disabled by the embedded resource loader until a
   desktop trust decision and bounded UI contract exist. Extensions execute
   arbitrary Node.js and are not a sandbox.
@@ -105,4 +106,7 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- Session JSONL files are never read by the GUI; all session data comes from RPC.
+- The GUI never parses Pi session JSONL. Listing, import, tree/label operations,
+  and cloning use public Pi SDK APIs. Portable export performs an opaque
+  main-process copy from a Pi-owned path to an Electron-dialog-selected path;
+  renderer requests cannot supply import or export filesystem paths.
