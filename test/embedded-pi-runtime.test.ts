@@ -342,8 +342,9 @@ describe('EmbeddedPiRuntime', () => {
 
     const malformed = join(root, 'malformed.jsonl');
     writeFileSync(malformed, '{not-jsonl}\n');
-    await expect(runtime.prepareImport(malformed)).rejects.toThrow();
     const staging = join(agentDir, 'import-staging');
-    expect(readdirSync(staging)).toEqual([]);
+    const retainedBeforeMalformed = readdirSync(staging).length;
+    await expect(runtime.prepareImport(malformed)).rejects.toThrow();
+    expect(readdirSync(staging)).toHaveLength(retainedBeforeMalformed + 1);
   });
 });

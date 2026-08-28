@@ -45,11 +45,12 @@ import {
 } from './normalize.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
 import {
+  assertArtifactCapacity,
   boundedSessionList,
   ensureCheckedDirectory,
   exclusiveCopy,
   inspectPhysicalFile,
-  removePhysicalFile,
+  retainPhysicalFile,
   type PhysicalFile,
 } from './session-files.js';
 
@@ -419,6 +420,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async clone(): Promise<void> {
+    const catalog = await loadCatalog(this.agentDir, null);
+    if (!catalog.complete) throw incompleteCatalogError();
+    if (catalog.records.length >= MAX_SESSION_CATALOG_ENTRIES) {
+      throw new Error('Session catalog capacity reached; clone refused');
+    }
     const leafId = this.session.sessionManager.getLeafId();
     const source = this.session.sessionFile;
     if (!leafId || !source) throw new Error('Send a message before cloning this session');
@@ -431,7 +437,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       const result = await this.host.switchSession(destination);
       if (result.cancelled) throw new Error('Session clone was cancelled');
     } catch (error) {
-      await removePhysicalFile(artifact).catch(() => false);
+      await retainPhysicalFile(artifact, (message) => this.sink.diagnostic(message));
       throw error;
     }
   }
@@ -445,8 +451,11 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (current?.key === source.key) throw new Error('Cannot import the active session file');
 
     const stagingRoot = await ensureCheckedDirectory(join(this.agentDir, 'import-staging'));
+    await assertArtifactCapacity(stagingRoot);
     const staged = join(stagingRoot, `${randomUUID()}.jsonl`);
-    const physical = await exclusiveCopy(source.path, staged);
+    const physical = await exclusiveCopy(source.path, staged, {
+      onRetained: (message) => this.sink.diagnostic(message),
+    });
     try {
       // Public SDK validation only; the application never parses JSONL.
       const manager = SessionManager.open(staged, stagingRoot);
@@ -456,7 +465,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       this.preparedImport = { source: resolve(path), staged, sessionId, physical };
       return { sessionId, physicalKey: physical.key };
     } catch (error) {
-      await removePhysicalFile(physical).catch(() => false);
+      await retainPhysicalFile(physical, (message) => this.sink.diagnostic(message));
       throw error;
     }
   }
@@ -475,7 +484,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     const destination = join(sessionDir, destinationName);
     let created: PhysicalFile | null = null;
     try {
-      created = await exclusiveCopy(prepared.staged, destination);
+      created = await exclusiveCopy(prepared.staged, destination, {
+        onRetained: (message) => this.sink.diagnostic(message),
+      });
       const stagedNow = await inspectPhysicalFile(prepared.staged, dirname(prepared.staged));
       const destinationNow = await inspectPhysicalFile(destination, sessionDir);
       if (
@@ -500,10 +511,12 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       const result = await this.host.switchSession(destination);
       if (result.cancelled) throw new Error('Session import was cancelled');
       this.preparedImport = null;
-      await removePhysicalFile(prepared.physical).catch(() => false);
+      await retainPhysicalFile(prepared.physical, (message) => this.sink.diagnostic(message));
       return { sessionId, physicalKey: created.key, physicalPath: created.path };
     } catch (error) {
-      if (created) await removePhysicalFile(created).catch(() => false);
+      if (created) {
+        await retainPhysicalFile(created, (message) => this.sink.diagnostic(message));
+      }
       throw error;
     }
   }
@@ -511,7 +524,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   async discardPreparedImport(): Promise<void> {
     const prepared = this.preparedImport;
     this.preparedImport = null;
-    if (prepared) await removePhysicalFile(prepared.physical).catch(() => false);
+    if (prepared) {
+      await retainPhysicalFile(prepared.physical, (message) => this.sink.diagnostic(message));
+    }
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {

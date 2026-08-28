@@ -123,13 +123,22 @@
   exclusive random destination and public runtime switching. The staged and
   destination no-follow identities are rechecked immediately before switching,
   and the final runtime snapshot must match the reserved logical and physical
-  identity exactly. Existing files are never overwritten; only an exact
-  app-created identity is removed on cancellation/failure. Clone uses
-  public branch creation plus switching so its exact artifact can be cleaned up.
+  identity exactly. Existing files are never overwritten. Node does not expose
+  handle-relative unlink, so the app never path-deletes session artifacts after
+  a separate ownership check: a same-user swap could otherwise replace the path
+  before unlink. Failed/cancelled clone and import artifacts, and consumed staging
+  copies, are deliberately retained with bounded path-free diagnostics. Import
+  staging has a 32-artifact capacity and then fails closed until the user performs
+  explicit recovery, preventing an unbounded staging leak. Retained clone files
+  remain ordinary catalogued sessions under the existing finite catalog budgets.
 - Catalog discovery uses iterative directory handles and directory/file/byte/time
   metadata budgets. Roots, children, and files are lstat/realpath checked for
   containment, symlinks and hardlinks are rejected, SDK calls are sequential,
-  and malformed SDK records are isolated. Pi 0.84.2's public `list/listAll` API
+  and malformed SDK records are isolated. Catalog results carry an explicit
+  completeness bit: skipped directories, omitted/malformed/duplicate records,
+  identity conflicts, or budget truncation make identity-sensitive import and
+  reservation operations fail closed until a later complete scan recovers. Pi
+  0.84.2's public `list/listAll` API
   has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
   mutation between the final metadata recheck and Pi's read cannot be eliminated
   portably. Every approved file is rechecked immediately before each SDK listing

@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { mkdir, open, opendir, lstat, realpath, rm } from 'node:fs/promises';
+import { mkdir, open, opendir, lstat, realpath } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { SessionManager, type SessionInfo } from '@earendil-works/pi-coding-agent';
 
@@ -10,6 +10,7 @@ export const SESSION_IO_LIMITS = {
   fileBytes: 16 * 1024 * 1024,
   totalBytes: 64 * 1024 * 1024,
   milliseconds: 2_000,
+  retainedArtifacts: 32,
 } as const;
 
 export interface PhysicalFile {
@@ -18,14 +19,24 @@ export interface PhysicalFile {
   size: number;
 }
 
-/** Remove only the exact no-follow identity created by this process. */
-export async function removePhysicalFile(expected: PhysicalFile): Promise<boolean> {
+/**
+ * Node cannot unlink relative to an already-open file handle. Never path-delete an
+ * artifact after a separate ownership check: a same-user swap could make that
+ * path caller-owned before unlink. Retain it and report whether ownership stayed
+ * stable so bounded diagnostics can direct explicit recovery.
+ */
+export async function retainPhysicalFile(
+  expected: PhysicalFile,
+  diagnostic: (message: string) => void,
+): Promise<void> {
   const current = await inspectPhysicalFile(expected.path, dirname(expected.path)).catch(
     () => null,
   );
-  if (!current || current.key !== expected.key || current.size !== expected.size) return false;
-  await rm(expected.path);
-  return true;
+  diagnostic(
+    current?.key === expected.key && current.size === expected.size
+      ? 'Retained app-created session artifact because atomic cleanup is unavailable'
+      : 'Retained session artifact path after ownership became uncertain; no file was deleted',
+  );
 }
 
 interface ApprovedDirectory {
@@ -47,6 +58,25 @@ function deadline(started: number): void {
 export async function ensureCheckedDirectory(path: string, rootReal?: string): Promise<string> {
   await mkdir(path, { recursive: true, mode: 0o700 });
   return checkedDirectory(path, rootReal);
+}
+
+/** Refuse further staging once retained artifacts reach a finite recovery budget. */
+export async function assertArtifactCapacity(directory: string): Promise<void> {
+  const checked = await checkedDirectory(directory);
+  const handle = await opendir(checked);
+  let entries = 0;
+  try {
+    while ((await handle.read()) !== null) {
+      entries += 1;
+      if (entries >= SESSION_IO_LIMITS.retainedArtifacts) {
+        throw new Error(
+          'Retained import artifact budget reached; explicit staging-directory recovery is required',
+        );
+      }
+    }
+  } finally {
+    await handle.close().catch(() => undefined);
+  }
 }
 
 async function checkedDirectory(path: string, rootReal?: string): Promise<string> {
@@ -239,8 +269,21 @@ export async function inspectPhysicalFile(
   return { path: absolute, key: `${String(before.dev)}:${String(before.ino)}`, size: before.size };
 }
 
-/** Copy from a no-follow source handle into an exclusively-created destination. */
-export async function exclusiveCopy(source: string, destination: string): Promise<PhysicalFile> {
+interface ExclusiveCopyOptions {
+  /** Test seam and future post-create initialization; may deliberately fail. */
+  afterCreate?: (destination: string) => void | Promise<void>;
+  onRetained?: (message: string) => void;
+}
+
+/**
+ * Copy from a no-follow source handle into an exclusively-created destination.
+ * Failure retains the created inode: path cleanup cannot be made atomic in Node.
+ */
+export async function exclusiveCopy(
+  source: string,
+  destination: string,
+  options: ExclusiveCopyOptions = {},
+): Promise<PhysicalFile> {
   const sourceHandle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
   let destinationHandle;
   let created = false;
@@ -255,6 +298,7 @@ export async function exclusiveCopy(source: string, destination: string): Promis
       0o600,
     );
     created = true;
+    await options.afterCreate?.(destination);
     const buffer = Buffer.alloc(64 * 1024);
     let position = 0;
     while (position < before.size) {
@@ -269,13 +313,24 @@ export async function exclusiveCopy(source: string, destination: string): Promis
       position += read.bytesRead;
     }
     await destinationHandle.sync();
-    const after = await sourceHandle.stat();
+    const [after, createdInfo] = await Promise.all([sourceHandle.stat(), destinationHandle.stat()]);
     if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size) {
       throw new Error('Import source changed during copy');
     }
-    return inspectPhysicalFile(destination, dirname(destination));
+    const physical = await inspectPhysicalFile(destination, dirname(destination));
+    if (
+      physical.key !== `${String(createdInfo.dev)}:${String(createdInfo.ino)}` ||
+      physical.size !== createdInfo.size
+    ) {
+      throw new Error('Import destination changed after exclusive creation');
+    }
+    return physical;
   } catch (error) {
-    if (created) await rm(destination, { force: true }).catch(() => undefined);
+    if (created) {
+      options.onRetained?.(
+        'Retained failed copy artifact because atomic path ownership cleanup is unavailable',
+      );
+    }
     throw error;
   } finally {
     await destinationHandle?.close().catch(() => undefined);
