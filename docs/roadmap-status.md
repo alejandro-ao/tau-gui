@@ -194,8 +194,9 @@ claims.
   discovered while walking up from the session working directory. Discovery
   stays in the main process; only bounded labels and paths cross IPC.
 - Pi-native session picker and working-directory rail use metadata-budgeted
-  `SessionManager.listAll` records with unique opaque catalog identities; app
-  recents are tagged main-resolved fallbacks; backing paths are absent from all
+  `SessionManager.listAll` records with bounded opaque catalog identities bound to
+  the complete physical generation; app recents are tagged main-resolved fallbacks;
+  backing paths are absent from all
   renderer settings/state/status DTOs and renderer fallback never creates IDs.
 - New/switch/name, bounded flat-row tree navigation with explicitly truncated editable user turns,
   labels, no/default/custom branch summaries, clone, fresh-native-catalog portable

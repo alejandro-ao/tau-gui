@@ -63,8 +63,9 @@
   runtime executable or shell-built launch command exists.
 - Pi events and objects are normalized before IPC. Session catalogs contain at
   most 500 bounded metadata records and omit session-file paths. Native and
-  remembered records are tagged; native resume/export uses a physical-file-derived
-  opaque ID, while legacy paths remain only in main-owned settings (renderer
+  remembered records are tagged; native resume/export uses a bounded opaque ID
+  hashing a canonical encoding of the complete observed physical generation
+  (path, device/inode key, size, mtime, and ctime), while legacy paths remain only in main-owned settings (renderer
   settings redact them). Runtime snapshots, status events, agent state, and
   details expose only a persisted/ephemeral flag, never the backing session path.
   Conflicting logical IDs or physical files are omitted.
@@ -156,14 +157,17 @@
   arguments/results, or extension/custom details. Editable navigation text is
   capped at 100,000 characters after Pi mutates the branch and carries an explicit
   truncation flag, so successful mutation is never reported as schema failure.
-  Portable export resolves every selection through a fresh complete native catalog.
-  Active export is allowed only when its current session ID and full physical
+  Native resume and portable export resolve every opaque selection through a fresh
+  complete catalog; stale tokens cannot select an in-place replacement because the
+  token binds path, device/inode, size, mtime, and ctime. Active export is allowed
+  only when its current session ID and full physical
   generation (device/inode, size, mtime, and ctime) match that fresh record.
   Legacy external active files are never treated as authoritative export sources.
   Export opens the catalog source no-follow, checks the full generation before and
   after copying, and exclusively creates the native-dialog destination in a
-  revalidated physical parent. Same-inode overwrite, truncate, and rewrite races
-  are rejected. It never overwrites:
+  revalidated physical parent. Inactive pre-call and active/during-copy same-inode
+  overwrite, truncate, rewrite, and valid foreign-session replacements are rejected.
+  It never overwrites:
   a collision explains the create-new-only rule and reopens the save dialog.
   Renderer requests cannot supply paths. HTML export's weaker boundary is the
   destination path: Pi's public root SDK exposes only `exportToHtml(path)`, not a

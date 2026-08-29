@@ -5,6 +5,7 @@ import {
   renameSync,
   rmSync,
   symlinkSync,
+  truncateSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -61,6 +62,111 @@ describe('EmbeddedPiRuntime', () => {
       toolCatalog: false,
     });
   });
+
+  it.each([
+    {
+      name: 'in-place overwrite',
+      mutate: (path: string, original: Buffer) =>
+        writeFileSync(path, Buffer.alloc(original.length, 0x20)),
+    },
+    {
+      name: 'truncate',
+      mutate: (path: string) => truncateSync(path, 1),
+    },
+    {
+      name: 'same-length rewrite',
+      mutate: (path: string, original: Buffer) => writeFileSync(path, original),
+    },
+    {
+      name: 'valid foreign session replacement',
+      mutate: (path: string, _original: Buffer, foreign: Buffer) => writeFileSync(path, foreign),
+    },
+  ])(
+    'refuses inactive portable export through a stale opaque id after $name',
+    async ({ name, mutate }) => {
+      const root = mkdtempSync(join(tmpdir(), 'tau-gui-inactive-export-'));
+      roots.push(root);
+      const cwd = join(root, 'project');
+      const agentDir = join(root, 'agent');
+      mkdirSync(cwd, { recursive: true });
+
+      const foreign = SessionManager.create(cwd, join(root, 'foreign'));
+      foreign.appendMessage({ role: 'user', content: 'session B', timestamp: Date.now() });
+      foreign.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply B' }],
+        api: 'test',
+        provider: 'test',
+        model: 'test',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      });
+      const foreignPath = foreign.getSessionFile();
+      if (!foreignPath) throw new Error('foreign fixture was not persisted');
+
+      const runtime = new EmbeddedPiRuntime(
+        { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
+        { agentDir, home: root },
+      );
+      active = runtime;
+      await runtime.start({
+        kind: 'pi',
+        binary: '',
+        cwd,
+        extraArgs: [],
+        projectTrust: 'default',
+      });
+
+      const originalManager = (
+        runtime as unknown as { runtime: { session: { sessionManager: SessionManager } } }
+      ).runtime.session.sessionManager;
+      originalManager.appendMessage({ role: 'user', content: 'session A', timestamp: Date.now() });
+      originalManager.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'reply A' }],
+        api: 'test',
+        provider: 'test',
+        model: 'test',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      });
+      const originalId = originalManager.getSessionId();
+      const inactivePath = originalManager.getSessionFile();
+      if (!inactivePath) throw new Error('inactive fixture was not persisted');
+      await runtime.newSession();
+
+      const catalog = await runtime.listSessions('all');
+      const selected = catalog.find((record) => record.sessionId === originalId);
+      if (!selected) throw new Error('inactive fixture was not cataloged');
+      expect(selected.id).toMatch(/^pi-[a-f0-9]{32}$/);
+
+      const original = readFileSync(inactivePath);
+      const foreignBytes = readFileSync(foreignPath);
+      mutate(inactivePath, original, foreignBytes);
+
+      const destination = join(root, `${name.replaceAll(' ', '-')}.jsonl`);
+      await expect(runtime.exportJsonl(destination, selected.id)).rejects.toThrow(
+        /catalog|identity|record/,
+      );
+      expect(() => readFileSync(destination)).toThrow();
+    },
+  );
 
   it('refuses portable export of an active legacy session outside native catalog roots', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-export-'));

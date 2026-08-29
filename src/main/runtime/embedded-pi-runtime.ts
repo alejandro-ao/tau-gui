@@ -96,11 +96,6 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
   private readonly exportAfterCreate?: (destination: string) => void | Promise<void>;
-  private readonly catalog = new Map<
-    string,
-    { path: string; sessionId: string; physical: PhysicalFile }
-  >();
-  private catalogComplete = false;
 
   constructor(
     sink: RuntimeSink,
@@ -368,11 +363,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async switchSession(ref: string): Promise<void> {
-    const cached = this.catalog.get(ref);
-    if (cached && !this.catalogComplete) throw incompleteCatalogError();
-    const info = cached ?? (await resolveCatalogSession(ref, this.agentDir));
-    if (!info) throw new Error('Pi session reference is not in the main-owned catalog');
-    await this.host.switchSession(info.path);
+    const record = await resolveCatalogSession(ref, this.agentDir);
+    if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
+    await this.host.switchSession(record.path);
   }
 
   nameSession(name: string): Promise<void> {
@@ -437,18 +430,13 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
-    const cached = this.catalog.get(ref);
-    if (cached && !this.catalogComplete) throw incompleteCatalogError();
-    const record = cached ?? (await resolveCatalogSession(ref, this.agentDir));
+    const record = await resolveCatalogSession(ref, this.agentDir);
     if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
     return { sessionId: record.sessionId, physicalKey: record.physical.key };
   }
 
   async listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]> {
     const result = await loadCatalog(this.agentDir, scope === 'cwd' ? this.host.cwd : null);
-    this.catalog.clear();
-    this.catalogComplete = result.complete;
-    for (const record of result.records) this.catalog.set(record.summary.id, record);
     for (const message of result.diagnostics.slice(0, 20)) this.sink.diagnostic(message);
     return result.records.map((record) => record.summary);
   }
@@ -672,7 +660,17 @@ interface CatalogRecord {
 }
 
 function catalogId(physical: PhysicalFile): string {
-  return `pi-${createHash('sha256').update(`${physical.key}\0${physical.path}`).digest('hex').slice(0, 32)}`;
+  // JSON's array encoding is canonical for these ordered primitive fields and
+  // cannot introduce delimiter ambiguity. The token binds the renderer's
+  // selection to the complete physical generation observed by this catalog.
+  const generation = JSON.stringify([
+    physical.path,
+    physical.key,
+    physical.size,
+    physical.mtimeNs,
+    physical.ctimeNs,
+  ]);
+  return `pi-${createHash('sha256').update(generation, 'utf8').digest('hex').slice(0, 32)}`;
 }
 
 export async function loadCatalog(
