@@ -742,11 +742,6 @@ function matches(manager: RuntimeManager, target: SessionTarget): boolean {
   return snapshot.runtime === target.runtime && snapshot.state?.sessionId === target.sessionId;
 }
 
-function boundedError(error: unknown): string {
-  const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ').slice(0, 500);
-}
-
 function sameTarget(left: SessionTarget, right: SessionTarget): boolean {
   return left.runtime === right.runtime && left.sessionId === right.sessionId;
 }

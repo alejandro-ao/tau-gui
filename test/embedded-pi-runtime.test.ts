@@ -24,27 +24,6 @@ import { estimateTextTokens } from '../src/shared/token-estimate.js';
 const roots: string[] = [];
 let active: EmbeddedPiRuntime | null = null;
 
-function appendConversation(manager: SessionManager, text: string): void {
-  manager.appendMessage({ role: 'user', content: text, timestamp: Date.now() });
-  manager.appendMessage({
-    role: 'assistant',
-    content: [{ type: 'text', text: 'safe reply' }],
-    api: 'test',
-    provider: 'test',
-    model: 'test',
-    usage: {
-      input: 1,
-      output: 1,
-      cacheRead: 0,
-      cacheWrite: 0,
-      totalTokens: 2,
-      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-    },
-    stopReason: 'stop',
-    timestamp: Date.now(),
-  });
-}
-
 afterEach(async () => {
   await active?.stop();
   active = null;
