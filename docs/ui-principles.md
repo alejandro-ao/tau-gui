@@ -11,6 +11,8 @@
 - Render only the assistant message that closes a turn as the answer; reasoning and the narration a model writes before a tool call stay on the rail.
 - Collapse settled activity into a quiet duration/tool-count summary immediately before the answer.
 - Keep exact commands, arguments, output, and patches available through expansion.
+- Render compaction and branch summaries as one-line collapsed headers: they are context bookkeeping, not conversation.
+- Keep the conversation on screen after a user-triggered compaction; compaction shrinks runtime context, not the reader's history.
 - Optimize for keyboard use without sacrificing mouse selection, scrolling, links, and native clipboard behavior.
 - Virtualize long transcripts without changing runtime context or durable history.
 - Treat `agent_settled`, not `agent_end`, as the transition to idle.
