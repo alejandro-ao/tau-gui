@@ -6,6 +6,7 @@ import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
+import type { ExtensionHostService } from './services/extension-host.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 
@@ -13,6 +14,7 @@ export interface HandlerContext {
   settings: SettingsStore;
   manager: RuntimePool;
   window: () => BrowserWindow | null;
+  extensionHost?: ExtensionHostService;
 }
 
 const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
@@ -167,6 +169,22 @@ export async function handleRequest(
 
     case 'commands.list':
       return runtime().listCommands();
+    case 'extensions.list': {
+      const host = requiredExtensionHost(context);
+      return host.list(manager.snapshot().cwd, manager.effectiveProjectTrust === 'approve-once');
+    }
+    case 'extensions.policy.get':
+      return requiredExtensionHost(context).getPolicy();
+    case 'extensions.policy.update':
+      return requiredExtensionHost(context).updatePolicy(request.payload);
+    case 'extensions.host.probe':
+      return requiredExtensionHost(context).probe();
+    case 'extensions.dialog.respond':
+      requiredExtensionHost(context).respondDialog(
+        request.payload.requestId,
+        request.payload.value,
+      );
+      return null;
     case 'resources.list': {
       const active = runtime();
       if (active.getResources) {
@@ -248,6 +266,11 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+function requiredExtensionHost(context: HandlerContext): ExtensionHostService {
+  if (!context.extensionHost) throw new Error('Extension isolation service is unavailable');
+  return context.extensionHost;
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {

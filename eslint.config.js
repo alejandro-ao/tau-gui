@@ -12,6 +12,7 @@ export default tseslint.config(
       'release/**',
       'node_modules/**',
       'test/fake/**',
+      'src/main/extension-host-worker.cjs',
     ],
   },
   js.configs.recommended,

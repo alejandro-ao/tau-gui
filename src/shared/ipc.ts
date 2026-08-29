@@ -5,6 +5,16 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import {
+  extensionHostStatusSchema,
+  extensionPolicySchema,
+  extensionResourceListSchema,
+  extensionUiEventSchema,
+  type ExtensionHostStatus,
+  type ExtensionPolicy,
+  type ExtensionResource,
+  type ExtensionUiEvent,
+} from './extensions.js';
 import { resourceCatalogSchema } from './resources.js';
 import type {
   AgentEvent,
@@ -214,6 +224,28 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
+  z.object({ action: z.literal('extensions.list') }).strict(),
+  z.object({ action: z.literal('extensions.policy.get') }).strict(),
+  z
+    .object({
+      action: z.literal('extensions.policy.update'),
+      payload: z
+        .object({ userEnabled: z.boolean().optional(), projectEnabled: z.boolean().optional() })
+        .strict(),
+    })
+    .strict(),
+  z.object({ action: z.literal('extensions.host.probe') }).strict(),
+  z
+    .object({
+      action: z.literal('extensions.dialog.respond'),
+      payload: z
+        .object({
+          requestId: z.string().uuid(),
+          value: z.union([z.string().max(100_000), z.boolean(), z.null()]),
+        })
+        .strict(),
+    })
+    .strict(),
   z.object({ action: z.literal('resources.list') }).strict(),
   z.object({ action: z.literal('context.list') }).strict(),
 
@@ -237,7 +269,13 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
 
-export { resourceCatalogSchema };
+export {
+  extensionHostStatusSchema,
+  extensionPolicySchema,
+  extensionResourceListSchema,
+  extensionUiEventSchema,
+  resourceCatalogSchema,
+};
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
@@ -335,6 +373,11 @@ export interface IpcResultMap {
   'shell.run': BashResult;
   'shell.abort': null;
   'commands.list': CommandInfo[];
+  'extensions.list': ExtensionResource[];
+  'extensions.policy.get': ExtensionPolicy;
+  'extensions.policy.update': ExtensionPolicy;
+  'extensions.host.probe': ExtensionHostStatus;
+  'extensions.dialog.respond': null;
   'resources.list': ResourceCatalog;
   'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
@@ -365,6 +408,7 @@ export type BridgeEvent =
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }
+  | { type: 'extensionUi'; event: ExtensionUiEvent }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

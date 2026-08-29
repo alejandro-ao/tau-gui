@@ -8,6 +8,10 @@ import type {
 } from '../shared/ipc.js';
 import {
   contextFilesSchema,
+  extensionHostStatusSchema,
+  extensionPolicySchema,
+  extensionResourceListSchema,
+  extensionUiEventSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
@@ -50,6 +54,15 @@ const bridge: TauBridge = {
     if (action === 'context.list') {
       return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
     }
+    if (action === 'extensions.list') {
+      return extensionResourceListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'extensions.policy.get' || action === 'extensions.policy.update') {
+      return extensionPolicySchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'extensions.host.probe') {
+      return extensionHostStatusSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     return response.value as IpcResult<typeof action>;
   },
   subscribe(listener) {
@@ -89,6 +102,8 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
     type === 'diagnostic' ||
     type === 'settings' ||
     type === 'sessionActivity' ||
+    (type === 'extensionUi' &&
+      extensionUiEventSchema.safeParse((value as { event?: unknown }).event).success) ||
     type === 'focus'
   );
 }

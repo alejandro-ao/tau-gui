@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, session as electronSession } from 'electron';
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,6 +9,7 @@ import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { ExtensionHostService } from './services/extension-host.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -38,6 +40,7 @@ const CSP = buildCsp(isDev);
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
+let extensionHost: ExtensionHostService;
 
 function broadcast(event: BridgeEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -105,7 +108,7 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   electronSession.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -121,6 +124,13 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
+  extensionHost = new ExtensionHostService({
+    agentDir: getAgentDir(),
+    policyPath: join(app.getPath('userData'), 'extension-policy.json'),
+    workerPath: join(dirname, 'extension-host-worker.cjs'),
+    broadcast: (event) => broadcast({ type: 'extensionUi', event }),
+  });
+  await extensionHost.load();
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -139,7 +149,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, window: () => mainWindow },
+        { settings, manager, extensionHost, window: () => mainWindow },
         parsed.data,
       );
       return { ok: true, value };
@@ -160,5 +170,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  extensionHost?.stop();
   void manager?.stopAll();
 });
