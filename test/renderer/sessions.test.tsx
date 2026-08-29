@@ -76,7 +76,7 @@ describe('session and context flows', () => {
             messageCount: 1,
             path: '/work/project/.tau/existing.jsonl',
             cwd: '/work/project',
-            runtime: 'tau',
+            runtime: 'pi',
             lastSeen: Date.now(),
           },
         ],

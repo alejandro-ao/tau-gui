@@ -264,7 +264,7 @@ describe('Composer key handling', () => {
 
   it('recalls and resubmits a retained queue through its recovery target', async () => {
     const { bridge, input } = await renderComposer({});
-    const recoveryTarget = { runtime: 'tau' as const, sessionId: 'retained-session' };
+    const recoveryTarget = { runtime: 'pi' as const, sessionId: 'retained-session' };
     bridge.setHandler('queue.pop', () => ({
       id: 'prompt-retained',
       kind: 'follow-up',
@@ -344,11 +344,11 @@ describe('Composer key handling', () => {
 
     expect(input.value).toBe('');
     expect(bridge.calls.find((call) => call.action === 'queue.pop')?.session).toEqual({
-      runtime: 'tau',
+      runtime: 'pi',
       sessionId: 'session-1',
     });
     expect(bridge.calls.find((call) => call.action === 'queue.resolve')?.session).toEqual({
-      runtime: 'tau',
+      runtime: 'pi',
       sessionId: 'session-1',
     });
     expect(bridge.payloads('queue.resolve')).toEqual([{ id: 'prompt-9', outcome: 'restore' }]);

@@ -124,10 +124,7 @@ describe('EmbeddedPiRuntime', () => {
     active = runtime;
 
     await runtime.start({
-      kind: 'pi',
-      binary: '/definitely/not/an/executable',
       cwd,
-      extraArgs: [],
       projectTrust: 'default',
       customSkillDirectories: [customSkills],
       customPromptDirectories: [customPrompts],

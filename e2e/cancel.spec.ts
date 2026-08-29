@@ -11,7 +11,7 @@ import {
 let handle: AppHandle;
 
 test.beforeEach(async () => {
-  handle = await launchApp({ env: { FAKE_RUNTIME_DELAY_MS: '60' } });
+  handle = await launchApp();
 });
 
 test.afterEach(async () => {

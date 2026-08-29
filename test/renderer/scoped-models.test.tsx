@@ -65,7 +65,7 @@ const AGENT: AgentState = {
 };
 
 function scoped(keys: string[]): Partial<AppSettings> {
-  return { scopedModels: { ...DEFAULT_SETTINGS.scopedModels, tau: keys } };
+  return { scopedModels: keys };
 }
 
 /** Opens `/scoped-models` from the command palette, the way users reach it. */
@@ -97,7 +97,7 @@ describe('scoped models modal', () => {
     await view.flush();
 
     expect(bridge.payloads('settings.toggleScopedModel')).toEqual([
-      { runtime: 'tau', provider: 'anthropic', modelId: 'sonnet-4' },
+      { provider: 'anthropic', modelId: 'sonnet-4' },
     ]);
     // Scoping is not model selection, and the dialog stays open for more edits.
     expect(bridge.payloads('models.set')).toEqual([]);
@@ -112,7 +112,6 @@ describe('scoped models modal', () => {
     await click([...view.container.querySelectorAll('[role="option"]')][1]!);
     await view.flush();
     expect(bridge.payloads('settings.toggleScopedModel').at(-1)).toEqual({
-      runtime: 'tau',
       provider: 'anthropic',
       modelId: 'sonnet-4',
     });
@@ -162,10 +161,7 @@ describe('scoped models modal', () => {
       };
       authoritative = {
         ...authoritative,
-        scopedModels: {
-          ...authoritative.scopedModels,
-          tau: toggleScopedKey(authoritative.scopedModels.tau, ref),
-        },
+        scopedModels: toggleScopedKey(authoritative.scopedModels, ref),
       };
       calls += 1;
       if (calls === 1) {
@@ -181,7 +177,7 @@ describe('scoped models modal', () => {
     await click(rows[0]!);
     await click(rows[1]!);
     await view.flush();
-    expect(authoritative.scopedModels.tau).toEqual([
+    expect(authoritative.scopedModels).toEqual([
       key('openai', 'gpt-5'),
       key('anthropic', 'sonnet-4'),
     ]);

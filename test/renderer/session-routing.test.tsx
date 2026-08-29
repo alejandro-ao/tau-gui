@@ -92,7 +92,7 @@ describe('session hydration routing', () => {
       bridge.emit({
         type: 'agent',
         sessionId: first.sessionId,
-        runtime: 'tau',
+        runtime: 'pi',
         event: {
           type: 'tool_start',
           toolCallId: 'already-visible-call',
@@ -124,7 +124,7 @@ describe('session hydration routing', () => {
       messageCount: 1,
       path: null,
       cwd: '/work/project',
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     };
 
@@ -138,7 +138,7 @@ describe('session hydration routing', () => {
       bridge.emit({
         type: 'agent',
         sessionId: first.sessionId,
-        runtime: 'tau',
+        runtime: 'pi',
         event: {
           type: 'tool_start',
           toolCallId: 'cross-session-call',
@@ -220,7 +220,7 @@ describe('session hydration routing', () => {
       messageCount: 1,
       path: null,
       cwd: '/work/project',
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     };
     await act(async () => {
@@ -279,7 +279,7 @@ describe('session hydration routing', () => {
       await storeActions.refresh();
     });
 
-    const target = { runtime: 'tau', sessionId: 'first-session' };
+    const target = { runtime: 'pi', sessionId: 'first-session' };
     for (const action of ['agent.prompt', 'agent.messages', 'agent.stats', 'commands.list']) {
       const call = bridge.calls.find((entry) => entry.action === action);
       expect(call, action).toBeDefined();
@@ -321,7 +321,7 @@ describe('session hydration routing', () => {
       messageCount: 1,
       path: null,
       cwd: '/work/project',
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     };
 
@@ -349,7 +349,7 @@ describe('session hydration routing', () => {
     });
 
     const prompt = bridge.calls.find((call) => call.action === 'agent.prompt');
-    expect(prompt?.session).toEqual({ runtime: 'tau', sessionId: 'second-session' });
+    expect(prompt?.session).toEqual({ runtime: 'pi', sessionId: 'second-session' });
   });
 
   it('keeps a streaming session selected and usable when picker startup fails', async () => {
@@ -394,13 +394,13 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).toContain('streaming session completed');
     expect(view.container.textContent).toContain('Runtime failed to start');
     const hydrate = bridge.calls.filter((call) => call.action === 'agent.messages').at(-1);
-    expect(hydrate?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+    expect(hydrate?.session).toEqual({ runtime: 'pi', sessionId: 'first-session' });
 
     await act(async () => {
       await storeActions.submit('still usable');
     });
     const prompt = bridge.calls.filter((call) => call.action === 'agent.prompt').at(-1);
-    expect(prompt?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+    expect(prompt?.session).toEqual({ runtime: 'pi', sessionId: 'first-session' });
   });
 
   it('reconciles the view with the runtime when opening a session fails', async () => {
@@ -434,7 +434,7 @@ describe('session hydration routing', () => {
       messageCount: 1,
       path: null,
       cwd: '/work/project',
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     };
 
@@ -450,6 +450,6 @@ describe('session hydration routing', () => {
     expect(view.container.textContent).toContain('Unknown session');
     expect(view.container.textContent).toContain('first session answer');
     const hydrate = bridge.calls.filter((call) => call.action === 'agent.messages').at(-1);
-    expect(hydrate?.session).toEqual({ runtime: 'tau', sessionId: 'first-session' });
+    expect(hydrate?.session).toEqual({ runtime: 'pi', sessionId: 'first-session' });
   });
 });

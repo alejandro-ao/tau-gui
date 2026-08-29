@@ -63,7 +63,7 @@ async function runTurn(bridge: FakeBridge, view: Mounted, text: string): Promise
     ...events.map((event) => ({
       type: 'agent' as const,
       sessionId: AGENT.sessionId,
-      runtime: 'tau' as const,
+      runtime: 'pi' as const,
       event,
     })),
   );

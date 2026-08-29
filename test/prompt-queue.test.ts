@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { BridgeEvent, SessionTarget } from '../src/shared/ipc.js';
 import { PromptQueueService } from '../src/main/services/prompt-queue.js';
 
-const alpha: SessionTarget = { runtime: 'tau', sessionId: 'alpha' };
+const alpha: SessionTarget = { runtime: 'pi', sessionId: 'alpha' };
 const beta: SessionTarget = { runtime: 'pi', sessionId: 'beta' };
 
 function setup(): {

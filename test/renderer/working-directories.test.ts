@@ -7,7 +7,7 @@ const session = (id: string, cwd: string | null, lastSeen: number): SessionRef =
   name: id,
   path: null,
   cwd,
-  runtime: 'tau',
+  runtime: 'pi',
   lastSeen,
   messageCount: 1,
 });

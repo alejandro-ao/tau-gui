@@ -73,9 +73,9 @@ describe('composer draft persistence', () => {
           {
             id: 'session-9',
             name: 'earlier work',
-            path: '/work/project/.tau/nine.jsonl',
+            path: '/work/project/.pi/nine.jsonl',
             cwd: '/work/project',
-            runtime: 'tau',
+            runtime: 'pi',
             lastSeen: 1_760_000_000_000,
           },
         ],
@@ -91,7 +91,7 @@ describe('composer draft persistence', () => {
     await click(query(view.container, '[data-modal-name="session"] [role="option"]'));
     await view.flush();
 
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-9' }]);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: '/work/project/.pi/nine.jsonl' }]);
     expect(composer(view).value).toBe('keep this draft');
   });
 });

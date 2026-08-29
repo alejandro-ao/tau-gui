@@ -2,10 +2,7 @@ import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
-import { discoverContextFiles } from './services/context-files.js';
-import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
-import { discoverTauResources } from './services/resources.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 
@@ -34,7 +31,7 @@ export async function handleRequest(
     case 'settings.update':
       return settings.update(request.payload);
     case 'settings.toggleScopedModel':
-      return settings.toggleScopedModel(request.payload.runtime, request.payload);
+      return settings.toggleScopedModel(request.payload);
     case 'settings.addResourceDirectory': {
       const kind = request.payload.kind;
       const path = await pickDirectory(
@@ -61,12 +58,6 @@ export async function handleRequest(
       return manager.stop();
     case 'runtime.restart':
       return manager.restart();
-    case 'runtime.probe': {
-      // The binary is always read from settings: the renderer cannot ask the
-      // main process to execute an arbitrary path.
-      const kind = request.payload?.kind ?? settings.current.agentRuntime;
-      return probeRuntime(kind, settings.current.runtime[kind].binary);
-    }
     case 'runtime.snapshot':
       return manager.snapshot();
 
@@ -172,28 +163,14 @@ export async function handleRequest(
       if (active.getResources) {
         return resourceCatalogSchema.parse(await active.getResources());
       }
-      // Deterministic legacy RPC tests do not embed Pi; retain their bounded
-      // metadata-only scanner until the test harness moves to injected sessions.
-      const snapshot = manager.snapshot();
-      if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
-        return { skills: [], prompts: [], diagnostics: [] };
-      }
-      const catalog = await discoverTauResources(snapshot.cwd, {
-        includeProject: manager.effectiveProjectTrust === 'approve-once',
-      });
-      return resourceCatalogSchema.parse(catalog);
+      return { skills: [], prompts: [], diagnostics: [] };
     }
     case 'context.list': {
       const active = runtime();
       if (active.getContextFiles) {
         return contextFilesSchema.parse(await active.getContextFiles());
       }
-      const snapshot = manager.snapshot();
-      if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
-      const files = await discoverContextFiles(snapshot.cwd, {
-        includeProject: manager.effectiveProjectTrust === 'approve-once',
-      });
-      return contextFilesSchema.parse(files);
+      return [];
     }
 
     case 'fs.complete': {

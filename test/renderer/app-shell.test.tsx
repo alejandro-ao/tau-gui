@@ -92,7 +92,7 @@ describe('app shell', () => {
     expect(view.container.querySelector('.usage-bar')).toBeNull();
     // The version mark carries the runtime kind and probed version.
     expect(query(view.container, '.version-mark').textContent).toContain('τ = 2π');
-    expect(query(view.container, '.version-mark').textContent).toContain('tau 9.9.9-fake');
+    expect(query(view.container, '.version-mark').textContent).toContain('pi 9.9.9-fake');
     // `tau --version` prints "tau 0.3.12"; the footer must not double the name.
     expect(versionLabel('tau', 'tau 0.3.12')).toBe('tau 0.3.12');
     expect(versionLabel('pi', '0.84.2')).toBe('pi 0.84.2');
@@ -233,7 +233,7 @@ describe('app shell', () => {
       bridge.emit({
         type: 'queue',
         snapshot: {
-          runtime: 'tau',
+          runtime: 'pi',
           sessionId: AGENT.sessionId,
           steering: [{ id: 'prompt-1', kind: 'steering', text: 'use vitest' }],
           followUp: [{ id: 'prompt-2', kind: 'follow-up', text: 'then lint' }],

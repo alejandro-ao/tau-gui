@@ -34,7 +34,7 @@ export class RuntimePool {
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
-    private readonly managerOptions: RuntimeManagerOptions = {},
+    private readonly managerOptions: RuntimeManagerOptions,
   ) {
     this.queues = new PromptQueueService(broadcast, (message) =>
       broadcast({ type: 'diagnostic', message }),
@@ -317,7 +317,7 @@ export class RuntimePool {
   }
 
   private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
-    const kind = this.settings.current.agentRuntime;
+    const kind = 'pi' as const;
     const recent = this.settings.current.recentSessions.find(
       (session) => session.runtime === kind && (session.id === ref || session.path === ref),
     );
@@ -354,14 +354,7 @@ export class RuntimePool {
     this.current = manager;
     for (const key of keys) this.owners.set(key, manager);
     try {
-      let snapshot = await manager.start({ cwd: cwd ?? recent?.cwd ?? null, sessionRef: ref });
-      // Tau normally resumes from its launch argument. This fallback also
-      // supports compatible runtimes that accept the argument but ignore it.
-      if (kind === 'tau' && recent && snapshot.state?.sessionId !== recent.id) {
-        await manager.active.switchSession(ref);
-        await manager.refreshState();
-        snapshot = manager.snapshot();
-      }
+      const snapshot = await manager.start({ cwd: cwd ?? recent?.cwd ?? null, sessionRef: ref });
       this.index(manager);
       this.claimSnapshot(manager);
       void this.schedule(manager);
@@ -501,7 +494,7 @@ export class RuntimePool {
         return false;
       case 'runtime_error':
         if (lifecycle.phase !== 'running' && lifecycle.phase !== 'ended') return false;
-        // A post-acceptance RPC error is the final boundary for this run; no
+        // A post-acceptance runtime error is the final boundary for this run; no
         // agent_settled follows. Move directly to ready so retained work can
         // drain, while a delayed duplicate settle is rejected after handoff.
         lifecycle.phase = 'ready';
@@ -540,17 +533,28 @@ export class RuntimePool {
     ) {
       return;
     }
-    await this.queues.dispatchNext(targetFor(manager), async (text) => {
+    const target = targetFor(manager);
+    await this.queues.dispatchNext(target, async (text) => {
       lifecycle.phase = 'handoff';
       try {
         await manager.active.prompt({ text });
       } catch (error) {
-        // A rejected RPC never started a run, so the reinstated item may be
-        // attempted again at the next idle scheduling boundary.
         if (lifecycle.phase === 'handoff') lifecycle.phase = 'ready';
         throw error;
       }
     });
+    // Embedded AgentSession.prompt resolves after the full run, unlike the old
+    // former RPC acceptance response. Drain another retained item after the dispatch
+    // lock clears if terminal events already returned this owner to idle.
+    const remaining = this.queues.snapshot(target);
+    if (
+      manager.isStarted &&
+      manager.snapshot().status === 'idle' &&
+      lifecycle.phase === 'ready' &&
+      (remaining.steering.length > 0 || remaining.followUp.length > 0)
+    ) {
+      void this.schedule(manager);
+    }
   }
 
   private broadcastActivity(
@@ -628,7 +632,7 @@ interface QueueRoute {
 }
 
 interface RestartIdentity {
-  runtime: RuntimeKind;
+  runtime: 'pi';
   cwd: string | null;
   sessionRef: string | null;
   target: SessionTarget | null;

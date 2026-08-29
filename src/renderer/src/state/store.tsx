@@ -16,12 +16,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
-import type {
-  FileCompletion,
-  PromptQueueItem,
-  RuntimeProbe,
-  SessionTarget,
-} from '../../../shared/ipc.js';
+import type { FileCompletion, PromptQueueItem, SessionTarget } from '../../../shared/ipc.js';
 import { nextScopedModel } from '../../../shared/scoped-models.js';
 import { attempt, invoke, subscribe } from '../bridge.js';
 import {
@@ -75,9 +70,6 @@ export interface Actions {
   addResourceDirectory: (kind: 'skills' | 'prompts') => Promise<void>;
   removeResourceDirectory: (kind: 'skills' | 'prompts', path: string) => Promise<void>;
   updateSettings: (patch: Record<string, unknown>) => Promise<void>;
-  probeRuntime: (kind: RuntimeKind, binary: string) => Promise<RuntimeProbe | null>;
-  /** Persists the runtime choice, then restarts it without losing the draft. */
-  switchRuntime: (kind: RuntimeKind) => Promise<void>;
   restart: () => Promise<void>;
   quit: () => Promise<void>;
   forgetSession: (id: string) => Promise<void>;
@@ -103,7 +95,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
   const scopedMutationRef = useRef(0);
   stateRef.current = state;
   // Invalidates in-flight transcript hydration whenever navigation starts.
-  // RPC reads are asynchronous and may otherwise resolve after another
+  // SDK-backed reads are asynchronous and may otherwise resolve after another
   // session has become active.
   const refreshEpoch = useRef(0);
   const navigationEpoch = useRef(0);
@@ -113,7 +105,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     navigationEpoch.current += 1;
   }, []);
   const beginNavigation = useCallback(
-    (targetRuntime?: RuntimeKind) => {
+    (targetRuntime?: 'pi') => {
       invalidateRefresh();
       navigating.current = true;
       dispatch({ type: 'sessionNavigation', active: true, targetRuntime });
@@ -290,7 +282,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
     const preview = state.lastCompletionPreview;
     if (!preview) return;
     if (state.windowFocused || state.settings.turnNotification !== 'desktop') return;
-    const name = state.agent?.sessionName ?? 'Tau session';
+    const name = state.agent?.sessionName ?? 'Pi session';
     void invoke('ui.notify', { title: `τ | ${name}`, body: preview.slice(0, 200) }).catch(
       () => undefined,
     );
@@ -452,8 +444,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       cycleModel: async () => {
         const current = stateRef.current;
-        const runtime = current.settings.agentRuntime;
-        const scoped = current.settings.scopedModels[runtime] ?? [];
+        const scoped = current.settings.scopedModels;
         const nextModel = nextScopedModel(
           current.models,
           scoped,
@@ -481,11 +472,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       toggleScopedModel: async (ref) => {
-        const runtime = stateRef.current.settings.agentRuntime;
         const mutation = ++scopedMutationRef.current;
         const updated = await attempt(
           'settings.toggleScopedModel',
-          { runtime, provider: ref.provider, modelId: ref.modelId },
+          { provider: ref.provider, modelId: ref.modelId },
           notice,
         );
         // Ignore an older transport response that arrived after a newer toggle.
@@ -523,18 +513,12 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       resumeSession: async (ref) => {
         const previousStatus = stateRef.current.snapshot.status;
-        const navigation = beginNavigation(ref.runtime);
+        const navigation = beginNavigation('pi');
         try {
-          // Tau resumes by indexed session id; Pi resumes by session path.
-          const target = ref.runtime === 'pi' ? (ref.path ?? ref.id) : ref.id;
-          if (ref.runtime !== stateRef.current.settings.agentRuntime) {
-            const settings = await attempt(
-              'settings.update',
-              { agentRuntime: ref.runtime },
-              notice,
-            );
-            if (!settings) return;
-            dispatch({ type: 'settings', settings });
+          const target = ref.path ?? ref.id;
+          if (ref.runtime !== 'pi') {
+            notice('Legacy Tau session references are no longer supported.');
+            return;
           }
           const started =
             previousStatus === 'idle' ||
@@ -621,24 +605,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           await attempt('settings.removeResourceDirectory', { kind, path }, notice),
         );
       },
-      probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);
         if (settings) dispatch({ type: 'settings', settings });
-      },
-      switchRuntime: async (kind) => {
-        if (kind === stateRef.current.settings.agentRuntime) return;
-        invalidateRefresh();
-        const settings = await attempt('settings.update', { agentRuntime: kind }, notice);
-        if (!settings) return;
-        dispatch({ type: 'settings', settings });
-        // The draft and every GUI setting outlive the restart on purpose.
-        await run(async () => {
-          const snapshot = await invoke('runtime.start', { cwd: settings.cwd ?? null });
-          dispatch({ type: 'snapshot', snapshot });
-          dispatch({ type: 'clearTranscript' });
-          await refresh();
-        });
       },
       restart: async () => {
         invalidateRefresh();

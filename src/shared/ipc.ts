@@ -26,18 +26,11 @@ import type {
 } from './domain.js';
 import { MAX_SCOPED_MODELS, isScopedModelKey, modelKey } from './scoped-models.js';
 
-export interface RuntimeProbe {
-  binary: string;
-  resolved: string | null;
-  version: string | null;
-  error: string | null;
-}
-
 export const IPC_INVOKE_CHANNEL = 'tau:invoke';
 export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
-const runtimeKind = z.enum(['tau', 'pi']);
+const runtimeKind = z.literal('pi');
 const safePathText = z
   .string()
   .min(1)
@@ -54,7 +47,7 @@ const safePathText = z
 /**
  * Pi walks AGENTS.md files from the working directory through its ancestors and
  * may also load the global agent file. Keep the metadata channel bounded
- * without assuming Tau's former fixed set of four locations.
+ * without assuming a fixed set of locations.
  */
 export const MAX_CONTEXT_FILES = 64;
 
@@ -83,25 +76,17 @@ export const sessionTargetSchema = z.object({
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
 
-const runtimeSettings = z.object({
-  binary: z.string().min(1),
-  provider: z.string().nullable(),
-  model: z.string().nullable(),
-  extraArgs: z.array(z.string()),
-});
-
 // Full-map settings patches remain valid for import/repair, but interactive
 // mutations use settings.toggleScopedModel so the main process updates atomically.
 const scopedModelKeys = z.array(z.string().refine(isScopedModelKey)).max(MAX_SCOPED_MODELS);
 const scopedModelRef = z
-  .object({ runtime: runtimeKind, provider: z.string().min(1), modelId: z.string().min(1) })
+  .object({ provider: z.string().min(1), modelId: z.string().min(1) })
   .refine(({ provider, modelId }) => isScopedModelKey(modelKey({ provider, modelId })), {
     message: 'encoded scoped model identity is too long',
   });
 
 export const settingsPatchSchema = z
   .object({
-    agentRuntime: runtimeKind,
     theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
     sidebarPosition: z.enum(['right', 'left', 'off']),
     turnNotification: z.enum(['desktop', 'off']),
@@ -109,8 +94,7 @@ export const settingsPatchSchema = z
     cwd: z.string().nullable(),
     workingDirectories: z.array(safePathText).max(100),
     projectTrust,
-    runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
-    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
+    scopedModels: scopedModelKeys,
   })
   .strict()
   .partial();
@@ -146,12 +130,6 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('runtime.stop') }),
   z.object({ action: z.literal('runtime.restart') }),
-  // The probe never accepts a renderer-supplied binary: only the runtime kind
-  // may be selected, and the executable always comes from persisted settings.
-  z.object({
-    action: z.literal('runtime.probe'),
-    payload: z.object({ kind: runtimeKind.optional() }).optional(),
-  }),
   z.object({ action: z.literal('runtime.snapshot') }),
 
   z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
@@ -253,10 +231,10 @@ export const envelopeSchema = z.intersection(
 export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {
-  runtime: 'tau' | 'pi';
+  runtime: 'pi';
   status: RuntimeStatus;
   detail: string | null;
-  /** Version reported by the runtime binary at launch, when known. */
+  /** Embedded Pi package version when reported, otherwise null. */
   runtimeVersion: string | null;
   capabilities: RuntimeCapabilities;
   cwd: string | null;
@@ -305,7 +283,6 @@ export interface IpcResultMap {
   'runtime.openSession': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
   'runtime.restart': RuntimeSnapshot;
-  'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
   'agent.prompt': null;
   'agent.steer': null;

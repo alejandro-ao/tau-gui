@@ -9,13 +9,8 @@ import type {
   ProjectTrust,
 } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
-import {
-  JsonlAgentRuntime,
-  type AgentRuntime,
-  type RuntimeSink,
-} from '../runtime/agent-runtime.js';
-import { CAPABILITIES } from '../runtime/spec.js';
-import { probeRuntime } from './discovery.js';
+import type { AgentRuntime, RuntimeSink } from '../runtime/agent-runtime.js';
+import { DEFAULT_CAPABILITIES } from '../../shared/domain.js';
 import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -28,14 +23,10 @@ const SESSION_NAME_POLL_LIMIT = 300;
  * starting → idle → running → compacting/retrying → idle (on agent_settled)
  * → failed/disconnected.
  */
-export type RuntimeFactory = (kind: RuntimeKind, sink: RuntimeSink) => AgentRuntime;
-
-const legacyRpcRuntimeFactory: RuntimeFactory = (kind, sink) => new JsonlAgentRuntime(kind, sink);
+export type RuntimeFactory = (sink: RuntimeSink) => AgentRuntime;
 
 export interface RuntimeManagerOptions {
-  runtimeFactory?: RuntimeFactory;
-  /** The legacy test adapter needs executable discovery; embedded Pi does not. */
-  probeExecutable?: boolean;
+  runtimeFactory: RuntimeFactory;
 }
 
 export class RuntimeManager {
@@ -46,33 +37,27 @@ export class RuntimeManager {
   private gitBranch: string | null = null;
   private state: AgentState | null = null;
   private runtimeVersion: string | null = null;
-  private runtimeKind: RuntimeKind | null = null;
+  private runtimeKind: 'pi' | null = null;
   private launchProjectTrust: ProjectTrust | null = null;
   private firstMessage: string | null = null;
   /** Prevents stale duplicate settles from changing an active run's UI status. */
   private settleExpected = true;
   private loadingFirstMessageFor: string | null = null;
   private watchingSessionNameFor: string | null = null;
-  /** Manual name accepted before Tau indexes an empty session. */
-  private pendingSessionName: { sessionId: string; name: string } | null = null;
   private readonly diagnostics: string[] = [];
 
   private readonly runtimeFactory: RuntimeFactory;
-  private readonly probeExecutable: boolean;
 
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
-    options: RuntimeManagerOptions = {},
+    options: RuntimeManagerOptions,
   ) {
-    this.runtimeFactory = options.runtimeFactory ?? legacyRpcRuntimeFactory;
-    this.probeExecutable = options.probeExecutable ?? true;
+    this.runtimeFactory = options.runtimeFactory;
   }
 
-  get kind(): RuntimeKind {
-    // A manager keeps the runtime kind it was launched with. Settings may
-    // change while this process continues in the background.
-    return this.runtimeKind ?? this.settings.current.agentRuntime;
+  get kind(): 'pi' {
+    return 'pi';
   }
 
   get active(): AgentRuntime {
@@ -95,7 +80,7 @@ export class RuntimeManager {
       status: this.status,
       detail: this.detail,
       runtimeVersion: this.runtimeVersion,
-      capabilities: this.runtime?.capabilities ?? CAPABILITIES[this.kind],
+      capabilities: this.runtime?.capabilities ?? DEFAULT_CAPABILITIES,
       cwd: this.cwd,
       gitBranch: this.gitBranch,
       state: this.state,
@@ -116,42 +101,21 @@ export class RuntimeManager {
     if (this.runtime) await this.stop();
     const settings = this.settings.current;
     const cwd = options.cwd ?? settings.cwd ?? process.cwd();
-    const kind = options.runtime ?? settings.agentRuntime;
-    const runtimeSettings = settings.runtime[kind];
+    const kind = 'pi' as const;
     const config: RuntimeLaunchConfig = {
-      kind,
-      binary: runtimeSettings.binary,
       cwd,
-      provider: runtimeSettings.provider,
-      model: runtimeSettings.model,
       sessionRef: options.sessionRef ?? null,
-      extraArgs: runtimeSettings.extraArgs,
       projectTrust: settings.projectTrust,
       customSkillDirectories: settings.customSkillDirectories,
       customPromptDirectories: settings.customPromptDirectories,
     };
 
-    // Executable probing remains only for the injected JSONL fake used by
-    // deterministic tests. The packaged app embeds Pi and needs no binary.
-    if (this.probeExecutable) {
-      const probe = await probeRuntime(config.kind, config.binary);
-      if (!probe.resolved) {
-        this.cwd = cwd;
-        const message = probe.error ?? `Runtime executable not found: ${config.binary}`;
-        this.setStatus('failed', message);
-        this.addDiagnostic(message);
-        throw new Error(message);
-      }
-      this.runtimeVersion = probe.version;
-      if (probe.version) this.addDiagnostic(`${config.kind} ${probe.version}`);
-    } else {
-      this.runtimeVersion = null;
-    }
+    this.runtimeVersion = null;
     this.runtimeKind = kind;
 
     this.cwd = cwd;
     this.gitBranch = await readGitBranch(cwd);
-    const runtime = this.runtimeFactory(kind, {
+    const runtime = this.runtimeFactory({
       event: (event) => this.handleEvent(event),
       status: (status, detail) => this.setStatus(status, detail ?? null),
       diagnostic: (line) => this.addDiagnostic(line),
@@ -181,7 +145,6 @@ export class RuntimeManager {
     if (runtime) await runtime.stop();
     this.state = null;
     this.watchingSessionNameFor = null;
-    this.pendingSessionName = null;
     this.runtimeVersion = null;
     this.settleExpected = true;
     this.setStatus('stopped', null);
@@ -196,16 +159,8 @@ export class RuntimeManager {
   async refreshState(touch = false): Promise<AgentState | null> {
     if (!this.runtime) return null;
     try {
-      let state = await this.runtime.getState();
-      if (state.sessionId !== this.state?.sessionId) {
-        this.firstMessage = null;
-        if (this.pendingSessionName?.sessionId !== state.sessionId) this.pendingSessionName = null;
-      }
-      // Tau does not index an empty session until its first prompt. Preserve a
-      // name queued for that session across authoritative refreshes meanwhile.
-      if (this.pendingSessionName?.sessionId === state.sessionId) {
-        state = { ...state, sessionName: this.pendingSessionName.name };
-      }
+      const state = await this.runtime.getState();
+      if (state.sessionId !== this.state?.sessionId) this.firstMessage = null;
       this.state = state;
       if (!state.sessionName && state.messageCount > 0 && !this.firstMessage) {
         void this.loadFirstMessage(state.sessionId);
@@ -219,30 +174,9 @@ export class RuntimeManager {
     }
   }
 
-  /**
-   * Name the active session. Tau rejects this for a newly-created, empty
-   * session because its index entry does not exist until the first prompt.
-   * Accept that narrow case locally and persist it once the first turn settles.
-   */
   async nameSession(name: string): Promise<void> {
     if (!this.runtime || !this.state?.sessionId) throw new Error('Runtime is not started');
-    try {
-      await this.runtime.nameSession(name);
-    } catch (error) {
-      if (
-        this.kind !== 'tau' ||
-        this.state.messageCount > 0 ||
-        !/unknown session/i.test((error as Error).message)
-      ) {
-        throw error;
-      }
-      this.pendingSessionName = { sessionId: this.state.sessionId, name };
-      this.state = { ...this.state, sessionName: name };
-      this.rememberCurrentSession(false);
-      this.broadcast({ type: 'status', snapshot: this.snapshot() });
-      return;
-    }
-    this.pendingSessionName = null;
+    await this.runtime.nameSession(name);
     await this.refreshState();
   }
 
@@ -285,7 +219,7 @@ export class RuntimeManager {
         if (this.settleExpected) {
           this.settleExpected = false;
           this.setStatus('idle', null);
-          void this.persistPendingSessionName();
+          void this.refreshState(true);
         }
         break;
       case 'runtime_error':
@@ -302,28 +236,7 @@ export class RuntimeManager {
     if (sessionId) this.broadcast({ type: 'agent', sessionId, runtime: this.kind, event });
   }
 
-  private async persistPendingSessionName(): Promise<void> {
-    const pending = this.pendingSessionName;
-    if (!pending || !this.runtime || this.state?.sessionId !== pending.sessionId) {
-      await this.refreshState(true);
-      return;
-    }
-    try {
-      await this.runtime.nameSession(pending.name);
-      if (this.pendingSessionName === pending) this.pendingSessionName = null;
-    } catch (error) {
-      this.addDiagnostic(`Failed to persist session name: ${(error as Error).message}`);
-    }
-    await this.refreshState(true);
-  }
-
-  /**
-   * Tau generates the first-turn title with the active model while the agent
-   * run continues. Poll its authoritative state so that title reaches the UI
-   * as soon as that parallel request finishes, rather than at agent_settled.
-   * Pi and older Tau versions simply remain on the immediate first-message
-   * label until the run settles.
-   */
+  /** Poll Pi's authoritative state so a generated first-turn title reaches the UI promptly. */
   private async watchSessionName(sessionId: string): Promise<void> {
     if (!sessionId || !this.runtime || this.watchingSessionNameFor === sessionId) return;
     this.watchingSessionNameFor = sessionId;
@@ -390,12 +303,8 @@ function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
-function describeStartFailure(config: RuntimeLaunchConfig, error: Error): string {
-  const message = error.message;
-  if (message.includes('ENOENT')) {
-    return `Runtime executable not found: ${config.binary}. Set the ${config.kind} binary path in settings.`;
-  }
-  return `Failed to start ${config.kind}: ${message}`;
+function describeStartFailure(_config: RuntimeLaunchConfig, error: Error): string {
+  return `Failed to start embedded Pi: ${error.message}`;
 }
 
 export async function readGitBranch(cwd: string): Promise<string | null> {

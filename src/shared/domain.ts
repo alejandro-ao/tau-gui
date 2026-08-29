@@ -1,8 +1,8 @@
 /**
  * Application-domain types.
  *
- * These types are runtime-independent. Tau and Pi wire payloads are normalized
- * into these shapes by runtime adapters in the main process. The renderer only
+ * Pi SDK values and injected fake-Pi values are normalized into these shapes
+ * by the main-process application-domain adapter. The renderer only
  * ever sees the types declared in this file.
  */
 
@@ -41,13 +41,8 @@ export interface RuntimeCapabilities {
 }
 
 export interface RuntimeLaunchConfig {
-  kind: RuntimeKind;
-  binary: string;
   cwd: string;
-  provider?: string | null;
-  model?: string | null;
   sessionRef?: string | null;
-  extraArgs: string[];
   projectTrust: ProjectTrust;
   /** User-selected resource directories, passed directly to Pi's loader. */
   customSkillDirectories?: string[];
@@ -388,15 +383,7 @@ export type SidebarPosition = 'right' | 'left' | 'off';
 export type ThemeName = 'tau-dark' | 'tau-light' | 'high-contrast' | 'pure-black';
 export type TurnNotification = 'desktop' | 'off';
 
-export interface RuntimeSettings {
-  binary: string;
-  provider: string | null;
-  model: string | null;
-  extraArgs: string[];
-}
-
 export interface AppSettings {
-  agentRuntime: RuntimeKind;
   theme: ThemeName;
   sidebarPosition: SidebarPosition;
   turnNotification: TurnNotification;
@@ -409,20 +396,12 @@ export interface AppSettings {
   /** Additional directories scanned by Pi for Markdown prompt templates. */
   customPromptDirectories: string[];
   projectTrust: ProjectTrust;
-  runtime: Record<RuntimeKind, RuntimeSettings>;
-  /**
-   * App-owned scoped ("favourite") models per runtime, stored as canonical
-   * JSON `[provider, modelId]` tuple keys. No runtime exposes scoped models over
-   * RPC, so the GUI owns this list and applies it with ordinary `set_model`.
-   */
-  scopedModels: Record<RuntimeKind, string[]>;
+  /** App-owned favourite model tuple keys for embedded Pi. */
+  scopedModels: string[];
   recentSessions: SessionRef[];
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  // Kept as a schema/test fixture default; SettingsStore migrates production
-  // state to the sole embedded Pi runtime.
-  agentRuntime: 'tau',
   theme: 'tau-dark',
   sidebarPosition: 'right',
   turnNotification: 'desktop',
@@ -432,11 +411,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   customSkillDirectories: [],
   customPromptDirectories: [],
   projectTrust: 'default',
-  runtime: {
-    tau: { binary: 'tau', provider: null, model: null, extraArgs: [] },
-    pi: { binary: 'pi', provider: null, model: null, extraArgs: [] },
-  },
-  scopedModels: { tau: [], pi: [] },
+  scopedModels: [],
   recentSessions: [],
 };
 

@@ -68,13 +68,10 @@ test('/scoped-models scopes models and constrains Ctrl+P cycling', async () => {
   const persisted = JSON.parse(
     readFileSync(join(handle.userDataDir, 'settings.json'), 'utf8'),
   ) as AppSettings;
-  expect(persisted.scopedModels).toEqual({
-    tau: [],
-    pi: [
-      modelKey({ provider: 'fake', modelId: 'fake-small' }),
-      modelKey({ provider: 'fake', modelId: 'fake-large' }),
-    ],
-  });
+  expect(persisted.scopedModels).toEqual([
+    modelKey({ provider: 'fake', modelId: 'fake-small' }),
+    modelKey({ provider: 'fake', modelId: 'fake-large' }),
+  ]);
 });
 
 test('the palette also reaches the model picker', async () => {

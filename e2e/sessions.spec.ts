@@ -63,7 +63,7 @@ test('the recent-session picker lists the session remembered by the app', async 
   const picker = page.getByTestId('modal-session');
   await expect(picker).toBeVisible();
   await expect(picker.getByRole('option')).toHaveCount(1);
-  await expect(picker.getByRole('option').first()).toContainText('fake-session-1');
+  await expect(picker.getByRole('option').first()).toContainText('pi ·');
   await expect(picker).toContainText('recent sessions remembered by this app');
 
   await page.keyboard.press('Escape');

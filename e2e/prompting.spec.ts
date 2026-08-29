@@ -17,9 +17,7 @@ async function fullyInsideTranscript(message: Locator, viewport: Locator): Promi
 
 test.beforeEach(async () => {
   // A per-chunk delay keeps the streaming phase observable without flakiness.
-  handle = await launchApp({
-    env: { FAKE_RUNTIME_DELAY_MS: '40', FAKE_RUNTIME_HOLD_BEFORE_ASSISTANT: '1' },
-  });
+  handle = await launchApp();
 });
 
 test.afterEach(async () => {
@@ -52,7 +50,9 @@ test('a prompt streams assistant text and then finalizes', async () => {
 
   await waitForSettled(page);
   await expect(page.locator('.streaming-caret')).toHaveCount(0);
-  await expect(page.locator('.block-assistant')).toContainText('Hello from the tau fake runtime.');
+  await expect(page.locator('.block-assistant')).toContainText(
+    'Hello from the embedded fake Pi runtime.',
+  );
   await expect(page.getByLabel('composer')).toHaveValue('');
 });
 
@@ -86,9 +86,8 @@ test('a newly sent message stays visible above the composer in a long thread', a
     .locator('.block-user')
     .filter({ hasText: 'hold assistant and keep this newest message visible' });
 
-  // The fake runtime reports running and echoes the user over its normal RPC
-  // event stream, then holds before message_start. No filesystem lifecycle or
-  // timing marker can disappear between independent Electron launches.
+  // The injected fake Pi reports running and echoes the user over the same
+  // application-domain event path, then deliberately holds before its answer.
   await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
   await expect(page.locator('.block-assistant')).toHaveCount(assistantCount);
   await expect(newest).toBeVisible({ timeout: 1000 });

@@ -134,7 +134,7 @@ export function SessionsRail(): ReactNode {
                         >
                           <span className="sessions-rail-primary">
                             <span className="sessions-rail-name">{label}</span>
-                            {session.runtime !== state.settings.agentRuntime ? (
+                            {session.runtime !== 'pi' ? (
                               <span className="sessions-rail-runtime">{session.runtime}</span>
                             ) : null}
                             <span className="sessions-rail-end">

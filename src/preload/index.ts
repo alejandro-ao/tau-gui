@@ -81,9 +81,7 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
   };
   const type = record.type;
   return (
-    (type === 'agent' &&
-      typeof record.sessionId === 'string' &&
-      (record.runtime === 'tau' || record.runtime === 'pi')) ||
+    (type === 'agent' && typeof record.sessionId === 'string' && record.runtime === 'pi') ||
     (type === 'queue' && isQueueSnapshot(record.snapshot)) ||
     type === 'status' ||
     type === 'diagnostic' ||
@@ -108,7 +106,7 @@ function isQueueSnapshot(value: unknown): boolean {
           (item as Record<string, unknown>)['kind'] === 'follow-up'),
     );
   return (
-    (snapshot['runtime'] === 'tau' || snapshot['runtime'] === 'pi') &&
+    snapshot['runtime'] === 'pi' &&
     typeof snapshot['sessionId'] === 'string' &&
     validItems(snapshot['steering']) &&
     validItems(snapshot['followUp'])

@@ -4,7 +4,7 @@ import type { RuntimeSnapshot, SessionTarget } from '../../../shared/ipc.js';
 import type { Action, AppState, TranscriptBlock } from './types.js';
 
 export const INITIAL_SNAPSHOT: RuntimeSnapshot = {
-  runtime: 'tau',
+  runtime: 'pi',
   status: 'stopped',
   detail: null,
   runtimeVersion: null,
@@ -34,7 +34,7 @@ export const INITIAL_STATE: AppState = {
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
-  queue: { runtime: 'tau', sessionId: '', steering: [], followUp: [] },
+  queue: { runtime: 'pi', sessionId: '', steering: [], followUp: [] },
   diagnostics: [],
   expandAll: false,
   expanded: {},

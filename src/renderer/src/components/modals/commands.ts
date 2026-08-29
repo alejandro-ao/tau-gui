@@ -479,8 +479,8 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     commands.flatMap((command) => (command.slash ? [command.slash.slice(1)] : [])),
   );
   for (const command of state.commands) {
-    // Tau reports built-ins from get_commands too. Keep the GUI implementation
-    // above rather than adding a duplicate that would incorrectly prompt the model.
+    // Keep the GUI implementation above rather than adding a duplicate that
+    // would incorrectly become a model prompt.
     if (registeredSlashes.has(command.name)) continue;
     add({
       id: `discovered.${command.name}`,

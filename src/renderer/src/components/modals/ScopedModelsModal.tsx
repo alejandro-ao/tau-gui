@@ -18,8 +18,7 @@ import { Picker, type PickerItem } from './Picker.js';
  */
 export function ScopedModelsModal(): ReactNode {
   const { state, actions } = useStore();
-  const runtime = state.settings.agentRuntime;
-  const keys = state.settings.scopedModels[runtime];
+  const keys = state.settings.scopedModels;
   const active = state.agent?.model ?? null;
   const availability = modelAvailability(state.snapshot.status, state.models.length > 0);
 
@@ -45,7 +44,7 @@ export function ScopedModelsModal(): ReactNode {
   return (
     <Picker
       name="scoped"
-      title={`scoped models · ${runtime}`}
+      title="scoped models · embedded Pi"
       subtitle={`app-owned favourites; ${availability.subtitle}`}
       placeholder="search models…"
       items={items}
@@ -81,7 +80,7 @@ export function modelAvailability(
     status === 'retrying'
   ) {
     return {
-      subtitle: 'no runtime supports scoped models over RPC',
+      subtitle: 'embedded Pi has not reported any available models',
       emptyLabel: 'the connected runtime reported no models',
     };
   }

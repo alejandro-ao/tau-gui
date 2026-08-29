@@ -14,7 +14,7 @@ const session = (patch: Partial<SessionRef>): SessionRef => {
     messageCount: 1,
     path: null,
     cwd: '/work/project',
-    runtime: 'tau',
+    runtime: 'pi',
     lastSeen: Date.now(),
     ...patch,
   };
@@ -136,7 +136,7 @@ describe('SessionsRail', () => {
     expect(item?.textContent).not.toContain('opaque-sess');
   });
 
-  it('marks the active session and shows a runtime badge for foreign runtimes', async () => {
+  it('marks the active Pi session without obsolete runtime badges', async () => {
     const { view } = await render({
       agent: {
         model: null,
@@ -161,7 +161,7 @@ describe('SessionsRail', () => {
     expect(active?.textContent).toContain('here-1');
     expect(active?.closest('li')?.dataset['active']).toBe('true');
     const items = [...view.container.querySelectorAll('.sessions-rail-item')];
-    expect(items[1]?.querySelector('.sessions-rail-runtime')?.textContent).toBe('pi');
+    expect(items[1]?.querySelector('.sessions-rail-runtime')).toBeNull();
     expect(items[1]?.querySelector('.sessions-rail-time')).not.toBeNull();
   });
 
@@ -177,7 +177,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'running',
           responseReady: null,
         },
@@ -194,7 +194,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'idle',
           responseReady: true,
         },
@@ -259,7 +259,6 @@ describe('SessionsRail', () => {
     const { bridge, view } = await render({
       status: 'idle',
       settings: {
-        agentRuntime: 'pi',
         recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
       },
     });
@@ -267,24 +266,6 @@ describe('SessionsRail', () => {
     if (!item) throw new Error('sessions rail item missing');
     await click(item);
     await settle(view);
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: '/sessions/pi.jsonl' }]);
-  });
-
-  it('switches the runtime before resuming a foreign-runtime session', async () => {
-    const { bridge, view } = await render({
-      status: 'idle',
-      settings: {
-        agentRuntime: 'tau',
-        recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
-      },
-    });
-    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
-    if (!item) throw new Error('sessions rail item missing');
-    await click(item);
-    await settle(view);
-    expect(bridge.payloads('settings.update')).toEqual([{ agentRuntime: 'pi' }]);
-    // The fake bridge keeps the snapshot status at idle, so the session switch
-    // happens in place rather than through a restart.
     expect(bridge.payloads('session.switch')).toEqual([{ ref: '/sessions/pi.jsonl' }]);
   });
 

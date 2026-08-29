@@ -74,15 +74,15 @@ const RECENTS: SessionRef[] = [
     name: 'refactor transport',
     path: '/work/project/.tau/sessions/one.jsonl',
     cwd: '/work/project',
-    runtime: 'tau',
+    runtime: 'pi',
     lastSeen: 1_760_000_000_000,
   },
   {
     id: 'session-2',
     name: null,
-    path: '/work/project/.tau/sessions/two.jsonl',
+    path: '/work/project/.pi/sessions/two.jsonl',
     cwd: '/work/project',
-    runtime: 'tau',
+    runtime: 'pi',
     lastSeen: 1_759_000_000_000,
   },
 ];
@@ -171,7 +171,9 @@ describe('session picker', () => {
 
     const rows = [...dialog.querySelectorAll('[role="option"]')];
     await click(rows[1]!);
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-2' }]);
+    expect(bridge.payloads('session.switch')).toEqual([
+      { ref: '/work/project/.pi/sessions/two.jsonl' },
+    ]);
   });
 });
 

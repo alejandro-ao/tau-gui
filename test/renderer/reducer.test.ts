@@ -36,7 +36,7 @@ describe('session event routing', () => {
     ...INITIAL_STATE,
     snapshot: {
       ...INITIAL_STATE.snapshot,
-      runtime: 'tau',
+      runtime: 'pi',
       status: 'idle',
       state: {
         model: null,
@@ -65,14 +65,14 @@ describe('session event routing', () => {
       type: 'event',
       event,
       sessionId: 'background-session',
-      runtime: 'tau',
+      runtime: 'pi',
       now: 1000,
     });
     const current = reducer(activeState, {
       type: 'event',
       event,
       sessionId: 'active-session',
-      runtime: 'tau',
+      runtime: 'pi',
       now: 1000,
     });
 
@@ -96,13 +96,6 @@ describe('session event routing', () => {
       messages,
       now: 1000,
       sessionId: 'background-session',
-      runtime: 'tau',
-    });
-    const otherRuntime = reducer(activeState, {
-      type: 'hydrate',
-      messages,
-      now: 1000,
-      sessionId: 'active-session',
       runtime: 'pi',
     });
     const current = reducer(activeState, {
@@ -110,11 +103,10 @@ describe('session event routing', () => {
       messages,
       now: 1000,
       sessionId: 'active-session',
-      runtime: 'tau',
+      runtime: 'pi',
     });
 
     expect(stale).toBe(activeState);
-    expect(otherRuntime).toBe(activeState);
     expect(current.blocks).toHaveLength(1);
   });
 });
@@ -505,7 +497,7 @@ describe('lifecycle bookkeeping', () => {
     expect(native.queue.steering).toEqual([]);
 
     const snapshot = {
-      runtime: 'tau' as const,
+      runtime: 'pi' as const,
       sessionId: 'session-1',
       steering: [
         { id: 'prompt-1', kind: 'steering' as const, text: 'repeat' },
@@ -561,7 +553,7 @@ describe('lifecycle bookkeeping', () => {
     const queued: AppState = {
       ...INITIAL_STATE,
       queue: {
-        runtime: 'tau',
+        runtime: 'pi',
         sessionId: 'session-1',
         steering: [{ id: 'prompt-1', kind: 'steering', text: 'keep' }],
         followUp: [],
@@ -594,7 +586,7 @@ describe('view state', () => {
     const seeded = {
       ...INITIAL_STATE,
       queue: {
-        runtime: 'tau' as const,
+        runtime: 'pi' as const,
         sessionId: 'session-1',
         steering: [{ id: 'prompt-1', kind: 'steering' as const, text: 'x' }],
         followUp: [],
@@ -603,7 +595,7 @@ describe('view state', () => {
     const cleared = reducer(seeded, { type: 'clearTranscript' });
     expect(cleared.blocks).toEqual([]);
     expect(cleared.queue).toEqual({
-      runtime: 'tau',
+      runtime: 'pi',
       sessionId: '',
       steering: [],
       followUp: [],
