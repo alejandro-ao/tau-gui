@@ -544,87 +544,87 @@ export const settingsPatchSchema = z
   .strict()
   .partial();
 
-export const requestSchema = z.discriminatedUnion('action', [
-  z.object({ action: z.literal('settings.get') }),
-  z.object({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
-  z.object({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
-  z.object({
+const requestUnion = z.discriminatedUnion('action', [
+  z.strictObject({ action: z.literal('settings.get') }),
+  z.strictObject({ action: z.literal('settings.update'), payload: settingsPatchSchema }),
+  z.strictObject({ action: z.literal('settings.toggleScopedModel'), payload: scopedModelRef }),
+  z.strictObject({
     action: z.literal('settings.addResourceDirectory'),
-    payload: z.object({ kind: z.enum(['skills', 'prompts']) }).strict(),
+    payload: z.strictObject({ kind: z.enum(['skills', 'prompts']) }).strict(),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('settings.removeResourceDirectory'),
-    payload: z.object({ kind: z.enum(['skills', 'prompts']), path: safePathText }).strict(),
+    payload: z.strictObject({ kind: z.enum(['skills', 'prompts']), path: safePathText }).strict(),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('settings.rememberWorkingDirectory'),
-    payload: z.object({ cwd: z.string().min(1) }).strict(),
+    payload: z.strictObject({ cwd: z.string().min(1) }).strict(),
   }),
-  z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
+  z.strictObject({ action: z.literal('settings.forgetSession'), payload: z.strictObject({ id: z.string() }) }),
 
-  z.object({
+  z.strictObject({
     action: z.literal('runtime.start'),
-    payload: z.object({ cwd: z.string().nullable().optional() }).strict(),
+    payload: z.strictObject({ cwd: z.string().nullable().optional() }).strict(),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('runtime.openSession'),
-    payload: z.object({ cwd: z.string().min(1) }).strict(),
+    payload: z.strictObject({ cwd: z.string().min(1) }).strict(),
   }),
-  z.object({ action: z.literal('runtime.stop') }),
-  z.object({ action: z.literal('runtime.restart') }),
+  z.strictObject({ action: z.literal('runtime.stop') }),
+  z.strictObject({ action: z.literal('runtime.restart') }),
   // The probe never accepts a renderer-supplied binary: only the runtime kind
   // may be selected, and the executable always comes from persisted settings.
-  z.object({
+  z.strictObject({
     action: z.literal('runtime.probe'),
-    payload: z.object({ kind: runtimeKind.optional() }).optional(),
+    payload: z.strictObject({ kind: runtimeKind.optional() }).optional(),
   }),
-  z.object({ action: z.literal('runtime.snapshot') }),
+  z.strictObject({ action: z.literal('runtime.snapshot') }),
 
-  z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
-  z.object({ action: z.literal('agent.steer'), payload: z.object({ text: z.string().min(1) }) }),
-  z.object({ action: z.literal('agent.followUp'), payload: z.object({ text: z.string().min(1) }) }),
-  z.object({ action: z.literal('queue.snapshot') }).strict(),
-  z.object({ action: z.literal('queue.pop') }).strict(),
-  z.object({
+  z.strictObject({ action: z.literal('agent.prompt'), payload: z.strictObject({ text: z.string().min(1) }) }),
+  z.strictObject({ action: z.literal('agent.steer'), payload: z.strictObject({ text: z.string().min(1) }) }),
+  z.strictObject({ action: z.literal('agent.followUp'), payload: z.strictObject({ text: z.string().min(1) }) }),
+  z.strictObject({ action: z.literal('queue.snapshot') }).strict(),
+  z.strictObject({ action: z.literal('queue.pop') }).strict(),
+  z.strictObject({
     action: z.literal('queue.resolve'),
-    payload: z.object({
+    payload: z.strictObject({
       id: z.string().min(1),
       outcome: z.enum(['accept', 'restore']),
     }),
   }),
-  z.object({ action: z.literal('agent.abort') }),
-  z.object({ action: z.literal('agent.state') }),
-  z.object({ action: z.literal('agent.messages') }),
-  z.object({
+  z.strictObject({ action: z.literal('agent.abort') }),
+  z.strictObject({ action: z.literal('agent.state') }),
+  z.strictObject({ action: z.literal('agent.messages') }),
+  z.strictObject({
     action: z.literal('agent.entries'),
-    payload: z.object({ cursor: z.string().optional() }).optional(),
+    payload: z.strictObject({ cursor: z.string().optional() }).optional(),
   }),
-  z.object({ action: z.literal('agent.tree') }),
-  z.object({ action: z.literal('agent.stats') }),
+  z.strictObject({ action: z.literal('agent.tree') }),
+  z.strictObject({ action: z.literal('agent.stats') }),
 
-  z.object({ action: z.literal('models.list') }),
-  z.object({
+  z.strictObject({ action: z.literal('models.list') }),
+  z.strictObject({
     action: z.literal('models.set'),
-    payload: z.object({ provider: z.string().min(1), modelId: z.string().min(1) }),
+    payload: z.strictObject({ provider: z.string().min(1), modelId: z.string().min(1) }),
   }),
-  z.object({ action: z.literal('models.cycle') }),
+  z.strictObject({ action: z.literal('models.cycle') }),
 
-  z.object({ action: z.literal('thinking.list') }),
-  z.object({ action: z.literal('thinking.set'), payload: z.object({ level: thinkingLevel }) }),
-  z.object({ action: z.literal('thinking.cycle') }),
+  z.strictObject({ action: z.literal('thinking.list') }),
+  z.strictObject({ action: z.literal('thinking.set'), payload: z.strictObject({ level: thinkingLevel }) }),
+  z.strictObject({ action: z.literal('thinking.cycle') }),
 
-  z.object({ action: z.literal('session.new') }),
-  z.object({
+  z.strictObject({ action: z.literal('session.new') }),
+  z.strictObject({
     action: z.literal('session.switch'),
-    payload: z.object({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) }).strict(),
+    payload: z.strictObject({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) }).strict(),
   }),
   z
     .object({
       action: z.literal('session.name'),
-      payload: z.object({ name: sessionNameSchema }).strict(),
+      payload: z.strictObject({ name: sessionNameSchema }).strict(),
     })
     .strict(),
-  z.object({
+  z.strictObject({
     action: z.literal('session.fork'),
     payload: z
       .object({
@@ -646,7 +646,7 @@ export const requestSchema = z.discriminatedUnion('action', [
         }
       }),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('session.label'),
     payload: z
       .object({
@@ -655,58 +655,78 @@ export const requestSchema = z.discriminatedUnion('action', [
       })
       .strict(),
   }),
-  z.object({ action: z.literal('session.clone') }).strict(),
-  z.object({ action: z.literal('session.importJsonl') }).strict(),
-  z.object({
+  z.strictObject({ action: z.literal('session.clone') }).strict(),
+  z.strictObject({ action: z.literal('session.importJsonl') }).strict(),
+  z.strictObject({
     action: z.literal('session.list'),
-    payload: z.object({ scope: z.enum(['cwd', 'all']) }).strict(),
+    payload: z.strictObject({ scope: z.enum(['cwd', 'all']) }).strict(),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('session.compact'),
-    payload: z.object({ instructions: z.string().optional() }).optional(),
+    payload: z.strictObject({ instructions: z.string().optional() }).optional(),
   }),
-  z.object({ action: z.literal('session.exportHtml') }).strict(),
-  z.object({
+  z.strictObject({ action: z.literal('session.exportHtml') }).strict(),
+  z.strictObject({
     action: z.literal('session.exportJsonl'),
     payload: z
       .object({ sessionId: z.string().min(1).max(128).optional() })
       .strict()
       .optional(),
   }),
-  z.object({
+  z.strictObject({
     action: z.literal('session.autoCompaction'),
-    payload: z.object({ enabled: z.boolean() }),
+    payload: z.strictObject({ enabled: z.boolean() }),
   }),
 
-  z.object({
+  z.strictObject({
     action: z.literal('shell.run'),
-    payload: z.object({ command: z.string().min(1), excludeFromContext: z.boolean() }),
+    payload: z.strictObject({ command: z.string().min(1), excludeFromContext: z.boolean() }),
   }),
-  z.object({ action: z.literal('shell.abort') }),
+  z.strictObject({ action: z.literal('shell.abort') }),
 
-  z.object({ action: z.literal('commands.list') }),
-  z.object({ action: z.literal('resources.list') }).strict(),
-  z.object({ action: z.literal('context.list') }).strict(),
+  z.strictObject({ action: z.literal('commands.list') }),
+  z.strictObject({ action: z.literal('resources.list') }).strict(),
+  z.strictObject({ action: z.literal('context.list') }).strict(),
 
-  z.object({
+  z.strictObject({
     action: z.literal('fs.complete'),
-    payload: z.object({ query: z.string(), limit: z.number().int().min(1).max(200).optional() }),
+    payload: z.strictObject({ query: z.string(), limit: z.number().int().min(1).max(200).optional() }),
   }),
-  z.object({ action: z.literal('fs.pickDirectory') }),
-  z.object({
+  z.strictObject({ action: z.literal('fs.pickDirectory') }),
+  z.strictObject({
     action: z.literal('fs.relativize'),
-    payload: z.object({ paths: z.array(z.string()) }),
+    payload: z.strictObject({ paths: z.array(z.string()) }),
   }),
 
-  z.object({ action: z.literal('ui.openExternal'), payload: z.object({ url: z.string() }) }),
-  z.object({ action: z.literal('ui.copyText'), payload: z.object({ text: z.string() }) }),
-  z.object({ action: z.literal('ui.setTitle'), payload: z.object({ title: z.string() }) }),
-  z.object({
+  z.strictObject({ action: z.literal('ui.openExternal'), payload: z.strictObject({ url: z.string() }) }),
+  z.strictObject({ action: z.literal('ui.copyText'), payload: z.strictObject({ text: z.string() }) }),
+  z.strictObject({ action: z.literal('ui.setTitle'), payload: z.strictObject({ title: z.string() }) }),
+  z.strictObject({
     action: z.literal('ui.notify'),
-    payload: z.object({ title: z.string(), body: z.string() }),
+    payload: z.strictObject({ title: z.string(), body: z.string() }),
   }),
-  z.object({ action: z.literal('diagnostics.list') }),
+  z.strictObject({ action: z.literal('diagnostics.list') }),
 ]);
+
+function strictTopLevel(allowed: ReadonlySet<string>): z.ZodType<unknown> {
+  return z.unknown().superRefine((value, context) => {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) return;
+    for (const key of Object.keys(value)) {
+      if (!allowed.has(key)) {
+        context.addIssue({ code: 'custom', message: `Unknown top-level field: ${key}` });
+      }
+    }
+    if (allowed.has('session') && 'session' in value && value.session !== undefined) {
+      const parsed = sessionTargetSchema.safeParse(value.session);
+      if (!parsed.success) {
+        context.addIssue({ code: 'custom', message: 'Invalid session target' });
+      }
+    }
+  });
+}
+
+/** Reject unknown wire metadata while retaining payload compatibility per action. */
+export const requestSchema = strictTopLevel(new Set(['action', 'payload'])).pipe(requestUnion);
 
 export { resourceCatalogSchema };
 
@@ -717,10 +737,18 @@ export type IpcAction = IpcRequest['action'];
  * Wire envelope: the action union plus the optional transcript identity the
  * renderer believes it is acting on.
  */
-export const envelopeSchema = z
-  .object({ session: sessionTargetSchema.optional() })
-  .passthrough()
-  .pipe(z.intersection(requestSchema, z.object({ session: sessionTargetSchema.optional() })));
+export const envelopeSchema = strictTopLevel(new Set(['action', 'payload', 'session'])).pipe(
+  z.intersection(
+    requestUnion,
+    z
+      .object({
+        action: z.string(),
+        payload: z.unknown().optional(),
+        session: sessionTargetSchema.optional(),
+      })
+      .strict(),
+  ),
+);
 export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {

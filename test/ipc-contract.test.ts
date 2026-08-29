@@ -83,18 +83,14 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'sh' } }).success,
     ).toBe(false);
 
-    // A renderer-supplied binary is stripped by validation and never reaches
-    // the handler.
-    const parsed = requestSchema.safeParse({
-      action: 'runtime.probe',
-      payload: { kind: 'tau', binary: '/bin/sh' },
-    });
-    expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.action === 'runtime.probe' && parsed.data.payload).toEqual(
-      {
-        kind: 'tau',
-      },
-    );
+    // Compatibility is explicit: supported optional fields remain accepted,
+    // while a renderer-supplied binary is rejected rather than silently stripped.
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.probe',
+        payload: { kind: 'tau', binary: '/bin/sh' },
+      }).success,
+    ).toBe(false);
   });
 
   it('accepts only the payload-free resources.list request', () => {
@@ -470,6 +466,8 @@ describe('IPC request validation', () => {
     expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
 
     expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
+    expect(envelopeSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(false);
+    expect(requestSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(false);
     expect(
       envelopeSchema.safeParse({
         action: 'agent.abort',
