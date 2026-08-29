@@ -52,6 +52,7 @@ export const INITIAL_STATE: AppState = {
   extensionSidebar: {},
   extensionMessages: [],
   extensionToolRenders: [],
+  messages: [],
   blocks: [],
   retained: [],
   streamingAssistantId: null,
@@ -140,6 +141,7 @@ export function reducer(state: AppState, action: Action): AppState {
         toolCatalog: { tools: [], total: 0, truncated: false, diagnostics: [] },
         resourceReload: null,
         imageAttachments: [],
+        messages: [],
         blocks: [],
         retained: [],
         streamingAssistantId: null,
@@ -233,6 +235,7 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return {
         ...state,
+        messages: action.messages,
         blocks: mergeRetained(state.retained, hydrateBlocks(action.messages, action.now)),
         streamingAssistantId: null,
         streamingThinkingId: null,
@@ -281,6 +284,7 @@ export function reducer(state: AppState, action: Action): AppState {
     case 'clearTranscript':
       return {
         ...state,
+        messages: [],
         blocks: [],
         retained: [],
         streamingAssistantId: null,

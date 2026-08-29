@@ -186,11 +186,21 @@ claims.
   `AGENTS.md` files loaded by Pi, including its global agent file and the files
   discovered while walking up from the session working directory. Discovery
   stays in the main process; only bounded labels and paths cross IPC.
+- An always-available **Session usage** main-content tab derives export-style
+  analytics from normalized RPC messages and cumulative runtime stats. Total
+  cards cover requests, tokens, cost, and tool calls when stats are available;
+  plots, request rows, reasoning, compaction summaries, and per-tool names are
+  explicitly active-transcript-only because older details may be compacted away.
+  SVG ticks and series points are deterministically sampled (retaining endpoints
+  and local extrema), and request rows are paginated for long sessions. Cumulative
+  cards remain visible at compaction boundaries even when no request detail remains.
+  Unsupported event markers and missing provider measurements are unavailable rather
+  than inferred.
 - Pi-native session picker and working-directory rail use metadata-budgeted
   `SessionManager.listAll` records with bounded opaque catalog identities bound to
   the complete physical generation; app recents are tagged main-resolved fallbacks;
-  backing paths are absent from all
-  renderer settings/state/status DTOs and renderer fallback never creates IDs.
+  backing paths are absent from all renderer settings/state/status DTOs and renderer
+  fallback never creates IDs.
 - New/switch/name, bounded flat-row tree navigation with explicitly truncated editable user turns,
   labels, no/default/custom branch summaries, clone, staged exclusive JSONL
   duplicate-ID-safe import/export, HTML export, compaction, settings, and diagnostics modals.

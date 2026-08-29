@@ -176,6 +176,8 @@ export interface AppState {
   extensionSidebar: Record<string, { title: string; lines: string[] }>;
   extensionMessages: { customType: string; text: string; data: string }[];
   extensionToolRenders: PortableToolRender[];
+  /** Authoritative normalized RPC messages used for transcript-level analytics. */
+  messages: AgentMessage[];
   blocks: TranscriptBlock[];
   /**
    * Transcript captured before a user-triggered compaction. The runtime only
