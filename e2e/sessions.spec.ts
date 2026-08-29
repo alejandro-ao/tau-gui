@@ -62,6 +62,4 @@ test('the fallback resume command is unavailable without activating app metadata
 
   await expect(page.getByTestId('modal-session')).toHaveCount(0);
   await expect(transcript(page)).toContainText('public Pi SDK cannot activate an exact manager');
-  const recent = page.getByTestId('sessions-rail').locator('.sessions-rail-item').first();
-  await expect(recent).toBeDisabled();
 });

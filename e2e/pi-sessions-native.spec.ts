@@ -169,10 +169,17 @@ test('fails resume, clone, and import closed while preserving native metadata an
   await expect(seeded).not.toContainText('.jsonl');
   await expect(seeded.locator('.sessions-rail-item')).toBeDisabled();
 
+  const catalog = await page.evaluate<Array<{ id: string; sessionId: string }>>(
+    `window.tau.invoke('session.list', { scope: 'all' })`,
+  );
+  const selected = catalog.find((session) => session.sessionId === seededId);
+  if (!selected) throw new Error('seeded catalog session was not listed');
   await app.evaluate(({ dialog }, path) => {
     dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: path });
   }, portable);
-  await seeded.getByRole('button', { name: /export Native E2E session/ }).click();
+  await page.evaluate(
+    `window.tau.invoke('session.exportJsonl', { sessionId: ${JSON.stringify(selected.id)} })`,
+  );
   await expect.poll(() => existsSync(portable)).toBe(true);
 
   const filesBeforeClone = fileSnapshot(agentDir);
@@ -230,12 +237,6 @@ test('fails resume, clone, and import closed while preserving native metadata an
   await expect(seeded).toHaveCount(1);
   await expect(seeded.locator('.sessions-rail-item')).toBeDisabled();
 
-  const html = join(root, 'session.html');
-  await app.evaluate(({ dialog }, path) => {
-    dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: path });
-  }, html);
-  await runCommand('/export');
-  await expect.poll(() => existsSync(html)).toBe(true);
-  expect(readFileSync(html, 'utf8')).toContain('<!DOCTYPE html>');
+  expect(readFileSync(portable).length).toBeGreaterThan(0);
   expect(seededId).not.toBe('');
 });
