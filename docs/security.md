@@ -61,6 +61,14 @@
 
 - Production imports a pinned Pi SDK in Electron's main process; no user-selected
   runtime executable or shell-built launch command exists.
+- The local trust boundary treats the sandboxed renderer, model content, and
+  extension payloads as untrusted, while the signed-in OS account and Pi session
+  directories owned by Electron main are trusted. A separate process already
+  running as the same user and replacing a checked session pathname during a Pi
+  SDK call is outside the product threat model; such a process can already alter
+  the user's Pi configuration, credentials, and application files. Main still
+  applies no-follow, containment, link-count, generation, size, and ownership
+  checks to catch malformed data and ordinary stale-file races.
 - Pi events and objects are normalized before IPC. Session catalogs contain at
   most 500 bounded metadata records and omit session-file paths. Native and
   remembered records are tagged; native resume/export uses a bounded opaque ID

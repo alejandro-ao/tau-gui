@@ -148,10 +148,10 @@ claims.
   the catalog match, so the pill distinguishes runtime expansions from GUI commands
   before Enter is pressed. Slash completion entries use the same colours.
 - Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/clone`, and extension commands that RPC can list but not execute)
-  are listed as unavailable with the reason instead of being sent incorrectly to
-  the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
-  because the desktop app has no clone flow yet.
+  `/logout`, and extension commands that RPC can list but not execute) are listed
+  as unavailable with the reason instead of being sent incorrectly to the model.
+  Pi-native `/clone`, `/import`, and `/resume` have complete main-owned desktop
+  flows and never become model prompts.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,
