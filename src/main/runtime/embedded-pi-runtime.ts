@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { copyFile, open } from 'node:fs/promises';
+import { open } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
@@ -11,7 +11,7 @@ import {
   type AgentSession,
   type AgentSessionRuntime,
 } from '@earendil-works/pi-coding-agent';
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { MAX_CONTEXT_FILES, MAX_TREE_EDITOR_TEXT, type ContextFile } from '../../shared/ipc.js';
 import { RESOURCE_LIMITS } from '../../shared/resources.js';
 import { estimateTextTokens } from '../../shared/token-estimate.js';
@@ -47,10 +47,14 @@ import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-sessio
 import {
   assertArtifactCapacity,
   boundedSessionList,
+  checkedExistingDirectory,
   ensureCheckedDirectory,
   exclusiveCopy,
   inspectPhysicalFile,
+  markRetainedArtifact,
+  retainedArtifactCount,
   retainPhysicalFile,
+  SESSION_IO_LIMITS,
   type PhysicalFile,
 } from './session-files.js';
 
@@ -102,7 +106,6 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private catalogComplete = false;
   private preparedImport: {
     source: string;
-    staged: string;
     sessionId: string;
     physical: PhysicalFile;
   } | null = null;
@@ -450,24 +453,23 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       : null;
     if (current?.key === source.key) throw new Error('Cannot import the active session file');
 
-    const stagingRoot = await ensureCheckedDirectory(join(this.agentDir, 'import-staging'));
-    await assertArtifactCapacity(stagingRoot);
-    const staged = join(stagingRoot, `${randomUUID()}.jsonl`);
-    const physical = await exclusiveCopy(source.path, staged, {
-      onRetained: (message) => this.sink.diagnostic(message),
-    });
-    try {
-      // Public SDK validation only; the application never parses JSONL.
-      const manager = SessionManager.open(staged, stagingRoot);
-      const sessionId = manager.getSessionId();
-      assertValidImportedSessionId(sessionId);
-      await assertLogicalSessionIdAvailable(this.agentDir, sessionId);
-      this.preparedImport = { source: resolve(path), staged, sessionId, physical };
-      return { sessionId, physicalKey: physical.key };
-    } catch (error) {
-      await retainPhysicalFile(physical, (message) => this.sink.diagnostic(message));
-      throw error;
+    // Public SDK validation only; the application never parses JSONL. Recheck
+    // the no-follow identity after Pi returns before remembering this source.
+    const manager = SessionManager.open(source.path, dirname(source.path));
+    const sessionId = manager.getSessionId();
+    assertValidImportedSessionId(sessionId);
+    const afterValidation = await inspectPhysicalFile(source.path);
+    if (
+      afterValidation.key !== source.key ||
+      afterValidation.size !== source.size ||
+      afterValidation.mtimeNs !== source.mtimeNs ||
+      afterValidation.ctimeNs !== source.ctimeNs
+    ) {
+      throw new Error('Import source changed during public SDK validation');
     }
+    await assertLogicalSessionIdAvailable(this.agentDir, sessionId);
+    this.preparedImport = { source: resolve(path), sessionId, physical: source };
+    return { sessionId, physicalKey: source.key };
   }
 
   async importJsonl(
@@ -476,57 +478,63 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     const prepared = this.preparedImport;
     if (!prepared || prepared.source !== resolve(path))
       throw new Error('Import was not safely prepared');
-    const sessionDir = await ensureCheckedDirectory(this.session.sessionManager.getSessionDir());
+    const importRoot = await ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
+    await assertArtifactCapacity(importRoot);
     const destinationName = this.importDestinationName();
     if (!/^[A-Za-z0-9._-]+\.jsonl$/.test(destinationName)) {
       throw new Error('Unsafe import destination name');
     }
-    const destination = join(sessionDir, destinationName);
+    const destination = join(importRoot, destinationName);
     let created: PhysicalFile | null = null;
+    let createdUncertain = false;
     try {
-      created = await exclusiveCopy(prepared.staged, destination, {
-        onRetained: (message) => this.sink.diagnostic(message),
+      created = await exclusiveCopy(prepared.source, destination, {
+        expectedSource: prepared.physical,
+        onRetained: (message) => {
+          createdUncertain = true;
+          this.sink.diagnostic(message);
+        },
       });
-      const stagedNow = await inspectPhysicalFile(prepared.staged, dirname(prepared.staged));
-      const destinationNow = await inspectPhysicalFile(destination, sessionDir);
-      if (
-        stagedNow.key !== prepared.physical.key ||
-        stagedNow.size !== prepared.physical.size ||
-        destinationNow.key !== created.key ||
-        destinationNow.size !== created.size
-      ) {
-        throw new Error('Prepared import identity changed before activation');
-      }
-      const destinationManager = SessionManager.open(destination, sessionDir);
+      const destinationManager = SessionManager.open(destination, importRoot);
       const sessionId = destinationManager.getSessionId();
       assertValidImportedSessionId(sessionId);
       if (sessionId !== prepared.sessionId) {
         throw new Error('Prepared import logical identity changed before activation');
       }
-      // Last possible no-follow identity check before the public replacement API.
-      const finalDestination = await inspectPhysicalFile(destination, sessionDir);
+      const finalDestination = await inspectPhysicalFile(destination, importRoot);
       if (finalDestination.key !== created.key || finalDestination.size !== created.size) {
         throw new Error('Import destination changed before activation');
       }
       const result = await this.host.switchSession(destination);
       if (result.cancelled) throw new Error('Session import was cancelled');
       this.preparedImport = null;
-      await retainPhysicalFile(prepared.physical, (message) => this.sink.diagnostic(message));
       return { sessionId, physicalKey: created.key, physicalPath: created.path };
     } catch (error) {
       if (created) {
         await retainPhysicalFile(created, (message) => this.sink.diagnostic(message));
       }
+      if (created || createdUncertain) {
+        await markRetainedArtifact(destination).catch(() => undefined);
+      }
       throw error;
     }
   }
 
-  async discardPreparedImport(): Promise<void> {
-    const prepared = this.preparedImport;
+  discardPreparedImport(): Promise<void> {
     this.preparedImport = null;
-    if (prepared) {
-      await retainPhysicalFile(prepared.physical, (message) => this.sink.diagnostic(message));
-    }
+    return Promise.resolve();
+  }
+
+  async importRecoveryHealth(): Promise<{ retained: number; capacity: number }> {
+    const root = await ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
+    return {
+      retained: await retainedArtifactCount(root),
+      capacity: SESSION_IO_LIMITS.retainedArtifacts,
+    };
+  }
+
+  async importRecoveryDirectory(): Promise<string> {
+    return ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
@@ -551,15 +559,32 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async exportJsonl(path: string, sessionId?: string): Promise<string> {
-    let source = this.session.sessionFile;
+    const catalog = await loadCatalog(this.agentDir, null);
+    if (!catalog.complete) throw incompleteCatalogError();
+
+    let record: CatalogRecord | undefined;
     if (sessionId) {
-      const record =
-        this.catalog.get(sessionId) ?? (await resolveCatalogSession(sessionId, this.agentDir));
-      if (!record) throw new Error('Inactive export requires a native catalog record');
-      source = record.path;
+      record = catalog.records.find((candidate) => candidate.summary.id === sessionId);
+      if (!record) throw new Error('Inactive export requires a fresh native catalog record');
+    } else {
+      const source = this.session.sessionFile;
+      if (!source) throw new Error('This session has not been saved yet');
+      const current = await inspectPhysicalFile(source);
+      record = catalog.records.find(
+        (candidate) =>
+          candidate.physical.key === current.key &&
+          candidate.physical.size === current.size &&
+          candidate.sessionId === this.session.sessionId,
+      );
+      if (!record) throw new Error('Active export source is not in the fresh native catalog');
     }
-    if (!source) throw new Error('This session has not been saved yet');
-    await copyFile(source, path);
+
+    const parent = await checkedExistingDirectory(dirname(resolve(path)));
+    const destination = join(parent, basename(path));
+    await exclusiveCopy(record.path, destination, {
+      expectedSource: record.physical,
+      onRetained: (message) => this.sink.diagnostic(message),
+    });
     return path;
   }
 
@@ -720,7 +745,16 @@ export async function loadCatalog(
   agentDir: string,
   cwd: string | null,
 ): Promise<{ records: CatalogRecord[]; diagnostics: string[]; complete: boolean }> {
-  const listed = await boundedSessionList(join(agentDir, 'sessions'));
+  const importedRoot = await ensureCheckedDirectory(join(agentDir, 'imported-sessions'));
+  const [native, imported] = await Promise.all([
+    boundedSessionList(join(agentDir, 'sessions')),
+    boundedSessionList(importedRoot),
+  ]);
+  const listed = {
+    sessions: [...native.sessions, ...imported.sessions],
+    diagnostics: [...native.diagnostics, ...imported.diagnostics],
+    complete: native.complete && imported.complete,
+  };
   const diagnostics = [...listed.diagnostics];
   let complete = listed.complete;
   const candidates: CatalogRecord[] = [];

@@ -69,6 +69,21 @@ describe('privileged session filesystem guards', () => {
     expect(diagnostics.join(' ')).toContain('Retained failed copy artifact');
   });
 
+  it('rejects a same-inode source mutation during handle-based copy', async () => {
+    const directory = await root();
+    const source = join(directory, 'source.jsonl');
+    const destination = join(directory, 'destination.jsonl');
+    await writeFile(source, 'original');
+    const expected = await inspectPhysicalFile(source);
+
+    await expect(
+      exclusiveCopy(source, destination, {
+        expectedSource: expected,
+        afterCreate: () => writeFile(source, 'mutated!'),
+      }),
+    ).rejects.toThrow('source changed during copy');
+  });
+
   it('never deletes a replacement swapped in after an ownership check', async () => {
     const directory = await root();
     const destination = join(directory, 'cleanup.jsonl');
@@ -90,7 +105,7 @@ describe('privileged session filesystem guards', () => {
     const directory = await root();
     await Promise.all(
       Array.from({ length: SESSION_IO_LIMITS.retainedArtifacts }, (_, index) =>
-        writeFile(join(directory, `retained-${index}.jsonl`), ''),
+        writeFile(join(directory, `retained-${index}.jsonl.retained`), ''),
       ),
     );
 
@@ -127,7 +142,7 @@ describe('privileged session filesystem guards', () => {
     await symlink(fileTarget, join(sessions, 'escaped.jsonl'));
     const fileResult = await boundedSessionList(sessions);
     expect(fileResult.sessions).toEqual([]);
-    expect(fileResult.diagnostics.join(' ')).toContain('Unsafe session file');
+    expect(fileResult.diagnostics.join(' ')).toContain('Unsafe or unknown session-directory child');
 
     const rootLink = join(directory, 'sessions-link');
     await symlink(sessions, rootLink);

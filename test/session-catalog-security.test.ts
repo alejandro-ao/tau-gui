@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SessionManager, type SessionInfo } from '@earendil-works/pi-coding-agent';
@@ -13,6 +13,61 @@ afterEach(async () => {
 });
 
 describe('session catalog record isolation', () => {
+  it('fails closed while one project directory is hidden by a symlink and recovers exactly', async () => {
+    root = await mkdtemp(join(tmpdir(), 'tau-gui-catalog-'));
+    const sessions = join(root, 'sessions');
+    const directoryA = join(sessions, 'project-a');
+    const directoryB = join(sessions, 'project-b');
+    const hiddenA = join(root, 'hidden-a');
+    await mkdir(directoryA, { recursive: true });
+    await mkdir(directoryB, { recursive: true });
+    const pathA = join(directoryA, 'a.jsonl');
+    const pathB = join(directoryB, 'b.jsonl');
+    await writeFile(pathA, '{}\n');
+    await writeFile(pathB, '{}\n');
+    const records = new Map([
+      [directoryA, { path: await realpath(pathA), id: 'session-a' }],
+      [directoryB, { path: await realpath(pathB), id: 'session-b' }],
+    ]);
+    vi.spyOn(SessionManager, 'listAll').mockImplementation((sessionDir?: string) => {
+      const record = sessionDir
+        ? [...records.entries()].find(([directory]) =>
+            sessionDir.endsWith(directory.slice(directory.lastIndexOf('/'))),
+          )?.[1]
+        : undefined;
+      return Promise.resolve(
+        record
+          ? [
+              {
+                ...record,
+                cwd: '/work',
+                created: new Date(1),
+                modified: new Date(2),
+                messageCount: 0,
+                firstMessage: '',
+                allMessagesText: '',
+              },
+            ]
+          : [],
+      );
+    });
+
+    await rename(directoryA, hiddenA);
+    await symlink(hiddenA, directoryA);
+    const hidden = await loadCatalog(root, null);
+    expect(hidden.complete).toBe(false);
+    expect(hidden.diagnostics.join(' ')).toContain('unsafe or unknown session-root child');
+
+    await rm(directoryA);
+    await rename(hiddenA, directoryA);
+    records.set(directoryA, { path: await realpath(pathA), id: 'session-a' });
+    const recovered = await loadCatalog(root, null);
+    expect(recovered.complete).toBe(true);
+    expect(recovered.records.map((record) => record.sessionId).sort()).toEqual([
+      'session-a',
+      'session-b',
+    ]);
+  });
   it('drops invalid dates/types without suppressing an independent valid record', async () => {
     root = await mkdtemp(join(tmpdir(), 'tau-gui-catalog-'));
     const directory = join(root, 'sessions', 'project');

@@ -1,4 +1,13 @@
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
@@ -223,6 +232,20 @@ describe('EmbeddedPiRuntime', () => {
 
     const portable = join(root, 'portable.jsonl');
     await expect(runtime.exportJsonl(portable)).resolves.toBe(portable);
+
+    // A stale active path or same-user symlink swap must never export its target.
+    const activePath = (await runtime.getState()).sessionFile!;
+    const displacedActive = `${activePath}.displaced`;
+    const secret = join(root, 'secret.jsonl');
+    const rejectedExport = join(root, 'rejected-swap.jsonl');
+    writeFileSync(secret, 'SECRET-SWAP-CONTENT');
+    renameSync(activePath, displacedActive);
+    symlinkSync(secret, activePath);
+    await expect(runtime.exportJsonl(rejectedExport)).rejects.toThrow();
+    expect(() => readFileSync(rejectedExport, 'utf8')).toThrow();
+    rmSync(activePath);
+    renameSync(displacedActive, activePath);
+
     await runtime.clone();
     const cloneId = (await runtime.getState()).sessionId;
     expect(cloneId).not.toBe(originalId);
@@ -294,18 +317,53 @@ describe('EmbeddedPiRuntime', () => {
     const externalPath = external.getSessionFile();
     if (!externalPath) throw new Error('external session was not persisted');
     forcedImportDestination = 'caller-collision.jsonl';
-    const collision = join(
-      dirname((await runtime.getState()).sessionFile!),
-      forcedImportDestination,
-    );
+    const collision = join(agentDir, 'imported-sessions', forcedImportDestination);
     await runtime.prepareImport(externalPath);
     writeFileSync(collision, 'caller-owned collision');
     await expect(runtime.importJsonl(externalPath)).rejects.toThrow();
     expect(readFileSync(collision, 'utf8')).toBe('caller-owned collision');
     expect((await runtime.getState()).sessionId).toBe(originalId);
+    // The app preserved it; this explicit test-user recovery happens while idle.
+    rmSync(collision);
     forcedImportDestination = 'successful-import.jsonl';
     await runtime.importJsonl(externalPath);
     expect((await runtime.getState()).sessionId).toBe(external.getSessionId());
+
+    // Successful final files are sessions, not retained recovery artifacts:
+    // 32 further imports and import 33 all remain available.
+    for (let index = 0; index < 32; index += 1) {
+      const capacitySource = join(root, `capacity-source-${index}`);
+      mkdirSync(capacitySource);
+      const candidate = SessionManager.create(cwd, capacitySource);
+      candidate.appendMessage({
+        role: 'user',
+        content: `capacity import ${index}`,
+        timestamp: Date.now() + index,
+      });
+      candidate.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ready' }],
+        api: 'test',
+        provider: 'test',
+        model: 'test',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now() + index,
+      });
+      const candidatePath = candidate.getSessionFile();
+      if (!candidatePath) throw new Error('capacity session was not persisted');
+      forcedImportDestination = `successful-import-${index}.jsonl`;
+      await runtime.prepareImport(candidatePath);
+      await runtime.importJsonl(candidatePath);
+    }
+    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
 
     const leafBeforeOversized = (await runtime.getTree()).leafId;
     const oversizedEntry = sessionInternals.runtime.session.sessionManager.appendMessage({
@@ -342,9 +400,10 @@ describe('EmbeddedPiRuntime', () => {
 
     const malformed = join(root, 'malformed.jsonl');
     writeFileSync(malformed, '{not-jsonl}\n');
-    const staging = join(agentDir, 'import-staging');
-    const retainedBeforeMalformed = readdirSync(staging).length;
+    const importedRoot = join(agentDir, 'imported-sessions');
+    const retainedBeforeMalformed = readdirSync(importedRoot).length;
     await expect(runtime.prepareImport(malformed)).rejects.toThrow();
-    expect(readdirSync(staging)).toHaveLength(retainedBeforeMalformed + 1);
+    expect(readdirSync(importedRoot)).toHaveLength(retainedBeforeMalformed);
+    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
   });
 });

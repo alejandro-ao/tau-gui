@@ -17,6 +17,8 @@ export interface PhysicalFile {
   path: string;
   key: string;
   size: number;
+  mtimeNs: string;
+  ctimeNs: string;
 }
 
 /**
@@ -60,23 +62,48 @@ export async function ensureCheckedDirectory(path: string, rootReal?: string): P
   return checkedDirectory(path, rootReal);
 }
 
-/** Refuse further staging once retained artifacts reach a finite recovery budget. */
+/** Validate an existing directory without creating any user-selected path. */
+export async function checkedExistingDirectory(path: string): Promise<string> {
+  return checkedDirectory(path);
+}
+
+/** Refuse another import when uncertain artifacts reach the finite recovery budget. */
 export async function assertArtifactCapacity(directory: string): Promise<void> {
+  const retained = await retainedArtifactCount(directory);
+  if (retained >= SESSION_IO_LIMITS.retainedArtifacts) {
+    throw new Error(
+      'Retained import artifact budget reached; use Import recovery while the app is stopped',
+    );
+  }
+}
+
+export async function retainedArtifactCount(directory: string): Promise<number> {
   const checked = await checkedDirectory(directory);
   const handle = await opendir(checked);
-  let entries = 0;
+  let retained = 0;
   try {
-    while ((await handle.read()) !== null) {
-      entries += 1;
-      if (entries >= SESSION_IO_LIMITS.retainedArtifacts) {
-        throw new Error(
-          'Retained import artifact budget reached; explicit staging-directory recovery is required',
-        );
+    for await (const entry of handle) {
+      if (entry.name.endsWith('.retained')) {
+        // Unknown/symlink markers still consume capacity: an attacker cannot
+        // bypass the finite failure budget by replacing recovery evidence.
+        retained += 1;
+        if (retained >= SESSION_IO_LIMITS.retainedArtifacts) break;
       }
     }
   } finally {
     await handle.close().catch(() => undefined);
   }
+  return retained;
+}
+
+/** Durable, exclusive evidence that one destination may need manual recovery. */
+export async function markRetainedArtifact(path: string): Promise<void> {
+  const handle = await open(
+    `${path}.retained`,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  );
+  await handle.close();
 }
 
 async function checkedDirectory(path: string, rootReal?: string): Promise<string> {
@@ -109,27 +136,35 @@ async function inspectDirectory(
       if (entries > SESSION_IO_LIMITS.entriesPerDirectory) {
         throw new Error('Session directory entry budget exceeded');
       }
+      if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) {
+        throw new Error('Unsafe or unknown session-directory child');
+      }
       if (!entry.name.endsWith('.jsonl')) continue;
       const path = resolve(directoryReal, entry.name);
-      if (!within(directoryReal, path) || entry.isSymbolicLink()) {
+      if (!within(directoryReal, path) || !entry.isFile()) {
         throw new Error('Unsafe session file');
       }
-      const before = await lstat(path);
-      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+      const before = await lstat(path, { bigint: true });
+      if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
         throw new Error('Session file must be a singly-linked regular file');
       }
       const physical = await realpath(path);
       if (!within(directoryReal, physical)) throw new Error('Session file escapes its directory');
-      if (before.size > SESSION_IO_LIMITS.fileBytes) throw new Error('Session file is too large');
+      if (before.size > BigInt(SESSION_IO_LIMITS.fileBytes)) {
+        throw new Error('Session file is too large');
+      }
+      const size = Number(before.size);
       budget.files += 1;
-      budget.bytes += before.size;
+      budget.bytes += size;
       if (budget.files > SESSION_IO_LIMITS.files || budget.bytes > SESSION_IO_LIMITS.totalBytes) {
         throw new Error('Session catalog file budget exceeded');
       }
       files.set(path, {
         path,
         key: `${String(before.dev)}:${String(before.ino)}`,
-        size: before.size,
+        size,
+        mtimeNs: String(before.mtimeNs),
+        ctimeNs: String(before.ctimeNs),
       });
     }
   } finally {
@@ -261,23 +296,39 @@ export async function inspectPhysicalFile(
   requiredRoot?: string,
 ): Promise<PhysicalFile> {
   const absolute = resolve(path);
-  const before = await lstat(absolute);
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1) {
+  const before = await lstat(absolute, { bigint: true });
+  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
     throw new Error('Session source must be a singly-linked regular file');
   }
-  if (before.size > SESSION_IO_LIMITS.fileBytes) throw new Error('Session file is too large');
+  if (before.size > BigInt(SESSION_IO_LIMITS.fileBytes)) {
+    throw new Error('Session file is too large');
+  }
   const physical = await realpath(absolute);
   if (requiredRoot && !within(resolve(requiredRoot), physical)) {
     throw new Error('Session file escapes its owned directory');
   }
-  const after = await lstat(absolute);
-  if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size) {
+  const after = await lstat(absolute, { bigint: true });
+  if (
+    after.dev !== before.dev ||
+    after.ino !== before.ino ||
+    after.size !== before.size ||
+    after.mtimeNs !== before.mtimeNs ||
+    after.ctimeNs !== before.ctimeNs
+  ) {
     throw new Error('Session file changed during validation');
   }
-  return { path: absolute, key: `${String(before.dev)}:${String(before.ino)}`, size: before.size };
+  return {
+    path: absolute,
+    key: `${String(before.dev)}:${String(before.ino)}`,
+    size: Number(before.size),
+    mtimeNs: String(before.mtimeNs),
+    ctimeNs: String(before.ctimeNs),
+  };
 }
 
 interface ExclusiveCopyOptions {
+  /** Require the open source handle to be this freshly cataloged inode. */
+  expectedSource?: PhysicalFile;
   /** Test seam and future post-create initialization; may deliberately fail. */
   afterCreate?: (destination: string) => void | Promise<void>;
   onRetained?: (message: string) => void;
@@ -296,9 +347,23 @@ export async function exclusiveCopy(
   let destinationHandle;
   let created = false;
   try {
-    const before = await sourceHandle.stat();
-    if (!before.isFile() || before.nlink !== 1 || before.size > SESSION_IO_LIMITS.fileBytes) {
-      throw new Error('Import source must be a bounded singly-linked regular file');
+    const before = await sourceHandle.stat({ bigint: true });
+    const sourceKey = `${String(before.dev)}:${String(before.ino)}`;
+    if (
+      !before.isFile() ||
+      before.nlink !== 1n ||
+      before.size > BigInt(SESSION_IO_LIMITS.fileBytes)
+    ) {
+      throw new Error('Copy source must be a bounded singly-linked regular file');
+    }
+    if (
+      options.expectedSource &&
+      (sourceKey !== options.expectedSource.key ||
+        Number(before.size) !== options.expectedSource.size ||
+        String(before.mtimeNs) !== options.expectedSource.mtimeNs ||
+        String(before.ctimeNs) !== options.expectedSource.ctimeNs)
+    ) {
+      throw new Error('Copy source no longer matches its authoritative identity');
     }
     destinationHandle = await open(
       destination,
@@ -309,11 +374,12 @@ export async function exclusiveCopy(
     await options.afterCreate?.(destination);
     const buffer = Buffer.alloc(64 * 1024);
     let position = 0;
-    while (position < before.size) {
+    const sourceSize = Number(before.size);
+    while (position < sourceSize) {
       const read = await sourceHandle.read(
         buffer,
         0,
-        Math.min(buffer.length, before.size - position),
+        Math.min(buffer.length, sourceSize - position),
         position,
       );
       if (read.bytesRead === 0) throw new Error('Import source ended unexpectedly');
@@ -321,9 +387,18 @@ export async function exclusiveCopy(
       position += read.bytesRead;
     }
     await destinationHandle.sync();
-    const [after, createdInfo] = await Promise.all([sourceHandle.stat(), destinationHandle.stat()]);
-    if (after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size) {
-      throw new Error('Import source changed during copy');
+    const [after, createdInfo] = await Promise.all([
+      sourceHandle.stat({ bigint: true }),
+      destinationHandle.stat(),
+    ]);
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeNs !== before.mtimeNs ||
+      after.ctimeNs !== before.ctimeNs
+    ) {
+      throw new Error('Copy source changed during copy');
     }
     const physical = await inspectPhysicalFile(destination, dirname(destination));
     if (

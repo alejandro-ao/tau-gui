@@ -93,6 +93,8 @@ export interface AgentRuntime {
     path: string,
   ): Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>;
   discardPreparedImport?(): Promise<void>;
+  importRecoveryHealth?(): Promise<{ retained: number; capacity: number }>;
+  importRecoveryDirectory?(): Promise<string>;
   describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
   listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
