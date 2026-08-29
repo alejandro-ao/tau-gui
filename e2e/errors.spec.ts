@@ -34,5 +34,7 @@ test('a runtime error renders an error block and leaves the composer usable', as
   await typeDraft(page, 'recovered prompt');
   await composer(page).press('Enter');
   await waitForSettled(page);
-  await expect(page.locator('.block-assistant').last()).toContainText('Hello from the tau');
+  await expect(page.locator('.block-assistant').last()).toContainText(
+    'Hello from the embedded fake Pi',
+  );
 });

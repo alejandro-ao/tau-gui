@@ -12,7 +12,9 @@ export function recentCatalogId(session: SessionRef): string {
 export function rendererSettings(settings: AppSettings): AppSettings {
   return {
     ...settings,
-    recentSessions: settings.recentSessions.map((session) => ({ ...session, path: null })),
+    recentSessions: settings.recentSessions
+      .filter((session) => session.runtime === 'pi')
+      .map((session) => ({ ...session, path: null })),
   };
 }
 

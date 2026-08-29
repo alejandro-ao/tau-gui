@@ -25,7 +25,7 @@ export function ThemeModal(): ReactNode {
     <Picker
       name="theme"
       title="themes"
-      subtitle="stored in GUI settings, independent from Tau/Pi TUI configuration"
+      subtitle="Tau-inspired palettes stored independently from Pi configuration"
       items={items}
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {

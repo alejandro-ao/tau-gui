@@ -13,7 +13,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AgentEvent, AppSettings, ThemeName } from '../src/shared/domain.js';
 import {
-  FAKE_RUNTIME,
   injectAgentEvent,
   injectSettings,
   launchApp,
@@ -27,25 +26,16 @@ import {
 const VISUAL_USER_DATA = join(tmpdir(), 'tau-gui-visual-userdata');
 const VISUAL_PROJECT = join(tmpdir(), 'tau-gui-visual-project');
 
-const runtimeSettings = {
-  binary: FAKE_RUNTIME,
-  provider: null,
-  model: null,
-  extraArgs: [] as string[],
-};
-
 /** Full settings record, so injected settings events keep the UI deterministic. */
 function settings(patch: Partial<AppSettings> = {}): AppSettings {
   return {
-    agentRuntime: 'tau',
     theme: 'tau-dark',
     sidebarPosition: 'right',
     turnNotification: 'off',
     showThinking: true,
     cwd: VISUAL_PROJECT,
     projectTrust: 'default',
-    runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
-    scopedModels: { tau: [], pi: [] },
+    scopedModels: [],
     recentSessions: [],
     customSkillDirectories: [],
     customPromptDirectories: [],

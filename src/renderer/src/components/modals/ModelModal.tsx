@@ -5,11 +5,11 @@ import { useStore } from '../../state/store.js';
 import { formatTokens } from '../format.js';
 import { Picker, type PickerItem } from './Picker.js';
 
-/** Model picker showing the full RPC metadata for each model. */
+/** Model picker showing bounded Pi model metadata. */
 export function ModelModal(): ReactNode {
   const { state, actions } = useStore();
   const active = state.agent?.model ?? null;
-  const scopedKeys = state.settings.scopedModels[state.settings.agentRuntime];
+  const scopedKeys = state.settings.scopedModels;
 
   const items = useMemo<PickerItem[]>(
     () =>

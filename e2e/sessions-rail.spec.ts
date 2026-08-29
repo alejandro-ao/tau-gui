@@ -4,9 +4,7 @@ import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import {
   launchApp,
-  runtimePids,
   submitPrompt,
-  transcript,
   waitForConnected,
   waitForSettled,
   type AppHandle,
@@ -14,12 +12,11 @@ import {
 
 test.describe('sessions rail', () => {
   let handle: AppHandle;
-
   test.afterEach(async () => {
     await handle?.close();
   });
 
-  test('lists directory sessions, marks the active one, and resumes on click', async () => {
+  test('lists app metadata and activates Pi sessions without a subprocess', async () => {
     const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-project-'));
     handle = await launchApp({
       projectDir,
@@ -32,185 +29,29 @@ test.describe('sessions rail', () => {
             messageCount: 2,
             path: null,
             cwd: projectDir,
-            runtime: 'tau',
+            runtime: 'pi',
             lastSeen: Date.now() - 3_600_000,
           },
-          {
-            id: 'other-directory',
-            name: 'elsewhere',
-            path: null,
-            cwd: '/somewhere/else',
-            runtime: 'tau',
-            lastSeen: Date.now(),
-          },
         ],
       },
     });
-    const { page } = handle;
-    await waitForConnected(page);
-
-    const rail = page.getByTestId('sessions-rail');
-    await expect(rail).toBeVisible();
-    // Sessions from both seeded working directories are grouped; the empty
-    // live session remains hidden.
+    const rail = handle.page.getByTestId('sessions-rail');
     await expect(rail).toContainText('earlier work');
-    await expect(rail).toContainText('elsewhere');
-    await expect(rail.locator('.sessions-directory')).toHaveCount(2);
-    await expect(rail).not.toContainText('fake-session');
-
-    // Clicking the older session resumes it through the runtime. The fake
-    // reports no messages for switched sessions, so it is then hidden as empty.
     await rail.getByRole('button', { name: /earlier work/ }).click();
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
-    await expect(rail).not.toContainText('earlier work');
+    await expect(handle.page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
   });
 
-  test('keeps background tool work isolated while switching sessions', async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-concurrent-'));
-    handle = await launchApp({
-      projectDir,
-      env: {
-        FAKE_RUNTIME_DELAY_MS: '120',
-        FAKE_RUNTIME_SWITCH_DELAY_MS: '500',
-      },
-      settings: {
-        recentSessions: [
-          {
-            id: 'other-session',
-            name: 'Other session',
-            firstMessage: 'Existing work',
-            messageCount: 1,
-            path: null,
-            cwd: projectDir,
-            runtime: 'tau',
-            lastSeen: Date.now() - 1_000,
-          },
-        ],
-      },
-    });
-    const { page } = handle;
-    await waitForConnected(page);
-
-    await submitPrompt(page, 'tool work in background');
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
-    const rail = page.getByTestId('sessions-rail');
-    const other = rail.locator('.sessions-rail-item').filter({ hasText: 'Other session' });
-    await other.click();
-    await expect(page.getByRole('status', { name: 'Loading conversation' })).toBeVisible();
-    await expect(page.getByTestId('connection-notice')).toHaveCount(0);
-    await expect(page.getByRole('status', { name: 'Model working' })).toHaveCount(0);
-    await expect(transcript(page)).not.toContainText('No messages yet');
-    await expect(transcript(page)).not.toContainText('src/index.ts');
-    await expect(page.locator('.block-tool')).toHaveCount(0);
-    await expect(other).toHaveCount(0);
-    await expect(page.getByLabel('composer')).toBeEnabled();
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
-    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
-
-    // Let the first runtime enter and finish its tool calls while hidden.
-    await page.waitForTimeout(1_000);
-    await expect(transcript(page)).not.toContainText('src/index.ts');
-    await expect(page.locator('.block-tool')).toHaveCount(0);
-
-    const background = rail
-      .locator('.sessions-rail-item')
-      .filter({ hasText: 'tool work in background' });
-    await background.click();
-    await expect(background).toHaveAttribute('aria-busy', 'false');
-    await expect(background).toHaveAttribute('aria-current', 'true');
-    await waitForSettled(page, 10_000);
-    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
-  });
-
-  test('keeps a streaming process alive when the picker opens another directory', async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-picker-source-'));
-    const chosenDir = mkdtempSync(join(tmpdir(), 'tau-gui-picker-target-'));
-    handle = await launchApp({
-      projectDir,
-      env: {
-        FAKE_RUNTIME_DELAY_MS: '250',
-        FAKE_RUNTIME_UNIQUE_SESSION: '1',
-      },
-    });
-    const { app, page } = handle;
-    await waitForConnected(page);
-
-    await submitPrompt(page, 'tool work via picker that must survive');
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
-    const streamingPid = runtimePids(handle.marker)[0];
-    expect(streamingPid).toBeDefined();
-    await app.evaluate(({ dialog }, directory) => {
-      dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [directory] });
-    }, chosenDir);
-
-    await page.getByRole('button', { name: 'new session in directory' }).click();
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
-    await expect
-      .poll(() => runtimePids(handle.marker), { timeout: 10_000 })
-      .toEqual(expect.arrayContaining([streamingPid!]));
-    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
-
-    const background = page
-      .getByTestId('sessions-rail')
-      .locator('.sessions-rail-item')
-      .filter({ hasText: 'tool work via picker that must survive' });
-    await background.click();
-    await waitForSettled(page, 15_000);
-    await expect(transcript(page)).toContainText('Done: tests pass.');
-    await page.locator('.tool-run-header').last().click();
-    await expect(page.locator('.tool-run-row[data-state="success"]')).toHaveCount(3);
-  });
-
-  test('keeps a streaming session on its own process when a new session opens', async () => {
-    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-new-session-'));
-    handle = await launchApp({
-      projectDir,
-      env: {
-        FAKE_RUNTIME_DELAY_MS: '120',
-        // Model real runtimes: every launch mints its own session id.
-        FAKE_RUNTIME_UNIQUE_SESSION: '1',
-      },
-    });
-    const { page } = handle;
-    await waitForConnected(page);
-
-    await submitPrompt(page, 'tool work that must survive');
-    await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'running');
-
-    // Opening an empty session must not swap the session under the live agent:
-    // the rest of that turn would be written into the new transcript.
-    await page.getByLabel('composer').fill('/new');
-    await page.getByLabel('composer').press('Enter');
-    await expect(transcript(page)).not.toContainText('src/index.ts');
-    await expect(page.locator('.block-tool')).toHaveCount(0);
-    await expect.poll(() => runtimePids(handle.marker).length).toBe(2);
-
-    await submitPrompt(page, 'hello in the empty session');
-    await waitForSettled(page, 10_000);
-    await expect(transcript(page)).toContainText('hello in the empty session');
-    await expect(transcript(page)).not.toContainText('tool work that must survive');
-    await expect(page.locator('.block-tool')).toHaveCount(0);
-
-    // The interrupted-looking session finished its whole turn in the background.
-    const rail = page.getByTestId('sessions-rail');
-    const background = rail
-      .locator('.sessions-rail-item')
-      .filter({ hasText: 'tool work that must survive' });
-    await background.click();
-    await waitForSettled(page, 15_000);
-    await expect(transcript(page)).toContainText('Done: tests pass.');
-    // Settled calls collapse into one turn summary; all three ran to completion.
-    await page.locator('.tool-run-header').last().click();
-    await expect(page.locator('.tool-run-row[data-state="success"]')).toHaveCount(3);
-    await expect(transcript(page)).not.toContainText('hello in the empty session');
-  });
-
-  test('does not list an empty live session once connected', async () => {
+  test('keeps fresh Pi sessions independently addressable', async () => {
     handle = await launchApp();
-    const { page } = handle;
-    await waitForConnected(page);
-    const rail = page.getByTestId('sessions-rail');
-    await expect(rail).toContainText('sessions · 0');
-    await expect(rail).not.toContainText('fake-session');
+    await submitPrompt(handle.page, 'first session');
+    await waitForSettled(handle.page);
+    await handle.page.getByLabel('composer').fill('/new');
+    await handle.page.getByLabel('composer').press('Enter');
+    await waitForConnected(handle.page);
+    await submitPrompt(handle.page, 'second session');
+    await waitForSettled(handle.page);
+    const rail = handle.page.getByTestId('sessions-rail');
+    await expect(rail).toContainText('first session');
+    await expect(rail).toContainText('second session');
   });
 });

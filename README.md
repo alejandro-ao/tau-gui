@@ -11,11 +11,10 @@ access.
 
 ## Status
 
-The first slice of the Pi embedding migration is implemented and tracked in
-[issue #17](https://github.com/alejandro-ao/tau-gui/issues/17). Ordinary runtime
-operations now use Pi's SDK directly; remaining Pi-native sessions, auth,
-extension UI, and removal of the legacy deterministic RPC test adapter are
-tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
+The application is self-contained on the embedded Pi SDK and tracked in
+[issue #17](https://github.com/alejandro-ao/tau-gui/issues/17). Runtime selectors,
+binary discovery, launch specifications, RPC framing, and subprocess fakes have
+been removed. Tests inject a deterministic in-process Pi-domain adapter. See [docs/roadmap-status.md](docs/roadmap-status.md).
 
 ## What works
 
@@ -34,8 +33,8 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
 - Inspect exact tool commands, arguments, output, and patches through collapsed
   or expanded blocks (`Ctrl+O` toggles everything).
 - Switch models (`Ctrl+P`) and thinking levels (`Shift+Tab`).
-- Scope favourite models with `/scoped-models`: the app stores the list per
-  runtime, and `Ctrl+P` cycles only scoped models once two are scoped.
+- Scope favourite Pi models with `/scoped-models`; `Ctrl+P` cycles only scoped
+  models once two are scoped.
 - Run direct shell commands with `!` (adds output to context) and `!!` (does not).
 - Compact, name, branch, resume, and export sessions.
 - Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file
@@ -44,8 +43,8 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
   locations, plus user-selected skill or prompt directories; browse with `/prompts`
   or `/skills`, then invoke them from the composer.
 
-Optional protocol surfaces that one runtime lacks are shown disabled with the
-reason. Nothing is faked.
+Optional Pi surfaces without a complete desktop flow are shown disabled with the
+reason. Production behavior is never backed by test fakes.
 
 ## Architecture
 
@@ -63,7 +62,6 @@ The renderer has no Node integration, spawns nothing, never reads credentials or
 session files, and consumes only normalized application-domain events. Details:
 [docs/architecture.md](docs/architecture.md),
 [docs/security.md](docs/security.md),
-[docs/rpc-protocol.md](docs/rpc-protocol.md),
 [docs/ui-principles.md](docs/ui-principles.md).
 
 ## Requirements
@@ -78,7 +76,8 @@ session files, and consumes only normalized application-domain events. Details:
 npm install
 npm run dev       # Electron + Vite dev server
 npm run verify    # format, lint, strict typecheck, unit + contract tests
-npm run test:e2e  # build, then Playwright Electron tests (fake runtime)
+npm run test:e2e  # build, then Playwright Electron tests (in-process fake Pi)
+npm run package:smoke # unsigned package plus artifact smoke validation
 ```
 
 Full command list and testing model: [docs/development.md](docs/development.md).

@@ -44,10 +44,7 @@
   services.
 - Handlers return `{ ok, value | error }`; exceptions become error strings and
   never leak stack traces to the renderer.
-- The renderer can never name an executable. `runtime.probe` takes at most a
-  runtime `kind`; the binary always comes from persisted settings, and the
-  reported version is reduced to the first line, stripped of control
-  characters, and truncated to 80 characters before it leaves the main process.
+- No IPC action probes, selects, or launches an agent executable. Embedded Pi is the only production runtime.
 - Renderer-visible runtime/settings state and the complete bounded `BridgeEvent`
   union are strictly parsed in main before send and again in preload before React.
   Every agent-event variant, nested message, tool payload, queue, activity,
@@ -114,9 +111,7 @@
 - The Electron utility-process supervisor and broker are implemented, but third-
   party execution remains blocked until Pi exposes a public adapter that can run
   the actual extension lifecycle entirely inside that process.
-- Strict JSONL framing/backpressure code remains available only to the explicit
-  deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
-  settings.
+- Deterministic tests inject `FakePiRuntime` at the typed application boundary. It has no subprocess, protocol parser, provider access, or production selection path.
 
 ## Untrusted content
 
@@ -146,9 +141,7 @@
   SDK prompts and clears their resolver.
 - `process.env` remains main-owned and is never sent to the renderer or written
   to logs.
-- Settings persisted by the GUI contain only binary paths, provider/model names,
-  UI preferences, session references, and resource-directory paths explicitly
-  selected through Electron's native folder chooser.
+- GUI settings contain only UI preferences, Pi session references, favourite model identities, and resource-directory paths explicitly selected through Electron's native folder chooser. Legacy runtime/binary fields are dropped on load.
 
 ## Filesystem
 

@@ -13,6 +13,7 @@ export default tseslint.config(
       'node_modules/**',
       'test/fake/**',
       'src/main/extension-host-worker.cjs',
+      'scripts/package-smoke.mjs',
     ],
   },
   js.configs.recommended,

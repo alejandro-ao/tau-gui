@@ -56,7 +56,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const listeners = new Set<(event: BridgeEvent) => void>();
   const calls: InvokeCall[] = [];
   const snapshot: RuntimeSnapshot = {
-    runtime: options.runtime ?? 'tau',
+    runtime: 'pi',
     status: options.status ?? 'idle',
     detail: options.detail ?? null,
     capabilities: { ...DEFAULT_CAPABILITIES, ...options.capabilities },

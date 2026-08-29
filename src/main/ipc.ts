@@ -17,13 +17,10 @@ import {
   piAgentPreferencesSchema,
   providerAuthListSchema,
 } from '../shared/ipc.js';
-import { discoverContextFiles } from './services/context-files.js';
-import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import type { ImageAttachmentService } from './services/image-attachments.js';
 import type { AgentRuntime } from './runtime/agent-runtime.js';
 import type { ImportRecoveryAccess } from './services/import-recovery.js';
-import { discoverTauResources } from './services/resources.js';
 import type { ExtensionHostService } from './services/extension-host.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
@@ -63,7 +60,7 @@ export async function handleRequest(
     case 'settings.update':
       return rendererSettings(settings.update(request.payload));
     case 'settings.toggleScopedModel':
-      return rendererSettings(settings.toggleScopedModel(request.payload.runtime, request.payload));
+      return rendererSettings(settings.toggleScopedModel(request.payload));
     case 'settings.addResourceDirectory': {
       const kind = request.payload.kind;
       const path = await pickDirectory(
@@ -89,12 +86,6 @@ export async function handleRequest(
       return manager.stop();
     case 'runtime.restart':
       return manager.restart();
-    case 'runtime.probe': {
-      // The binary is always read from settings: the renderer cannot ask the
-      // main process to execute an arbitrary path.
-      const kind = request.payload?.kind ?? settings.current.agentRuntime;
-      return probeRuntime(kind, settings.current.runtime[kind].binary);
-    }
     case 'runtime.snapshot':
       return manager.snapshot();
 
@@ -385,33 +376,21 @@ export async function handleRequest(
     case 'resources.reload':
       return resourceReloadResultSchema.parse(await manager.reloadResources(target));
     case 'resources.list':
-      return read(async (runtime) => {
-        if (runtime.getResources) {
-          return resourceCatalogSchema.parse(await runtime.getResources());
-        }
-        // Deterministic legacy RPC tests do not embed Pi; retain their bounded
-        // metadata-only scanner until the test harness moves to injected sessions.
-        const snapshot = manager.snapshot();
-        if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
-          return { skills: [], prompts: [], diagnostics: [] };
-        }
-        const catalog = await discoverTauResources(snapshot.cwd, {
-          includeProject: manager.effectiveProjectTrust === 'approve-once',
-        });
-        return resourceCatalogSchema.parse(catalog);
-      });
+      return read(async (runtime) =>
+        resourceCatalogSchema.parse(
+          runtime.getResources
+            ? await runtime.getResources()
+            : {
+                skills: [],
+                prompts: [],
+                diagnostics: [],
+              },
+        ),
+      );
     case 'context.list':
-      return read(async (runtime) => {
-        if (runtime.getContextFiles) {
-          return contextFilesSchema.parse(await runtime.getContextFiles());
-        }
-        const snapshot = manager.snapshot();
-        if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
-        const files = await discoverContextFiles(snapshot.cwd, {
-          includeProject: manager.effectiveProjectTrust === 'approve-once',
-        });
-        return contextFilesSchema.parse(files);
-      });
+      return read(async (runtime) =>
+        contextFilesSchema.parse(runtime.getContextFiles ? await runtime.getContextFiles() : []),
+      );
 
     case 'fs.complete': {
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();

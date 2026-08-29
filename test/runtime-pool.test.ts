@@ -5,23 +5,18 @@ import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
-import type { BridgeEvent, PromptQueueItem, PromptQueueSnapshot } from '../src/shared/ipc.js';
+import type { BridgeEvent } from '../src/shared/ipc.js';
 import { handleRequest } from '../src/main/ipc.js';
 import { inspectPhysicalFile } from '../src/main/runtime/session-files.js';
+import { FakePiRuntime } from '../src/main/runtime/fake-pi-runtime.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
 import type { RuntimeManager } from '../src/main/services/runtime-manager.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
-
-const FAKE = fileURLToPath(new URL('./fake/fake-runtime.mjs', import.meta.url));
 
 function makeSettings(): SettingsStore {
   let current: AppSettings = {
     ...DEFAULT_SETTINGS,
     cwd: process.cwd(),
-    runtime: {
-      tau: { binary: FAKE, provider: null, model: null, extraArgs: [] },
-      pi: { binary: FAKE, provider: null, model: null, extraArgs: [] },
-    },
     recentSessions: [],
   };
   return {
@@ -45,6 +40,13 @@ function makeSettings(): SettingsStore {
   } as unknown as SettingsStore;
 }
 
+function createPool(settings: SettingsStore, broadcast: (event: BridgeEvent) => void): RuntimePool {
+  let runtimeNumber = 0;
+  return new RuntimePool(settings, broadcast, {
+    runtimeFactory: (sink) => new FakePiRuntime(sink, `fake-session-${++runtimeNumber}`),
+  });
+}
+
 let pool: RuntimePool | null = null;
 afterEach(async () => {
   await pool?.stopAll();
@@ -54,7 +56,7 @@ afterEach(async () => {
 describe('RuntimePool', () => {
   it('shares concurrent startup requests without replacing the launched process', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
 
     const [first, second] = await Promise.all([pool.start(), pool.start()]);
 
@@ -66,14 +68,14 @@ describe('RuntimePool', () => {
 
   it('serializes duplicate activation requests onto one session owner', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
 
@@ -89,9 +91,9 @@ describe('RuntimePool', () => {
 
   it('serializes session replacement so one owner never clones concurrently', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     const runtime = pool.runtimeFor(target);
     let activeClones = 0;
     let maximum = 0;
@@ -110,9 +112,9 @@ describe('RuntimePool', () => {
 
   it('serializes and rejects simultaneous same-owner logical-ID imports', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     const runtime = pool.runtimeFor(target);
     let activeImports = 0;
     let maximum = 0;
@@ -144,9 +146,9 @@ describe('RuntimePool', () => {
       const reserved = await inspectPhysicalFile(reservedPath);
 
       const settings = makeSettings();
-      pool = new RuntimePool(settings, () => undefined);
+      pool = createPool(settings, () => undefined);
       await pool.start();
-      const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+      const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
       const runtime = pool.runtimeFor(target);
       const originalState = await runtime.getState();
       runtime.prepareImport = () =>
@@ -176,7 +178,7 @@ describe('RuntimePool', () => {
 
   it('reuses an owner found by prospective logical/physical identity', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     const runtime = pool.active;
     runtime.describeSession = () =>
@@ -191,9 +193,9 @@ describe('RuntimePool', () => {
   it('removes a destructively replaced runtime after recreation failure', async () => {
     const settings = makeSettings();
     const events: BridgeEvent[] = [];
-    pool = new RuntimePool(settings, (event) => events.push(event));
+    pool = createPool(settings, (event) => events.push(event));
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     pool.runtimeFor(target).clone = () => Promise.reject(new Error('rebind failed'));
 
     await expect(pool.cloneSession(target)).rejects.toThrow('rebind failed');
@@ -204,53 +206,16 @@ describe('RuntimePool', () => {
     ).toBe(true);
   });
 
-  it('stops a subprocess whose session activation fails', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    await pool.start();
-    settings.rememberSession({
-      id: 'broken-session',
-      name: 'broken',
-      path: null,
-      cwd: process.cwd(),
-      runtime: 'tau',
-      lastSeen: Date.now(),
-    });
-    const created: RuntimeManager[] = [];
-    const internals = pool as unknown as {
-      createManager: () => RuntimeManager;
-      managers: Set<RuntimeManager>;
-    };
-    const createManager = internals.createManager.bind(pool);
-    internals.createManager = () => {
-      const manager = createManager();
-      created.push(manager);
-      return manager;
-    };
-
-    process.env['FAKE_RUNTIME_SWITCH_ERROR'] = '1';
-    try {
-      await expect(pool.activateSession('broken-session')).rejects.toThrow('forced switch failure');
-    } finally {
-      delete process.env['FAKE_RUNTIME_SWITCH_ERROR'];
-    }
-
-    expect(created).toHaveLength(1);
-    expect(created[0]?.isStarted).toBe(false);
-    expect(internals.managers.size).toBe(1);
-    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
-  });
-
   it('keeps an idle session bound to its own runtime process', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
 
@@ -276,7 +241,7 @@ describe('RuntimePool', () => {
       markResponseReady = resolve;
     });
     const activities: BridgeEvent[] = [];
-    pool = new RuntimePool(settings, (event) => {
+    pool = createPool(settings, (event) => {
       if (event.type === 'status' && event.snapshot.status === 'running') markRunning?.();
       if (event.type === 'sessionActivity') {
         activities.push(event);
@@ -292,14 +257,14 @@ describe('RuntimePool', () => {
     const first = pool.snapshot().state?.sessionId;
     expect(first).toBe('fake-session-1');
 
-    await pool.active.prompt({ text: 'tool work' });
+    void pool.active.prompt({ text: 'tool work' });
     await running;
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
     await pool.activateSession('other-session');
@@ -338,15 +303,15 @@ describe('RuntimePool', () => {
 
   it('drains app-owned steering before follow-ups as fresh prompts after settles', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     process.env['FAKE_RUNTIME_DELAY_MS'] = '20';
     try {
       await pool.start();
     } finally {
       delete process.env['FAKE_RUNTIME_DELAY_MS'];
     }
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    await pool.active.prompt({ text: 'slow initial' });
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
+    void pool.prompt({ text: 'slow initial' }, target);
     await waitFor(() => pool!.snapshot().status === 'running');
     pool.enqueuePrompt('follow-up', 'follow second', target);
     pool.enqueuePrompt('steering', 'priority first', target);
@@ -364,56 +329,11 @@ describe('RuntimePool', () => {
     ).toEqual(['slow initial', 'priority first', 'follow second']);
   });
 
-  it('ignores a delayed duplicate settle after the next queued run starts', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    process.env['FAKE_RUNTIME_DELAY_MS'] = '20';
-    try {
-      await pool.start();
-    } finally {
-      delete process.env['FAKE_RUNTIME_DELAY_MS'];
-    }
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    await pool.active.prompt({ text: 'slow initial' });
-    await waitFor(() => pool!.snapshot().status === 'running');
-    const prompt = vi.spyOn(pool.active, 'prompt');
-    pool.enqueuePrompt('follow-up', 'queued first', target);
-    pool.enqueuePrompt('follow-up', 'queued second', target);
-
-    await waitFor(async () => {
-      const messages = await pool!.active.getMessages();
-      return (
-        prompt.mock.calls.length === 1 &&
-        pool!.snapshot().status === 'running' &&
-        messages.some((message) => message.role === 'user' && message.text === 'queued first')
-      );
-    });
-
-    const internals = pool as unknown as { managers: Set<RuntimeManager> };
-    const manager = [...internals.managers][0];
-    if (!manager) throw new Error('runtime manager missing');
-    const managerInternals = manager as unknown as {
-      handleEvent: (event: { type: 'agent_settled' }) => void;
-    };
-    managerInternals.handleEvent({ type: 'agent_settled' });
-    await new Promise((resolve) => setTimeout(resolve, 40));
-
-    expect(prompt).toHaveBeenCalledTimes(1);
-    expect(pool.snapshot().status).toBe('running');
-    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual(['queued second']);
-
-    await waitFor(() => prompt.mock.calls.length === 2);
-    expect(prompt.mock.calls.map(([request]) => request.text)).toEqual([
-      'queued first',
-      'queued second',
-    ]);
-  });
-
   it('drains exactly one queued prompt after a post-acceptance runtime error', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     const prompt = vi.spyOn(pool.active, 'prompt').mockResolvedValue(undefined);
     const internals = pool as unknown as { managers: Set<RuntimeManager> };
     const manager = [...internals.managers][0]!;
@@ -456,9 +376,9 @@ describe('RuntimePool', () => {
 
   it('retains a failed error-boundary dispatch and ignores errors with no queue', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     const prompt = vi.spyOn(pool.active, 'prompt').mockRejectedValue(new Error('disconnected'));
     const internals = pool as unknown as { managers: Set<RuntimeManager> };
     const manager = [...internals.managers][0]!;
@@ -492,15 +412,15 @@ describe('RuntimePool', () => {
 
   it('retains queued work across a runtime restart of the same session', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
     try {
       await pool.start();
     } finally {
       delete process.env['FAKE_RUNTIME_DELAY_MS'];
     }
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    await pool.active.prompt({ text: 'slow interrupted' });
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
+    void pool.active.prompt({ text: 'slow interrupted' });
     await waitFor(() => pool!.snapshot().status === 'running');
     pool.enqueuePrompt('steering', 'survives restart', target);
 
@@ -515,9 +435,9 @@ describe('RuntimePool', () => {
 
   it('does not let a prior queue snapshot authorize a normally detached session', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const target = { runtime: 'pi' as const, sessionId: 'fake-session-1' };
     const context = {
       settings,
       manager: pool,
@@ -532,7 +452,7 @@ describe('RuntimePool', () => {
     // authority to keep routing after an ordinary stop removes the live owner.
     expect(
       await handleRequest(context, { action: 'queue.snapshot', session: target }),
-    ).toMatchObject({ runtime: 'tau', sessionId: target.sessionId, steering: [], followUp: [] });
+    ).toMatchObject({ runtime: 'pi', sessionId: target.sessionId, steering: [], followUp: [] });
     await pool.stop();
     expect(pool.snapshot().recoveryTarget).toBeUndefined();
 
@@ -554,160 +474,22 @@ describe('RuntimePool', () => {
     }
   });
 
-  it('recovers a retained session queue after the first restart launch fails', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    const cwd = fileURLToPath(new URL('.', import.meta.url));
-    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
-    try {
-      await pool.start({ cwd });
-    } finally {
-      delete process.env['FAKE_RUNTIME_DELAY_MS'];
-    }
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    await pool.active.prompt({ text: 'interrupted before failed restart' });
-    await waitFor(() => pool!.snapshot().status === 'running');
-    pool.enqueuePrompt('follow-up', 'drains after retry', target);
-
-    const internals = pool as unknown as {
-      createManager: () => RuntimeManager;
-      managers: Set<RuntimeManager>;
-    };
-    const replaced = [...internals.managers][0]!;
-    const createManager = internals.createManager.bind(pool);
-    const replacements: RuntimeManager[] = [];
-    internals.createManager = () => {
-      const manager = createManager();
-      replacements.push(manager);
-      return manager;
-    };
-    const runtime = settings.current.runtime;
-    settings.update({
-      agentRuntime: 'pi',
-      runtime: {
-        ...runtime,
-        tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
-      },
-    });
-
-    await expect(pool.restart()).rejects.toThrow('not found');
-
-    expect(replaced.isStarted).toBe(false);
-    expect(replacements).toHaveLength(1);
-    expect(replacements[0]!.isStarted).toBe(false);
-    expect(internals.managers.size).toBe(0);
-    expect(pool.snapshot()).toMatchObject({
-      runtime: 'tau',
-      cwd,
-      recoveryTarget: target,
-      state: null,
-    });
-
-    // Exercise the renderer-facing IPC handlers while there is no manager.
-    // Claims retain their stable identity, restores stay in this session, and
-    // an accepted edit can be safely enqueued for the same recovery target.
-    const context = {
-      settings,
-      manager: pool,
-      importRecovery: {
-        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
-        reveal: () => Promise.resolve(),
-      },
-      window: () => null,
-    };
-    await handleRequest(context, {
-      action: 'agent.steer',
-      payload: { text: 'steering after failed restart' },
-      session: target,
-    });
-    const retained = (await handleRequest(context, {
-      action: 'queue.snapshot',
-      session: target,
-    })) as PromptQueueSnapshot;
-    expect(retained.steering.map((item) => item.text)).toEqual(['steering after failed restart']);
-    expect(retained.followUp.map((item) => item.text)).toEqual(['drains after retry']);
-    const firstClaim = (await handleRequest(context, {
-      action: 'queue.pop',
-      session: target,
-    })) as PromptQueueItem | null;
-    expect(firstClaim).toMatchObject({ text: 'drains after retry' });
-    expect(
-      await handleRequest(context, {
-        action: 'queue.resolve',
-        payload: { id: firstClaim!.id, outcome: 'restore' },
-        session: target,
-      }),
-    ).toBe(true);
-    const secondClaim = (await handleRequest(context, {
-      action: 'queue.pop',
-      session: target,
-    })) as PromptQueueItem | null;
-    expect(secondClaim?.id).toBe(firstClaim?.id);
-    expect(
-      await handleRequest(context, {
-        action: 'queue.resolve',
-        payload: { id: secondClaim!.id, outcome: 'accept' },
-        session: target,
-      }),
-    ).toBe(true);
-    await handleRequest(context, {
-      action: 'agent.followUp',
-      payload: { text: 'edited after failed restart' },
-      session: target,
-    });
-    const edited = (await handleRequest(context, {
-      action: 'queue.snapshot',
-      session: target,
-    })) as PromptQueueSnapshot;
-    expect(edited.followUp).toHaveLength(1);
-    expect(edited.followUp[0]).toMatchObject({ text: 'edited after failed restart' });
-    expect(edited.followUp[0]?.id).not.toBe(firstClaim?.id);
-    const alien = { runtime: 'tau' as const, sessionId: 'another-session' };
-    await expect(
-      handleRequest(context, { action: 'queue.snapshot', session: alien }),
-    ).rejects.toThrow('Session is no longer available');
-    expect(internals.managers.size).toBe(0);
-
-    settings.update({
-      runtime: {
-        ...settings.current.runtime,
-        tau: { ...runtime.tau, binary: FAKE },
-      },
-    });
-    const restarted = await pool.restart();
-
-    expect(restarted.runtime).toBe('tau');
-    expect(restarted.cwd).toBe(cwd);
-    expect(restarted.state?.sessionId).toBe(target.sessionId);
-    expect(pool.snapshot().recoveryTarget).toBeUndefined();
-    expect(replacements).toHaveLength(2);
-    expect(internals.managers.has(replacements[0]!)).toBe(false);
-    expect(internals.managers.size).toBe(1);
-    await waitFor(async () => {
-      const messages = await pool!.active.getMessages();
-      return messages.some(
-        (message) => message.role === 'user' && message.text === 'edited after failed restart',
-      );
-    });
-    expect(pool.queueSnapshot(target).followUp).toEqual([]);
-  });
-
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
     await pool.activateSession('other-session');
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
 
-    const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const background = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     await pool.runtimeFor(background).prompt({ text: 'hello background' });
     await waitFor(async () => (await pool!.runtimeFor(background).getState()).messageCount > 0);
 
@@ -723,25 +505,25 @@ describe('RuntimePool', () => {
 
   it('refuses a command aimed at a session no runtime owns', () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    expect(() => pool!.runtimeFor({ runtime: 'tau', sessionId: 'ghost' })).toThrow(
+    pool = createPool(settings, () => undefined);
+    expect(() => pool!.runtimeFor({ runtime: 'pi', sessionId: 'ghost' })).toThrow(
       'Session is no longer available: ghost',
     );
   });
 
   it('opens a picker session without stopping the streaming process', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
     try {
       await pool.start();
     } finally {
       delete process.env['FAKE_RUNTIME_DELAY_MS'];
     }
-    await pool.active.prompt({ text: 'tool work' });
+    void pool.active.prompt({ text: 'tool work' });
     await waitFor(() => pool!.snapshot().status === 'running');
 
-    const busy = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const busy = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const chosen = fileURLToPath(new URL('.', import.meta.url));
     process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
     try {
@@ -760,79 +542,9 @@ describe('RuntimePool', () => {
     expect(messages.filter((message) => message.role === 'toolResult')).toHaveLength(3);
   });
 
-  it('restores a streaming session when picker startup fails', async () => {
-    const settings = makeSettings();
-    const events: BridgeEvent[] = [];
-    pool = new RuntimePool(settings, (event) => events.push(event));
-    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
-    try {
-      await pool.start();
-    } finally {
-      delete process.env['FAKE_RUNTIME_DELAY_MS'];
-    }
-    await pool.active.prompt({ text: 'tool work survives rejected picker startup' });
-    await waitFor(() => pool!.snapshot().status === 'running');
-
-    const busy = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
-    pool.enqueuePrompt('follow-up', 'queued through picker failure', busy);
-    const internals = pool as unknown as {
-      createManager: () => RuntimeManager;
-      managers: Set<RuntimeManager>;
-    };
-    const createManager = internals.createManager.bind(pool);
-    let failed: RuntimeManager | null = null;
-    internals.createManager = () => {
-      failed = createManager();
-      return failed;
-    };
-    events.length = 0;
-    const runtime = settings.current.runtime;
-    settings.update({
-      runtime: {
-        ...runtime,
-        tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
-      },
-    });
-
-    await expect(pool.openSession('/work/rejected')).rejects.toThrow('not found');
-
-    expect(failed).not.toBeNull();
-    expect(failed!.isStarted).toBe(false);
-    expect(internals.managers.has(failed!)).toBe(false);
-    expect(internals.managers.size).toBe(1);
-    expect(pool.snapshot().state?.sessionId).toBe(busy.sessionId);
-    expect(pool.active).toBe(pool.runtimeFor(busy));
-    expect(
-      events.some(
-        (event) =>
-          event.type === 'status' &&
-          event.snapshot.state?.sessionId === busy.sessionId &&
-          event.snapshot.status === 'running',
-      ),
-    ).toBe(true);
-
-    await waitFor(async () => {
-      const messages = await pool!.active.getMessages();
-      return (
-        !(await pool!.active.getState()).isStreaming &&
-        messages.some(
-          (message) => message.role === 'user' && message.text === 'queued through picker failure',
-        )
-      );
-    });
-    const messages = await pool.active.getMessages();
-    expect(
-      messages.filter((message) => message.role === 'user').map((message) => message.text),
-    ).toEqual(['tool work survives rejected picker startup', 'queued through picker failure']);
-    expect(
-      messages.some((message) => message.role === 'assistant' && message.text.includes('Done')),
-    ).toBe(true);
-    expect(messages.filter((message) => message.role === 'toolResult')).toHaveLength(3);
-  });
-
   it('replaces an idle process when opening a picker session', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     const internals = pool as unknown as { managers: Set<RuntimeManager> };
     const replaced = [...internals.managers][0]!;
@@ -849,7 +561,7 @@ describe('RuntimePool', () => {
   it('spawns a queued background session without changing the viewed transcript', async () => {
     const settings = makeSettings();
     const events: BridgeEvent[] = [];
-    pool = new RuntimePool(settings, (event) => events.push(event));
+    pool = createPool(settings, (event) => events.push(event));
     process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
     try {
       await pool.start();
@@ -894,7 +606,7 @@ describe('RuntimePool', () => {
 
   it('rejects a background session whose working directory does not exist', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
 
     await expect(
@@ -907,7 +619,7 @@ describe('RuntimePool', () => {
 
   it('stops a spawned runtime when cancellation arrives during startup', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     const internals = pool as unknown as {
       createManager: () => RuntimeManager;
@@ -958,42 +670,19 @@ describe('RuntimePool', () => {
     ).toBe(false);
   });
 
-  it('does not revive an idle process removed before picker startup fails', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    await pool.start();
-    const internals = pool as unknown as { managers: Set<RuntimeManager> };
-    const replaced = [...internals.managers][0]!;
-    const runtime = settings.current.runtime;
-    settings.update({
-      runtime: {
-        ...runtime,
-        tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
-      },
-    });
-
-    await expect(pool.openSession('/work/rejected')).rejects.toThrow('not found');
-
-    expect(replaced.isStarted).toBe(false);
-    expect(internals.managers.has(replaced)).toBe(false);
-    expect(internals.managers.size).toBe(0);
-    expect(pool.snapshot().state).toBeNull();
-    expect(() => pool!.active).toThrow('Runtime is not started');
-  });
-
   it('gives a new session its own process while a run is still streaming', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
     try {
       await pool.start();
     } finally {
       delete process.env['FAKE_RUNTIME_DELAY_MS'];
     }
-    await pool.active.prompt({ text: 'slow work' });
+    void pool.active.prompt({ text: 'slow work' });
     await waitFor(() => pool!.snapshot().status === 'running');
 
-    const busy = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const busy = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     process.env['FAKE_RUNTIME_UNIQUE_SESSION'] = '1';
     try {
       await pool.newSession();
@@ -1012,7 +701,7 @@ describe('RuntimePool', () => {
 
   it('reuses an idle process for a new session', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
 
     await pool.newSession();
@@ -1024,7 +713,7 @@ describe('RuntimePool', () => {
 
   it('relaunches for a new session after the runtime stopped', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
     await pool.stop();
     expect(pool.snapshot().status).toBe('stopped');
@@ -1032,15 +721,15 @@ describe('RuntimePool', () => {
     const snapshot = await pool.newSession();
 
     expect(snapshot.status).toBe('idle');
-    expect(snapshot.state?.sessionId).toBe('fake-session-1');
+    expect(snapshot.state?.sessionId).toBe('fake-session-2');
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(1);
   });
 
   it('blocks direct prompts and defers queued scheduling during a reserved reload', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
-    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const gate = deferred<void>();
     let entered = false;
     pool.active.reloadResources = async () => {
@@ -1066,9 +755,9 @@ describe('RuntimePool', () => {
   });
 
   it('does not let settle-triggered scheduling cross a reload reservation', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
-    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const gate = deferred<void>();
     pool.active.reloadResources = async () => {
       await gate.promise;
@@ -1098,9 +787,9 @@ describe('RuntimePool', () => {
   });
 
   it('releases a failed reload reservation for later direct work', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
-    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const gate = deferred<void>();
     let entered = false;
     pool.active.reloadResources = async () => {
@@ -1124,16 +813,16 @@ describe('RuntimePool', () => {
 
   it('reserves a background target against direct and scheduled work', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const background = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const backgroundRuntime = pool.runtimeFor(background);
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
     await pool.activateSession('other-session');
@@ -1161,7 +850,7 @@ describe('RuntimePool', () => {
   });
 
   it('serializes reload with itself and releases the queue after failure', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
     const gates = [deferred<void>(), deferred<void>()];
     let calls = 0;
@@ -1184,9 +873,9 @@ describe('RuntimePool', () => {
   it.each(['success', 'failure'] as const)(
     'never releases retained queue work before a queued stop after reload %s',
     async (outcome) => {
-      pool = new RuntimePool(makeSettings(), () => undefined);
+      pool = createPool(makeSettings(), () => undefined);
       await pool.start();
-      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
       const gate = deferred<void>();
       let reloadEntered = false;
       pool.active.reloadResources = async () => {
@@ -1217,9 +906,9 @@ describe('RuntimePool', () => {
   it.each(['success', 'failure'] as const)(
     'never dispatches an old-session queue before a queued new session after reload %s',
     async (outcome) => {
-      pool = new RuntimePool(makeSettings(), () => undefined);
+      pool = createPool(makeSettings(), () => undefined);
       await pool.start();
-      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
       const gate = deferred<void>();
       let reloadEntered = false;
       pool.active.reloadResources = async () => {
@@ -1252,9 +941,9 @@ describe('RuntimePool', () => {
     'waits for a queued switch before handing retained background work off after reload %s',
     async (outcome) => {
       const settings = makeSettings();
-      pool = new RuntimePool(settings, () => undefined);
+      pool = createPool(settings, () => undefined);
       await pool.start();
-      const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const background = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
       const backgroundRuntime = pool.active;
       const reloadGate = deferred<void>();
       const handoffGate = deferred<void>();
@@ -1274,7 +963,7 @@ describe('RuntimePool', () => {
         name: 'other',
         path: null,
         cwd: process.cwd(),
-        runtime: 'tau',
+        runtime: 'pi',
         lastSeen: Date.now(),
       });
 
@@ -1304,9 +993,9 @@ describe('RuntimePool', () => {
   it.each(['success', 'failure'] as const)(
     're-resolves the replacement before handing retained work off after queued restart and reload %s',
     async (outcome) => {
-      pool = new RuntimePool(makeSettings(), () => undefined);
+      pool = createPool(makeSettings(), () => undefined);
       await pool.start();
-      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
       const replacedRuntime = pool.active;
       const reloadGate = deferred<void>();
       const handoffGate = deferred<void>();
@@ -1357,9 +1046,8 @@ describe('RuntimePool', () => {
   );
 
   it('serializes reload before stop and new-session transitions', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
-    const target = pool.snapshot().state?.sessionId;
     const stopGate = deferred<void>();
     pool.active.reloadResources = async () => {
       await stopGate.promise;
@@ -1375,6 +1063,7 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().status).toBe('stopped');
 
     await pool.start();
+    const restartedTarget = pool.snapshot().state?.sessionId;
     const newGate = deferred<void>();
     pool.active.reloadResources = async () => {
       await newGate.promise;
@@ -1383,18 +1072,18 @@ describe('RuntimePool', () => {
     const reloadBeforeNew = pool.reloadResources();
     const opening = pool.newSession();
     await Promise.resolve();
-    expect(pool.snapshot().state?.sessionId).toBe(target);
+    expect(pool.snapshot().state?.sessionId).toBe(restartedTarget);
     newGate.resolve();
     await reloadBeforeNew;
     await opening;
-    expect(pool.snapshot().state?.sessionId).not.toBe(target);
+    expect(pool.snapshot().state?.sessionId).not.toBe(restartedTarget);
   });
 
   it('serializes reload before switching and targets a background owner exactly', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const firstTarget = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const firstTarget = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const switchGate = deferred<void>();
     let firstCalls = 0;
     pool.active.reloadResources = async () => {
@@ -1407,7 +1096,7 @@ describe('RuntimePool', () => {
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
     const reload = pool.reloadResources(firstTarget);
@@ -1487,9 +1176,9 @@ describe('RuntimePool', () => {
     'atomically excludes %s from reload before and after reservation',
     async (_name, request, method, value) => {
       const settings = makeSettings();
-      pool = new RuntimePool(settings, () => undefined);
+      pool = createPool(settings, () => undefined);
       await pool.start();
-      const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+      const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
       const context = {
         settings,
         manager: pool,
@@ -1533,9 +1222,9 @@ describe('RuntimePool', () => {
   );
 
   it('releases mutation claims after operation and reload failures', async () => {
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     await pool.start();
-    const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const target = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
 
     await expect(
       pool.mutateRuntime(target, () => Promise.reject(new Error('mutation failed'))),
@@ -1562,16 +1251,16 @@ describe('RuntimePool', () => {
 
   it('gates mutations by exact background manager while allowing classified reads', async () => {
     const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
+    pool = createPool(settings, () => undefined);
     await pool.start();
-    const background = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
+    const background = { runtime: 'pi', sessionId: 'fake-session-1' } as const;
     const backgroundRuntime = pool.active;
     settings.rememberSession({
       id: 'other-session',
       name: 'other',
       path: null,
       cwd: process.cwd(),
-      runtime: 'tau',
+      runtime: 'pi',
       lastSeen: Date.now(),
     });
     await pool.activateSession('other-session');
@@ -1602,13 +1291,13 @@ describe('RuntimePool', () => {
 
   it('rejects reload while the exact target has active work', async () => {
     process.env['FAKE_RUNTIME_DELAY_MS'] = '50';
-    pool = new RuntimePool(makeSettings(), () => undefined);
+    pool = createPool(makeSettings(), () => undefined);
     try {
       await pool.start();
     } finally {
       delete process.env['FAKE_RUNTIME_DELAY_MS'];
     }
-    await pool.active.prompt({ text: 'slow work' });
+    void pool.active.prompt({ text: 'slow work' });
     await waitFor(() => pool!.snapshot().status === 'running');
     pool.active.reloadResources = () => Promise.resolve(reloadResult());
 

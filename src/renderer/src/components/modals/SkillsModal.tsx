@@ -2,7 +2,7 @@ import { type ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
 import { Picker, type PickerItem } from './Picker.js';
 
-/** Search loaded Tau skills and insert an explicit invocation into the composer. */
+/** Search loaded Pi skills and insert an explicit invocation into the composer. */
 export function SkillsModal(): ReactNode {
   const { state, actions } = useStore();
   const items: PickerItem[] = state.resources.skills.map((skill) => ({
@@ -21,7 +21,7 @@ export function SkillsModal(): ReactNode {
       subtitle="Enter inserts /skill:<name>; add your request in the composer"
       placeholder="search names and descriptions…"
       items={items}
-      emptyLabel="no Tau skills loaded"
+      emptyLabel="no Pi skills loaded"
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
         actions.setDraft(`/skill:${item.id} `);

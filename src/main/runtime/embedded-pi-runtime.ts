@@ -241,14 +241,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
           additionalPromptTemplatePaths,
         },
       });
-      const requested =
-        config.provider && config.model
-          ? services.modelRuntime.getModel(config.provider, config.model)
-          : undefined;
       const created = await createAgentSessionFromServices({
         services,
         sessionManager,
-        model: requested,
         customTools: this.spawnSession
           ? [createSpawnSessionTool(cwd, this.spawnSession)]
           : undefined,

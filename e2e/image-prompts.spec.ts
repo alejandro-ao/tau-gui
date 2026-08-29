@@ -5,7 +5,7 @@ import { composer, launchApp } from './helpers.js';
 const fixture = (name: string): string => join(process.cwd(), 'test', 'fixtures', 'images', name);
 
 test('previews, removes, and submits multiple native image attachments', async () => {
-  const handle = await launchApp({ settings: { agentRuntime: 'pi' } });
+  const handle = await launchApp({});
   try {
     await expect(handle.page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
     await handle.page.evaluate(`(() => {

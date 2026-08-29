@@ -73,9 +73,9 @@ describe('composer draft persistence', () => {
           {
             id: 'session-9',
             name: 'earlier work',
-            path: '/work/project/.tau/nine.jsonl',
+            path: '/work/project/.pi/nine.jsonl',
             cwd: '/work/project',
-            runtime: 'tau',
+            runtime: 'pi',
             lastSeen: 1_760_000_000_000,
           },
         ],

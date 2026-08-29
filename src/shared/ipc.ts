@@ -51,18 +51,11 @@ import type {
 } from './domain.js';
 import { MAX_SCOPED_MODELS, isScopedModelKey, modelKey } from './scoped-models.js';
 
-export interface RuntimeProbe {
-  binary: string;
-  resolved: string | null;
-  version: string | null;
-  error: string | null;
-}
-
 export const IPC_INVOKE_CHANNEL = 'tau:invoke';
 export const IPC_EVENT_CHANNEL = 'tau:event';
 
 const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
-const runtimeKind = z.enum(['tau', 'pi']);
+const runtimeKind = z.literal('pi');
 const safePathText = z
   .string()
   .min(1)
@@ -596,27 +589,18 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('runtime_error'), message: boundedText(10_000) }).strict(),
 ]);
 
-const runtimeSettings = z
-  .object({
-    binary: z.string().min(1).max(4_096),
-    provider: boundedText(500).nullable(),
-    model: boundedText(500).nullable(),
-    extraArgs: z.array(boundedText(4_096)).max(100),
-  })
-  .strict();
-
 // Full-map settings patches remain valid for import/repair, but interactive
 // mutations use settings.toggleScopedModel so the main process updates atomically.
 const scopedModelKeys = z.array(z.string().refine(isScopedModelKey)).max(MAX_SCOPED_MODELS);
 const scopedModelRef = z
-  .object({ runtime: runtimeKind, provider: z.string().min(1), modelId: z.string().min(1) })
+  .object({ provider: z.string().min(1), modelId: z.string().min(1) })
+  .strict()
   .refine(({ provider, modelId }) => isScopedModelKey(modelKey({ provider, modelId })), {
     message: 'encoded scoped model identity is too long',
   });
 
 export const rendererSettingsSchema = z
   .object({
-    agentRuntime: runtimeKind,
     theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
     sidebarPosition: z.enum(['right', 'left', 'off']),
     turnNotification: z.enum(['desktop', 'off']),
@@ -626,8 +610,7 @@ export const rendererSettingsSchema = z
     customSkillDirectories: z.array(safePathText).max(100),
     customPromptDirectories: z.array(safePathText).max(100),
     projectTrust,
-    runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }).strict(),
-    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }).strict(),
+    scopedModels: scopedModelKeys,
     recentSessions: z
       .array(
         z
@@ -705,7 +688,6 @@ export const runtimeSnapshotSchema: z.ZodType<RuntimeSnapshot> = z
 
 export const settingsPatchSchema = z
   .object({
-    agentRuntime: runtimeKind,
     theme: z.enum(['tau-dark', 'tau-light', 'high-contrast', 'pure-black']),
     sidebarPosition: z.enum(['right', 'left', 'off']),
     turnNotification: z.enum(['desktop', 'off']),
@@ -713,8 +695,7 @@ export const settingsPatchSchema = z
     cwd: z.string().nullable(),
     workingDirectories: z.array(safePathText).max(100),
     projectTrust,
-    runtime: z.object({ tau: runtimeSettings, pi: runtimeSettings }),
-    scopedModels: z.object({ tau: scopedModelKeys, pi: scopedModelKeys }),
+    scopedModels: scopedModelKeys,
   })
   .strict()
   .partial();
@@ -750,12 +731,6 @@ const requestUnion = z.discriminatedUnion('action', [
   }),
   z.strictObject({ action: z.literal('runtime.stop') }),
   z.strictObject({ action: z.literal('runtime.restart') }),
-  // The probe never accepts a renderer-supplied binary: only the runtime kind
-  // may be selected, and the executable always comes from persisted settings.
-  z.strictObject({
-    action: z.literal('runtime.probe'),
-    payload: z.strictObject({ kind: runtimeKind.optional() }).optional(),
-  }),
   z.strictObject({ action: z.literal('runtime.snapshot') }),
 
   z.strictObject({
@@ -1056,7 +1031,7 @@ export const envelopeSchema = strictTopLevel(new Set(['action', 'payload', 'sess
 export type IpcEnvelope = IpcRequest & { session?: SessionTarget };
 
 export interface RuntimeSnapshot {
-  runtime: 'tau' | 'pi';
+  runtime: 'pi';
   status: RuntimeStatus;
   detail: string | null;
   /** Version reported by the runtime binary at launch, when known. */
@@ -1108,7 +1083,6 @@ export interface IpcResultMap {
   'runtime.openSession': RuntimeSnapshot;
   'runtime.stop': RuntimeSnapshot;
   'runtime.restart': RuntimeSnapshot;
-  'runtime.probe': RuntimeProbe;
   'runtime.snapshot': RuntimeSnapshot;
   'agent.prompt': null;
   'agent.steer': null;

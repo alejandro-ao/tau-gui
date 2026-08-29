@@ -261,8 +261,8 @@ export function Composer(): ReactNode {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      // Tau's RPC prompt endpoint does not dispatch TUI commands. Consume every
-      // command the desktop app owns before deciding whether to prompt/steer.
+      // Consume every desktop-owned command before deciding whether to send a
+      // Pi prompt or queued message.
       if (mode === 'primary' && completion.runInvocation(trimmed)) {
         setDraft('');
         submittedBySession.current.set(sessionKey, trimmed);

@@ -116,7 +116,7 @@ describe('local-only Pi introspection', () => {
       await press(input, 'Enter');
       await view.flush();
       expect(bridge.calls.find((call) => call.action === action)?.session).toEqual({
-        runtime: 'tau',
+        runtime: 'pi',
         sessionId: 'session-a',
       });
       await act(async () => {

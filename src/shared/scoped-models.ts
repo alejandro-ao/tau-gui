@@ -1,7 +1,7 @@
 /**
  * Scoped ("favourite") model helpers.
  *
- * Neither Tau nor Pi exposes an RPC surface to list or edit scoped models, so
+ * Pi does not expose app favourite-model editing as a session operation, so
  * scoping is owned by this application. Keys use a canonical JSON tuple so
  * arbitrary provider/model punctuation cannot make two identities collide.
  */

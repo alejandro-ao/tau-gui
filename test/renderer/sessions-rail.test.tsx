@@ -14,7 +14,7 @@ const session = (patch: Partial<SessionRef>): SessionRef => {
     messageCount: 1,
     path: null,
     cwd: '/work/project',
-    runtime: 'tau',
+    runtime: 'pi',
     lastSeen: Date.now(),
     ...patch,
   };
@@ -96,7 +96,6 @@ describe('SessionsRail', () => {
       runtime: 'pi',
       capabilities: { sessionList: true },
       settings: {
-        agentRuntime: 'pi',
         recentSessions: [session({ id: 'native-1', name: 'stale app label' })],
       },
       results: {
@@ -208,7 +207,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'running',
           responseReady: null,
         },
@@ -225,7 +224,7 @@ describe('SessionsRail', () => {
         type: 'sessionActivity',
         activity: {
           sessionId: 'background',
-          runtime: 'tau',
+          runtime: 'pi',
           status: 'idle',
           responseReady: true,
         },
@@ -290,7 +289,6 @@ describe('SessionsRail', () => {
     const { bridge, view } = await render({
       status: 'idle',
       settings: {
-        agentRuntime: 'pi',
         recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
       },
     });
@@ -298,23 +296,6 @@ describe('SessionsRail', () => {
     if (!item) throw new Error('sessions rail item missing');
     await click(item);
     await settle(view);
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
-  });
-
-  it('switches the runtime before resuming remembered metadata', async () => {
-    const { bridge, view } = await render({
-      status: 'idle',
-      settings: {
-        agentRuntime: 'tau',
-        recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
-      },
-    });
-    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
-    if (!item) throw new Error('sessions rail item missing');
-    await click(item);
-    await settle(view);
-    expect(bridge.payloads('settings.update')).toEqual([{ agentRuntime: 'pi' }]);
-    // Native metadata crosses IPC by opaque id, never by session-file path.
     expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
   });
 

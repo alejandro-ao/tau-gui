@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { composer, launchApp, runtimePids } from './helpers.js';
+import { composer, launchApp } from './helpers.js';
 
 async function runCommand(page: Page, command: string): Promise<void> {
   await composer(page).fill(command);
@@ -11,7 +11,6 @@ test('starts with bundled Pi and no external runtime executable', async () => {
   try {
     await expect(handle.page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
     await expect(handle.page.getByTestId('sidebar').locator('.version-mark')).toContainText('pi');
-    expect(runtimePids(handle.marker)).toEqual([]);
   } finally {
     await handle.close();
   }

@@ -24,7 +24,7 @@ test('shell mode runs !echo hi and shows the output in the transcript', async ()
   const shell = page.locator('.block-shell');
   await expect(shell).toHaveCount(1);
   await expect(shell.locator('.shell-command')).toHaveText('$ echo hi');
-  await expect(shell.locator('.tool-output')).toContainText('fake output for: echo hi');
+  await expect(shell.locator('.tool-output')).toContainText('hi');
   await expect(shell.locator('.shell-exit')).toContainText('exit 0');
   await expect(composer(page)).toHaveValue('');
 });

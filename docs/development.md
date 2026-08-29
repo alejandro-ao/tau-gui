@@ -34,9 +34,9 @@ npm run test        # vitest only
 npm run test:e2e    # build, then Playwright Electron tests (functional only)
 npm run test:visual # build, then VISUAL=1 screenshot comparisons
 npm run test:visual:update  # regenerate the platform-specific baselines
-npm run test:smoke:real     # optional smoke against a real installed runtime
 npm run build       # typecheck + production bundles into out/
 npm run package     # unpacked platform build into release/
+npm run package:smoke # package and validate executable/app.asar artifacts
 npm run dist        # installers/artifacts into release/
 ```
 
@@ -44,33 +44,26 @@ npm run dist        # installers/artifacts into release/
 
 ```text
 src/shared/       application-domain types + IPC contract (both processes)
-src/main/         window, security, IPC routing, services, RPC transport, adapters
-  rpc/            strict JSONL framing and correlated request client
-  runtime/        AgentRuntime adapter, wire normalization, launch specs
-  services/       settings, filesystem completion, runtime manager
+src/main/         window, security, IPC routing, services, embedded Pi adapter
+  runtime/        typed AgentRuntime boundary, embedded Pi, injected fake Pi
+  services/       settings, filesystem completion, runtime manager/pool
 src/preload/      narrow context-isolated bridge
 src/renderer/     React UI, reducer state, transcript, composer, pickers
-test/             unit + contract tests, deterministic fake JSONL runtime
+test/             unit + contract tests with injected fake Pi services
 e2e/              Playwright Electron tests
-docs/             architecture, UI principles, RPC reference, roadmap status
+docs/             architecture, security, UI principles, release testing, roadmap status
 ```
 
 ## Testing model
 
-- **Unit** — framing, request correlation/timeouts, normalization, reducer,
-  settings, filesystem completion and traversal bounds, IPC handlers (with
-  Electron mocked), the CSP source of truth, and the `RuntimeManager` state
-  machine. No Electron app, no real runtime binaries.
-- **Streaming** — `test/runtime-stream.test.ts` drives
-  `test/fake/burst-runtime.mjs` to assert stdout flow control and stdin
-  backpressure never lose or reorder records.
-- **Contract** — `test/runtime-contract.test.ts` runs the same
-  application-domain expectations against the `tau` and `pi` adapter
-  configurations using `test/fake/fake-runtime.mjs`.
-- **Electron E2E** — Playwright drives the built main process with the fake
-  runtime injected through settings, covering startup, streaming, cancellation,
-  steering/follow-ups, tool expansion, errors, model selection, sessions, modal
-  focus, runtime crash/restart, shell mode, and preload isolation. Each launch
+- **Unit** — normalization, reducer, settings migration, filesystem completion
+  and traversal bounds, IPC handlers (with Electron mocked), CSP, and runtime
+  pool lifecycle using an injected `FakePiRuntime`. No Electron app, protocol
+  process, provider, or runtime binary is required.
+- **Electron E2E** — Playwright drives the built main process with the in-process
+  fake Pi injected by `TAU_GUI_TEST_FAKE_PI=1`, covering startup, streaming,
+  cancellation, steering/follow-ups, tool expansion, errors, model selection,
+  sessions, modal focus, restart, shell mode, and preload isolation. Each launch
   gets a throwaway `userData` directory through the `TAU_GUI_USER_DATA_DIR`
   main-process hook, so developer settings are never touched.
 - **Visual regression** — `e2e/visual.spec.ts` compares fixed-size screenshots
@@ -78,10 +71,9 @@ docs/             architecture, UI principles, RPC reference, roadmap status
   mode. It is gated behind `VISUAL=1` because baselines are platform-specific;
   see `e2e/README.md` for regeneration.
 
-The fake runtime replays deterministic scripts keyed off prompt text
-(`tool`, `thinking`, `error`, `compact`, `slow`), so CI never needs provider
-credentials. Optional smoke tests against a real installed `tau`/`pi` are run
-manually.
+The fake Pi emits deterministic application-domain events keyed off prompt text,
+so CI never needs provider credentials or executable discovery. Production
+embedded-Pi startup has its own no-provider Electron smoke test.
 
 ## Conventions
 

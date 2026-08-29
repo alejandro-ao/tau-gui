@@ -260,23 +260,10 @@ describe('IPC request validation', () => {
     ).toBe(false);
   });
 
-  it('never lets the renderer choose the probed binary', () => {
-    expect(requestSchema.safeParse({ action: 'runtime.probe' }).success).toBe(true);
-    expect(requestSchema.safeParse({ action: 'runtime.probe', payload: {} }).success).toBe(true);
+  it('has no executable probe action', () => {
+    expect(requestSchema.safeParse({ action: 'runtime.probe' }).success).toBe(false);
     expect(
-      requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'pi' } }).success,
-    ).toBe(true);
-    expect(
-      requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'sh' } }).success,
-    ).toBe(false);
-
-    // Compatibility is explicit: supported optional fields remain accepted,
-    // while a renderer-supplied binary is rejected rather than silently stripped.
-    expect(
-      requestSchema.safeParse({
-        action: 'runtime.probe',
-        payload: { kind: 'tau', binary: '/bin/sh' },
-      }).success,
+      requestSchema.safeParse({ action: 'runtime.probe', payload: { binary: '/bin/sh' } }).success,
     ).toBe(false);
   });
 
@@ -753,7 +740,7 @@ describe('IPC request validation', () => {
     expect(
       requestSchema.safeParse({ action: 'settings.update', payload: { agentRuntime: 'pi' } })
         .success,
-    ).toBe(true);
+    ).toBe(false);
     expect(
       requestSchema.safeParse({
         action: 'settings.update',
@@ -786,10 +773,10 @@ describe('IPC request validation', () => {
     const parsed = envelopeSchema.safeParse({
       action: 'agent.prompt',
       payload: { text: 'hi' },
-      session: { runtime: 'tau', sessionId: 'abc' },
+      session: { runtime: 'pi', sessionId: 'abc' },
     });
     expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
+    expect(parsed.success && parsed.data.session).toEqual({ runtime: 'pi', sessionId: 'abc' });
 
     expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
     expect(envelopeSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(
@@ -805,57 +792,44 @@ describe('IPC request validation', () => {
     expect(
       envelopeSchema.safeParse({
         action: 'agent.abort',
-        session: { runtime: 'tau', sessionId: '' },
+        session: { runtime: 'pi', sessionId: '' },
       }).success,
     ).toBe(false);
     expect(
       envelopeSchema.safeParse({
         action: 'agent.abort',
-        session: { runtime: 'tau', sessionId: 'x'.repeat(129) },
+        session: { runtime: 'pi', sessionId: 'x'.repeat(129) },
       }).success,
     ).toBe(false);
     expect(
       envelopeSchema.safeParse({
         action: 'agent.abort',
-        session: { runtime: 'tau', sessionId: 'abc', extra: true },
+        session: { runtime: 'pi', sessionId: 'abc', extra: true },
       }).success,
     ).toBe(false);
   });
 
-  it('validates scoped model patches', () => {
+  it('validates Pi scoped model patches', () => {
     expect(
       requestSchema.safeParse({
         action: 'settings.update',
-        payload: { scopedModels: { tau: [key('fake', 'a')], pi: [] } },
+        payload: { scopedModels: [key('fake', 'a')] },
       }).success,
     ).toBe(true);
-    // Both runtimes must be supplied, and entries must be non-empty strings.
+    expect(
+      requestSchema.safeParse({ action: 'settings.update', payload: { scopedModels: [''] } })
+        .success,
+    ).toBe(false);
     expect(
       requestSchema.safeParse({
         action: 'settings.update',
-        payload: { scopedModels: { tau: [key('fake', 'a')] } },
+        payload: { scopedModels: Array.from({ length: 101 }, () => key('fake', 'a')) },
       }).success,
     ).toBe(false);
     expect(
       requestSchema.safeParse({
         action: 'settings.update',
-        payload: { scopedModels: { tau: [''], pi: [] } },
-      }).success,
-    ).toBe(false);
-    expect(
-      requestSchema.safeParse({
-        action: 'settings.update',
-        payload: {
-          scopedModels: { tau: Array.from({ length: 101 }, () => key('fake', 'a')), pi: [] },
-        },
-      }).success,
-    ).toBe(false);
-    expect(
-      requestSchema.safeParse({
-        action: 'settings.update',
-        payload: {
-          scopedModels: { tau: [`["p","${'m'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH)}"]`], pi: [] },
-        },
+        payload: { scopedModels: [`["p","${'m'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH)}"]`] },
       }).success,
     ).toBe(false);
   });
@@ -864,14 +838,13 @@ describe('IPC request validation', () => {
     expect(
       requestSchema.safeParse({
         action: 'settings.toggleScopedModel',
-        payload: { runtime: 'tau', provider: 'a:b', modelId: 'c' },
+        payload: { provider: 'a:b', modelId: 'c' },
       }).success,
     ).toBe(true);
     expect(
       requestSchema.safeParse({
         action: 'settings.toggleScopedModel',
         payload: {
-          runtime: 'tau',
           provider: 'p',
           modelId: 'm'.repeat(MAX_SCOPED_MODEL_KEY_LENGTH),
         },
@@ -885,13 +858,12 @@ describe('IPC request validation', () => {
     ).toBe(false);
   });
 
-  it('requires a complete runtime map when runtime settings change', () => {
-    const runtime = { binary: 'tau', provider: null, model: null, extraArgs: [] };
+  it('rejects obsolete runtime launch settings', () => {
     expect(
       requestSchema.safeParse({
         action: 'settings.update',
-        payload: { runtime: { tau: runtime, pi: { ...runtime, binary: 'pi' } } },
+        payload: { runtime: { pi: { binary: 'pi' } } },
       }).success,
-    ).toBe(true);
+    ).toBe(false);
   });
 });

@@ -2,9 +2,8 @@
  * Shared Electron end-to-end harness.
  *
  * Every launch gets its own userData directory (through the main-process
- * `TAU_GUI_USER_DATA_DIR` hook) and a seeded `settings.json` that points the
- * runtime at `test/fake/fake-runtime.mjs`, so tests never touch a developer's
- * real settings and never need provider credentials.
+ * `TAU_GUI_USER_DATA_DIR` hook) and the injected in-process fake Pi adapter, so
+ * tests never touch developer state and never need provider credentials.
  */
 import {
   _electron as electron,
@@ -12,21 +11,19 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
-import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import type { AgentEvent, AppSettings, RuntimeKind } from '../src/shared/domain.js';
+import type { AgentEvent, AppSettings } from '../src/shared/domain.js';
 import { IPC_EVENT_CHANNEL, type RuntimeSnapshot } from '../src/shared/ipc.js';
 
 export const REPO_ROOT = resolve(import.meta.dirname, '..');
 export const MAIN_ENTRY = join(REPO_ROOT, 'out/main/index.js');
-export const FAKE_RUNTIME = join(REPO_ROOT, 'test/fake/fake-runtime.mjs');
 
 export interface LaunchOptions {
   /** Extra settings merged over the seeded defaults. */
   settings?: Partial<AppSettings>;
-  /** Extra environment for the Electron process (e.g. FAKE_RUNTIME_DELAY_MS). */
+  /** Extra environment for the Electron process. */
   env?: Record<string, string>;
   /** Fixed directories: used by the visual suite for stable screenshots. */
   userDataDir?: string;
@@ -42,36 +39,22 @@ export interface AppHandle {
   page: Page;
   userDataDir: string;
   projectDir: string;
-  /** Unique argv marker used to find this launch's runtime child process. */
-  marker: string;
   close: () => Promise<void>;
 }
-
-let launchCounter = 0;
 
 function seedSettings(
   userDataDir: string,
   projectDir: string,
-  marker: string,
   overrides: Partial<AppSettings>,
-  kind: RuntimeKind = 'pi',
 ): void {
-  const runtimeSettings = {
-    binary: FAKE_RUNTIME,
-    provider: null,
-    model: null,
-    extraArgs: ['--e2e-marker', marker],
-  };
   const settings: AppSettings = {
-    agentRuntime: kind,
     theme: 'tau-dark',
     sidebarPosition: 'right',
     turnNotification: 'off',
     showThinking: true,
     cwd: projectDir,
     projectTrust: 'default',
-    runtime: { tau: { ...runtimeSettings }, pi: { ...runtimeSettings } },
-    scopedModels: { tau: [], pi: [] },
+    scopedModels: [],
     recentSessions: [],
     customSkillDirectories: [],
     customPromptDirectories: [],
@@ -90,14 +73,12 @@ function seedProject(projectDir: string): void {
 }
 
 export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle> {
-  launchCounter += 1;
-  const marker = `e2e-${process.pid}-${launchCounter}-${Date.now()}`;
   const userDataDir = options.userDataDir ?? mkdtempSync(join(tmpdir(), 'tau-gui-userdata-'));
   const projectDir = options.projectDir ?? mkdtempSync(join(tmpdir(), 'tau-gui-project-'));
   mkdirSync(userDataDir, { recursive: true });
   mkdirSync(projectDir, { recursive: true });
   seedProject(projectDir);
-  seedSettings(userDataDir, projectDir, marker, options.settings ?? {});
+  seedSettings(userDataDir, projectDir, options.settings ?? {});
 
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
@@ -113,10 +94,10 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
   // already runs inside Xvfb and leaves the window visible there because some
   // streaming scenarios are timer-throttled in a hidden X11 window.
   env['TAU_GUI_E2E_HIDDEN'] = process.env['CI'] ? '0' : '1';
-  // Most E2E tests use the explicit JSONL fake so no provider credentials or
-  // network access are required. A focused smoke test exercises embedded Pi.
-  if (options.embeddedPi) env['PI_CODING_AGENT_DIR'] = join(userDataDir, 'pi-agent');
-  else env['TAU_GUI_TEST_RPC_RUNTIME'] = '1';
+  // Most E2E tests inject an in-process fake Pi adapter. A focused smoke test
+  // exercises the production embedded SDK path.
+  env['PI_CODING_AGENT_DIR'] = join(userDataDir, 'pi-agent');
+  if (!options.embeddedPi) env['TAU_GUI_TEST_FAKE_PI'] = '1';
   env['ELECTRON_DISABLE_SECURITY_WARNINGS'] = '1';
   Object.assign(env, options.env ?? {});
 
@@ -134,7 +115,6 @@ export async function launchApp(options: LaunchOptions = {}): Promise<AppHandle>
     page,
     userDataDir,
     projectDir,
-    marker,
     close: async () => {
       await app.close().catch(() => undefined);
       if (!options.userDataDir) rmSync(userDataDir, { recursive: true, force: true });
@@ -192,25 +172,6 @@ export async function transcriptText(page: Page): Promise<string> {
 /** Blocks currently rendered in the transcript, by kind. */
 export function blocks(page: Page, kind: string): ReturnType<Page['locator']> {
   return page.locator(`.block-${kind}`);
-}
-
-/** Pids of the runtime children belonging to this launch (matched by marker). */
-export function runtimePids(marker: string): number[] {
-  const output = execFileSync('ps', ['-Ao', 'pid=,args='], { encoding: 'utf8' });
-  const pids: number[] = [];
-  for (const line of output.split('\n')) {
-    if (!line.includes(marker)) continue;
-    if (!line.includes('fake-runtime.mjs')) continue;
-    const pid = Number.parseInt(line.trim().split(/\s+/)[0] ?? '', 10);
-    if (Number.isInteger(pid)) pids.push(pid);
-  }
-  return pids;
-}
-
-/** Kills this launch's runtime subprocess to simulate a crash. */
-export async function killRuntime(marker: string): Promise<void> {
-  await expect.poll(() => runtimePids(marker).length, { timeout: 10_000 }).toBeGreaterThan(0);
-  for (const pid of runtimePids(marker)) process.kill(pid, 'SIGKILL');
 }
 
 /**

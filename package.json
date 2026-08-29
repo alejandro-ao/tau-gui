@@ -1,7 +1,7 @@
 {
   "name": "tau-gui",
   "version": "0.1.0",
-  "description": "Terminal-inspired Electron desktop frontend for Tau and Pi coding-agent runtimes",
+  "description": "Tau-inspired secure Electron desktop application embedding Pi",
   "private": true,
   "license": "UNLICENSED",
   "author": {
@@ -18,6 +18,7 @@
     "build": "npm run typecheck && electron-vite build",
     "postinstall": "electron-builder install-app-deps",
     "package": "npm run build && electron-builder --dir",
+    "package:smoke": "npm run package && node scripts/package-smoke.mjs",
     "dist": "npm run build && electron-builder",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
     "lint": "eslint .",
@@ -28,7 +29,6 @@
     "test:e2e": "npm run build && playwright test",
     "test:visual": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts",
     "test:visual:update": "npm run build && VISUAL=1 playwright test e2e/visual.spec.ts --update-snapshots",
-    "test:smoke:real": "npm run build && TAU_GUI_REAL_RUNTIME=1 playwright test e2e/smoke.real.spec.ts",
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run test"
   },
   "dependencies": {

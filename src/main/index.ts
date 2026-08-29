@@ -13,8 +13,8 @@ import {
   parseSessionIpcResult,
 } from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
-import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { FakePiRuntime } from './runtime/fake-pi-runtime.js';
 import { ImageAttachmentService } from './services/image-attachments.js';
 import { ImportRecoveryService } from './services/import-recovery.js';
 import { ExtensionHostService } from './services/extension-host.js';
@@ -145,15 +145,14 @@ void app.whenReady().then(async () => {
     broadcast: (event) => broadcast({ type: 'extensionUi', event }),
   });
   await extensionHost.load();
-  const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
+  const useFakePi = process.env['TAU_GUI_TEST_FAKE_PI'] === '1';
   manager = new RuntimePool(settings, broadcast, {
-    runtimeFactory: useTestRpcRuntime
-      ? (kind, sink) => new JsonlAgentRuntime(kind, sink)
-      : (_kind, sink) =>
-          new EmbeddedPiRuntime(sink, {
+    runtimeFactory: (sink) =>
+      useFakePi
+        ? new FakePiRuntime(sink)
+        : new EmbeddedPiRuntime(sink, {
             spawnSession: (request, signal) => manager.spawnSession(request, signal),
           }),
-    probeExecutable: useTestRpcRuntime,
   });
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
@@ -191,7 +190,12 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+let shutdownStarted = false;
+app.on('before-quit', (event) => {
   extensionHost?.stop();
-  void manager?.stopAll();
+  if (shutdownStarted || !manager) return;
+  event.preventDefault();
+  shutdownStarted = true;
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+  void Promise.race([manager.stopAll(), timeout]).finally(() => app.quit());
 });

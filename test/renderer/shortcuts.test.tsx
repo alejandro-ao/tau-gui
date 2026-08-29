@@ -84,7 +84,7 @@ describe('global shortcuts', () => {
 
     expect(actionsOf(bridge)).toContain('session.new');
     expect(bridge.calls.find((call) => call.action === 'session.new')?.session).toEqual({
-      runtime: 'tau',
+      runtime: 'pi',
       sessionId: 'session-1',
     });
     expect(actionsOf(bridge)).not.toContain('runtime.openSession');

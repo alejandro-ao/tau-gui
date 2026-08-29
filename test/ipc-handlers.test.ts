@@ -1,11 +1,7 @@
-import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { beforeAll, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import { bridgeEventSchema, parseSessionIpcResult } from '../src/shared/ipc.js';
-import type { RuntimeProbe } from '../src/shared/ipc.js';
 
 const electronMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
@@ -25,31 +21,8 @@ vi.mock('electron', () => ({
   shell: { openExternal: vi.fn() },
 }));
 
-const resourceMocks = vi.hoisted(() => ({
-  discover: vi.fn(() => Promise.resolve({ skills: [], prompts: [], diagnostics: [] })),
-}));
-const contextFileMocks = vi.hoisted(() => ({
-  discover: vi.fn(() => Promise.resolve([])),
-}));
-vi.mock('../src/main/services/resources.js', () => ({
-  discoverTauResources: resourceMocks.discover,
-}));
-vi.mock('../src/main/services/context-files.js', () => ({
-  discoverContextFiles: contextFileMocks.discover,
-}));
-
 const { handleRequest } = await import('../src/main/ipc.js');
 type Context = Parameters<typeof handleRequest>[0];
-
-let binDir: string;
-let script: string;
-
-beforeAll(() => {
-  binDir = mkdtempSync(join(tmpdir(), 'tau-gui-handlers-'));
-  script = join(binDir, 'configured-tau');
-  writeFileSync(script, '#!/bin/sh\necho "configured tau 1.0.0"\n');
-  chmodSync(script, 0o755);
-});
 
 interface Calls {
   abortShell: number;
@@ -76,7 +49,6 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   let appSettings: AppSettings = {
     ...DEFAULT_SETTINGS,
     ...settingsPatch,
-    runtime: { ...DEFAULT_SETTINGS.runtime, ...(settingsPatch.runtime ?? {}) },
   };
   const launchProjectTrust = appSettings.projectTrust;
   const calls: Calls = {
@@ -240,7 +212,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       enqueuePrompt: (kind: string, text: string, target: unknown) =>
         calls.queued.push({ kind, text, target }),
       queueSnapshot: () => ({
-        runtime: 'tau',
+        runtime: 'pi',
         sessionId: 'session-1',
         steering: [],
         followUp: [],
@@ -255,7 +227,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
       openSession: (cwd: string) => {
         calls.openedDirectories.push(cwd);
-        return Promise.resolve({ runtime: 'tau', cwd });
+        return Promise.resolve({ runtime: 'pi', cwd });
       },
       cloneSession: (target: unknown) => {
         calls.clones.push(target);
@@ -269,7 +241,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         calls.names.push(name);
         return Promise.resolve();
       },
-      snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
+      snapshot: () => ({ runtime: 'pi', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
       refreshState: () => {
         calls.refreshed += 1;
@@ -350,115 +322,31 @@ describe('fresh directory session handler', () => {
   });
 });
 
-describe('runtime.probe handler', () => {
-  it('always probes the binary from settings, ignoring renderer input', async () => {
-    const { context } = makeContext({
-      agentRuntime: 'tau',
-      runtime: {
-        tau: { binary: script, provider: null, model: null, extraArgs: [] },
-        pi: { binary: script, provider: null, model: null, extraArgs: [] },
-      },
-    });
+describe('Pi-owned resources and context handlers', () => {
+  it('returns authoritative runtime metadata', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    active.getResources = () => Promise.resolve({ skills: [], prompts: [], diagnostics: [] });
+    active.getContextFiles = () =>
+      Promise.resolve([{ label: 'AGENTS.md', path: '/project/AGENTS.md' }]);
 
-    // Even when a rogue renderer smuggles a binary through, it is not executed.
-    const probe = (await handleRequest(context, {
-      action: 'runtime.probe',
-      payload: { kind: 'tau', binary: '/bin/sh' } as { kind: 'tau' },
-    })) as RuntimeProbe;
-
-    expect(probe.binary).toBe(script);
-    expect(probe.resolved).toBe(script);
-    expect(probe.version).toBe('configured tau 1.0.0');
-    expect(probe.error).toBeNull();
-  });
-
-  it('defaults to the active runtime kind and reports missing binaries', async () => {
-    const { context } = makeContext({
-      agentRuntime: 'pi',
-      runtime: {
-        tau: { binary: script, provider: null, model: null, extraArgs: [] },
-        pi: { binary: 'pi-not-installed-anywhere', provider: null, model: null, extraArgs: [] },
-      },
-    });
-    const probe = (await handleRequest(context, { action: 'runtime.probe' })) as RuntimeProbe;
-    expect(probe.binary).toBe('pi-not-installed-anywhere');
-    expect(probe.resolved).toBeNull();
-    expect(probe.error).toContain('was not found on PATH');
-  });
-});
-
-describe('resources.list handler', () => {
-  it.each([
-    ['default', false],
-    ['decline-once', false],
-    ['approve-once', true],
-  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
-    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
-    const { context } = makeContext({ projectTrust });
-
-    await handleRequest(context, { action: 'resources.list' });
-
-    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
-  });
-
-  it('keeps resource discovery bound to launch-time trust after settings change', async () => {
-    resourceMocks.discover.mockResolvedValueOnce({ skills: [], prompts: [], diagnostics: [] });
-    const { context } = makeContext({ projectTrust: 'approve-once' });
-    context.settings.update({ projectTrust: 'decline-once' });
-
-    await handleRequest(context, { action: 'resources.list' });
-
-    expect(resourceMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject: true });
-  });
-
-  it('rejects malformed discovery output before it crosses IPC', async () => {
-    resourceMocks.discover.mockResolvedValueOnce({
-      skills: [{ name: 'leak', description: null, origin: 'project', content: 'secret' }],
+    await expect(handleRequest(context, { action: 'resources.list' })).resolves.toEqual({
+      skills: [],
       prompts: [],
       diagnostics: [],
-    } as never);
-    const { context } = makeContext({ projectTrust: 'approve-once' });
-
-    await expect(handleRequest(context, { action: 'resources.list' })).rejects.toThrow();
-  });
-});
-
-describe('context.list handler', () => {
-  it.each([
-    ['default', false],
-    ['decline-once', false],
-    ['approve-once', true],
-  ] as const)('includes project paths for %s trust: %s', async (projectTrust, includeProject) => {
-    contextFileMocks.discover.mockResolvedValueOnce([]);
-    const { context } = makeContext({ projectTrust });
-
-    await handleRequest(context, { action: 'context.list' });
-
-    expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
+    });
+    await expect(handleRequest(context, { action: 'context.list' })).resolves.toEqual([
+      { label: 'AGENTS.md', path: '/project/AGENTS.md' },
+    ]);
   });
 
-  it.each([
-    ['approve-once', 'decline-once', true],
-    ['decline-once', 'approve-once', false],
-  ] as const)(
-    'keeps context discovery bound to %s launch trust after settings change to %s',
-    async (launchTrust, changedTrust, includeProject) => {
-      contextFileMocks.discover.mockResolvedValueOnce([]);
-      const { context } = makeContext({ projectTrust: launchTrust });
-      context.settings.update({ projectTrust: changedTrust });
-
-      await handleRequest(context, { action: 'context.list' });
-
-      expect(contextFileMocks.discover).toHaveBeenLastCalledWith('/project', { includeProject });
-    },
-  );
-
-  it('rejects extra or malformed metadata before it crosses IPC', async () => {
-    contextFileMocks.discover.mockResolvedValueOnce([
-      { label: './.tau/AGENTS.md', path: '/project/.tau/AGENTS.md', content: 'secret' },
-    ] as never);
-    const { context } = makeContext({ projectTrust: 'approve-once' });
-
+  it('rejects malformed runtime metadata before it crosses IPC', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    active.getContextFiles = () =>
+      Promise.resolve([
+        { label: 'AGENTS.md', path: '/project/AGENTS.md', content: 'secret' },
+      ] as never);
     await expect(handleRequest(context, { action: 'context.list' })).rejects.toThrow();
   });
 });
@@ -515,7 +403,7 @@ describe('capability-gated and adapter-contract actions', () => {
 
   it('routes direct prompts through the pool work reservation', async () => {
     const { context, calls } = makeContext();
-    const session = { runtime: 'tau' as const, sessionId: 'session-1' };
+    const session = { runtime: 'pi' as const, sessionId: 'session-1' };
     await handleRequest(context, {
       action: 'agent.prompt',
       payload: { text: 'reserved direct work' },
@@ -526,7 +414,7 @@ describe('capability-gated and adapter-contract actions', () => {
 
   it('routes editable submissions and atomic pop through the application queue', async () => {
     const { context, calls } = makeContext();
-    const session = { runtime: 'tau' as const, sessionId: 'session-1' };
+    const session = { runtime: 'pi' as const, sessionId: 'session-1' };
     await handleRequest(context, {
       action: 'agent.steer',
       payload: { text: 'priority' },

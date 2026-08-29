@@ -122,10 +122,7 @@ describe('EmbeddedPiRuntime', () => {
       );
       active = runtime;
       await runtime.start({
-        kind: 'pi',
-        binary: '',
         cwd,
-        extraArgs: [],
         projectTrust: 'default',
       });
 
@@ -235,10 +232,7 @@ describe('EmbeddedPiRuntime', () => {
       );
       active = runtime;
       await runtime.start({
-        kind: 'pi',
-        binary: '',
         cwd,
-        extraArgs: [],
         projectTrust: 'default',
       });
 
@@ -302,10 +296,7 @@ describe('EmbeddedPiRuntime', () => {
     );
     active = runtime;
     await runtime.start({
-      kind: 'pi',
-      binary: '',
       cwd,
-      extraArgs: [],
       projectTrust: 'default',
     });
 
@@ -410,11 +401,8 @@ describe('EmbeddedPiRuntime', () => {
     );
     active = runtime;
     await runtime.start({
-      kind: 'pi',
-      binary: '',
       cwd,
       sessionRef: externalPath,
-      extraArgs: [],
       projectTrust: 'default',
     });
 
@@ -657,10 +645,7 @@ describe('EmbeddedPiRuntime', () => {
     );
     active = runtime;
     await runtime.start({
-      kind: 'pi',
-      binary: '',
       cwd,
-      extraArgs: [],
       projectTrust: 'default',
     });
 
@@ -739,7 +724,7 @@ describe('EmbeddedPiRuntime', () => {
       { agentDir: join(root, 'agent'), home: root, modelRuntime },
     );
     active = runtime;
-    await runtime.start({ kind: 'pi', binary: '', cwd, extraArgs: [], projectTrust: 'default' });
+    await runtime.start({ cwd, projectTrust: 'default' });
     const login = runtime.loginProvider('openai', 'api_key');
     await waitFor(() => authEvents.find((event) => event.type === 'prompt'));
     const prompt = authEvents.find((event) => event.type === 'prompt');
@@ -824,10 +809,7 @@ describe('EmbeddedPiRuntime', () => {
     active = runtime;
 
     await runtime.start({
-      kind: 'pi',
-      binary: '/definitely/not/an/executable',
       cwd,
-      extraArgs: [],
       projectTrust: 'default',
       customSkillDirectories: [customSkills],
       customPromptDirectories: [customPrompts],

@@ -1,8 +1,7 @@
 /**
  * Wire → application-domain normalization.
  *
- * Tau and Pi both speak a camelCase JSONL dialect derived from Pi's protocol.
- * All Tau/Pi specific knowledge about payload shapes lives here so the renderer
+ * Pi SDK values are normalized into stable application-domain DTOs here so the renderer
  * only handles `src/shared/domain.ts` types.
  */
 import type {
@@ -66,7 +65,7 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 
 /* ---------------------------------------------------------------- messages */
 
-/** Concatenate the text of Pi/Tau `UserContent` (string or content blocks). */
+/** Concatenate Pi user content (string or content blocks). */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
   return list(content)

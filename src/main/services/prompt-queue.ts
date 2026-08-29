@@ -85,15 +85,17 @@ export class PromptQueueService {
   async dispatchNext(
     target: SessionTarget,
     dispatch: (text: string) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const queue = this.queue(target);
-    if (queue.dispatching) return;
+    if (queue.dispatching) return false;
     const item = queue.steering.shift() ?? queue.followUp.shift();
-    if (!item) return;
+    if (!item) return false;
     queue.dispatching = true;
     this.emit(target, queue);
+    let succeeded = false;
     try {
       await dispatch(item.text);
+      succeeded = true;
     } catch (error) {
       queue[item.kind === 'steering' ? 'steering' : 'followUp'].unshift(item);
       const message = `Queued ${item.kind} prompt was retained after dispatch failed: ${(error as Error).message}`;
@@ -102,6 +104,7 @@ export class PromptQueueService {
     } finally {
       queue.dispatching = false;
     }
+    return succeeded;
   }
 
   private queue(target: SessionTarget): SessionQueue {

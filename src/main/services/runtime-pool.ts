@@ -1,12 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 import { inspectPhysicalFile } from '../runtime/session-files.js';
-import type {
-  AgentEvent,
-  AgentState,
-  ProjectTrust,
-  PromptInput,
-  RuntimeKind,
-} from '../../shared/domain.js';
+import type { AgentEvent, AgentState, ProjectTrust, PromptInput } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { AgentRuntime } from '../runtime/agent-runtime.js';
 import type { SpawnSessionRequest, SpawnSessionResult } from '../runtime/spawn-session-tool.js';
@@ -37,6 +31,8 @@ export class RuntimePool {
   private readonly reloadReservations = new Map<RuntimeManager, number>();
   /** Exact sessions awaiting an idle scheduling boundary after lifecycle transitions. */
   private readonly pendingSchedules = new Map<RuntimeManager, SessionTarget>();
+  /** Prevents terminal events from recursively scheduling while a native prompt is awaited. */
+  private readonly scheduling = new Set<RuntimeManager>();
   /** Includes executing and queued lifecycle transitions, claimed synchronously. */
   private pendingTransitions = 0;
   /** App-tool-created runtimes retained for sidebar navigation and bounded recursion. */
@@ -52,7 +48,7 @@ export class RuntimePool {
   constructor(
     private readonly settings: SettingsStore,
     private readonly broadcast: (event: BridgeEvent) => void,
-    private readonly managerOptions: RuntimeManagerOptions = {},
+    private readonly managerOptions: RuntimeManagerOptions,
   ) {
     this.queues = new PromptQueueService(broadcast, (message) =>
       broadcast({ type: 'diagnostic', message }),
@@ -232,7 +228,7 @@ export class RuntimePool {
   }
 
   private async startFresh(
-    options: { cwd?: string | null; sessionRef?: string | null; runtime?: RuntimeKind },
+    options: { cwd?: string | null; sessionRef?: string | null },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
     const previous = this.current;
@@ -269,7 +265,6 @@ export class RuntimePool {
         const snapshot = await this.startFresh({
           cwd: identity?.cwd ?? null,
           sessionRef: identity?.sessionRef ?? null,
-          runtime: identity?.runtime,
         });
         this.failedRestart = null;
         return snapshot;
@@ -320,7 +315,7 @@ export class RuntimePool {
 
       const manager = this.createManager();
       try {
-        await manager.start({ cwd, runtime: 'pi' });
+        await manager.start({ cwd });
         throwIfSpawnAborted(signal);
         this.index(manager);
         await this.claimSnapshot(manager);
@@ -373,16 +368,12 @@ export class RuntimePool {
   }
 
   private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
-    const kind = this.settings.current.agentRuntime;
+    const kind = 'pi' as const;
     const recent = this.settings.current.recentSessions.find(
       (session) =>
         session.runtime === kind && (recentCatalogId(session) === ref || session.id === ref),
     );
-    const runtimeRef = recent
-      ? recent.runtime === 'pi'
-        ? (recent.path ?? recent.id)
-        : recent.id
-      : ref;
+    const runtimeRef = recent ? (recent.path ?? recent.id) : ref;
     const keys = [
       sessionKey(kind, recent?.id ?? ref),
       recent?.path && sessionKey(kind, recent.path),
@@ -434,25 +425,18 @@ export class RuntimePool {
       this.physicalOwners.set(prospective.physicalKey, manager);
     }
     try {
-      let snapshot = await manager.start({
+      const snapshot = await manager.start({
         cwd: cwd ?? recent?.cwd ?? null,
         sessionRef: runtimeRef,
       });
-      // Tau normally resumes from its launch argument. This fallback also
-      // supports compatible runtimes that accept the argument but ignore it.
-      if (kind === 'tau' && recent && snapshot.state?.sessionId !== recent.id) {
-        await manager.active.switchSession(runtimeRef);
-        await manager.refreshState();
-        snapshot = manager.snapshot();
-      }
       this.index(manager);
       await this.claimSnapshot(manager);
       this.requestSchedule(manager);
       return snapshot;
     } catch (error) {
-      // A failed resume may happen after the subprocess has started. Always
-      // close it; otherwise a detached process can keep writing the same
-      // session while a later click launches another owner.
+      // A failed resume may happen after the session owner has started. Always
+      // dispose it; otherwise a detached owner can keep writing the same
+      // session while a later click creates another owner.
       await this.remove(manager);
       if (this.current === null || this.current === manager) this.current = previous;
       if (this.current) this.broadcast({ type: 'status', snapshot: this.current.snapshot() });
@@ -759,6 +743,7 @@ export class RuntimePool {
   private flushPendingSchedules(): void {
     if (this.pendingTransitions > 0) return;
     for (const [manager, target] of this.pendingSchedules) {
+      if (this.scheduling.has(manager)) continue;
       this.pendingSchedules.delete(manager);
       // Re-resolve both ownership and session identity after every transition.
       // A restart may replace the manager for the same target; its own start
@@ -776,34 +761,56 @@ export class RuntimePool {
   }
 
   private async schedule(manager: RuntimeManager, target: SessionTarget): Promise<void> {
-    if (this.pendingTransitions > 0) {
+    if (this.scheduling.has(manager)) {
       this.pendingSchedules.set(manager, target);
       return;
     }
-    const snapshot = manager.snapshot();
-    const lifecycle = this.lifecycleFor(manager);
-    if (
-      this.isReloadReserved(manager) ||
-      !manager.isStarted ||
-      snapshot.status !== 'idle' ||
-      !snapshot.state?.sessionId ||
-      lifecycle.phase !== 'ready'
-    ) {
-      return;
-    }
-    await this.queues.dispatchNext(target, async (text) => {
-      const claimed = this.claimWorkStart(manager);
-      try {
-        await manager.active.prompt({ text });
-      } catch (error) {
-        // A rejected RPC never started a run, so the reinstated item may be
-        // attempted again at the next idle scheduling boundary.
-        if (claimed.lifecycle.phase === 'handoff') claimed.lifecycle.phase = 'ready';
-        throw error;
-      } finally {
-        claimed.release();
+    this.scheduling.add(manager);
+    try {
+      if (this.pendingTransitions > 0) {
+        this.pendingSchedules.set(manager, target);
+        return;
       }
-    });
+      const snapshot = manager.snapshot();
+      const lifecycle = this.lifecycleFor(manager);
+      if (
+        this.isReloadReserved(manager) ||
+        !manager.isStarted ||
+        snapshot.status !== 'idle' ||
+        !snapshot.state?.sessionId ||
+        lifecycle.phase !== 'ready'
+      ) {
+        return;
+      }
+      const dispatched = await this.queues.dispatchNext(target, async (text) => {
+        const claimed = this.claimWorkStart(manager);
+        try {
+          await manager.active.prompt({ text });
+        } catch (error) {
+          // A rejected handoff never started a run, so the item may be retried.
+          if (claimed.lifecycle.phase === 'handoff') claimed.lifecycle.phase = 'ready';
+          throw error;
+        } finally {
+          claimed.release();
+        }
+      });
+      if (!dispatched) return;
+      // Embedded AgentSession.prompt resolves after the full run. If terminal
+      // events arrived while dispatch held its queue lock, drain the next item
+      // only after that lock has cleared.
+      const remaining = this.queues.snapshot(target);
+      if (
+        manager.isStarted &&
+        manager.snapshot().status === 'idle' &&
+        lifecycle.phase === 'ready' &&
+        (remaining.steering.length > 0 || remaining.followUp.length > 0)
+      ) {
+        this.pendingSchedules.set(manager, target);
+      }
+    } finally {
+      this.scheduling.delete(manager);
+      this.flushPendingSchedules();
+    }
   }
 
   private claimWorkStart(manager: RuntimeManager): WorkClaim {
@@ -981,7 +988,7 @@ interface QueueRoute {
 }
 
 interface RestartIdentity {
-  runtime: RuntimeKind;
+  runtime: 'pi';
   cwd: string | null;
   sessionRef: string | null;
   target: SessionTarget | null;
@@ -1011,7 +1018,7 @@ function restartIdentity(manager: RuntimeManager): RestartIdentity {
   return {
     runtime: snapshot.runtime,
     cwd: snapshot.cwd,
-    sessionRef: snapshot.runtime === 'pi' ? (state?.sessionFile ?? sessionId) : sessionId,
+    sessionRef: state?.sessionFile ?? sessionId,
     target: sessionId ? { runtime: snapshot.runtime, sessionId } : null,
   };
 }

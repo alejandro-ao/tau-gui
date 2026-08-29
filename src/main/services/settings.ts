@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type { AppSettings, ModelRef, RuntimeKind, SessionRef } from '../../shared/domain.js';
+import type { AppSettings, ModelRef, SessionRef } from '../../shared/domain.js';
 import { DEFAULT_SETTINGS } from '../../shared/domain.js';
 import {
   MAX_SCOPED_MODELS,
@@ -13,7 +13,7 @@ const MAX_WORKING_DIRECTORIES = 100;
 const MAX_RESOURCE_DIRECTORIES = 100;
 
 /**
- * GUI-owned settings, persisted independently from Tau/Pi TUI configuration.
+ * GUI-owned settings, persisted independently from Pi agent configuration.
  * Unknown or malformed fields fall back to defaults instead of throwing.
  */
 export class SettingsStore {
@@ -35,8 +35,7 @@ export class SettingsStore {
     this.settings = {
       ...this.settings,
       ...patch,
-      runtime: { ...this.settings.runtime, ...(patch.runtime ?? {}) },
-      scopedModels: { ...this.settings.scopedModels, ...(patch.scopedModels ?? {}) },
+      scopedModels: patch.scopedModels ?? this.settings.scopedModels,
     };
     this.write();
     return this.settings;
@@ -77,13 +76,10 @@ export class SettingsStore {
   }
 
   /** Atomically toggles against current main-process settings. */
-  toggleScopedModel(kind: RuntimeKind, ref: ModelRef): AppSettings {
+  toggleScopedModel(ref: ModelRef): AppSettings {
     this.settings = {
       ...this.settings,
-      scopedModels: {
-        ...this.settings.scopedModels,
-        [kind]: toggleScopedKey(this.settings.scopedModels[kind], ref),
-      },
+      scopedModels: toggleScopedKey(this.settings.scopedModels, ref),
     };
     this.write();
     return this.settings;
@@ -125,11 +121,11 @@ export class SettingsStore {
 
   private read(): AppSettings {
     try {
-      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
+      if (!existsSync(this.file)) return { ...DEFAULT_SETTINGS };
       const parsed: unknown = JSON.parse(readFileSync(this.file, 'utf8'));
       return mergeSettings(parsed);
     } catch {
-      return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
+      return { ...DEFAULT_SETTINGS };
     }
   }
 
@@ -145,13 +141,9 @@ export class SettingsStore {
 
 export function mergeSettings(value: unknown): AppSettings {
   if (typeof value !== 'object' || value === null) {
-    return { ...DEFAULT_SETTINGS, agentRuntime: 'pi' };
+    return { ...DEFAULT_SETTINGS };
   }
   const wire = value as Record<string, unknown>;
-  const runtime =
-    typeof wire['runtime'] === 'object' && wire['runtime'] !== null
-      ? (wire['runtime'] as Record<string, unknown>)
-      : {};
   const pick = <T>(key: string, guard: (input: unknown) => boolean, fallback: T): T =>
     guard(wire[key]) ? (wire[key] as T) : fallback;
   const isString = (input: unknown): boolean => typeof input === 'string';
@@ -175,9 +167,6 @@ export function mergeSettings(value: unknown): AppSettings {
     .slice(0, MAX_WORKING_DIRECTORIES);
 
   return {
-    // Runtime selection is obsolete: the application now embeds Pi. Keeping
-    // the field in the persisted schema makes migration non-destructive.
-    agentRuntime: 'pi',
     theme: pick(
       'theme',
       (input) => input === 'tau-light' || input === 'high-contrast' || input === 'pure-black',
@@ -205,10 +194,6 @@ export function mergeSettings(value: unknown): AppSettings {
       (input) => input === 'approve-once' || input === 'decline-once',
       'default',
     ),
-    runtime: {
-      tau: mergeRuntime(runtime['tau'], DEFAULT_SETTINGS.runtime.tau),
-      pi: mergeRuntime(runtime['pi'], DEFAULT_SETTINGS.runtime.pi),
-    },
     scopedModels: mergeScopedModels(wire['scopedModels']),
     recentSessions,
   };
@@ -238,36 +223,18 @@ function prependDirectory(directories: string[], cwd: string): string[] {
   );
 }
 
-function mergeScopedModels(value: unknown): Record<RuntimeKind, string[]> {
-  const wire =
-    typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
-  const read = (kind: RuntimeKind): string[] =>
-    Array.isArray(wire[kind])
-      ? [
-          ...new Set(
-            (wire[kind] as unknown[])
-              .map(repairScopedModelKey)
-              .filter((item): item is string => item !== null),
-          ),
-        ].slice(0, MAX_SCOPED_MODELS)
-      : [];
-  return { tau: read('tau'), pi: read('pi') };
-}
-
-function mergeRuntime(
-  value: unknown,
-  fallback: AppSettings['runtime']['tau'],
-): AppSettings['runtime']['tau'] {
-  if (typeof value !== 'object' || value === null) return { ...fallback };
-  const wire = value as Record<string, unknown>;
-  return {
-    binary: typeof wire['binary'] === 'string' && wire['binary'] ? wire['binary'] : fallback.binary,
-    provider: typeof wire['provider'] === 'string' ? wire['provider'] : null,
-    model: typeof wire['model'] === 'string' ? wire['model'] : null,
-    extraArgs: Array.isArray(wire['extraArgs'])
-      ? wire['extraArgs'].filter((item): item is string => typeof item === 'string')
-      : [],
-  };
+function mergeScopedModels(value: unknown): string[] {
+  const legacy =
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+      ? ((value as Record<string, unknown>)['pi'] ?? (value as Record<string, unknown>)['tau'])
+      : value;
+  return Array.isArray(legacy)
+    ? [
+        ...new Set(
+          legacy.map(repairScopedModelKey).filter((item): item is string => item !== null),
+        ),
+      ].slice(0, MAX_SCOPED_MODELS)
+    : [];
 }
 
 function isSessionRef(value: unknown): value is SessionRef {

@@ -36,7 +36,7 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
             {formatTokens(stats.tokens.input)} in, {formatTokens(stats.tokens.output)} out ·{' '}
             {formatCost(stats.cost)}
           </p>
-          {/* Derived from reported token counts, not reported by the RPC. */}
+          {/* Derived from normalized token counts, not fabricated renderer state. */}
           {cacheHitRate === null ? null : (
             <p className="sidebar-line dim">cache: ~{formatPercent(cacheHitRate)} session</p>
           )}
@@ -112,7 +112,7 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
   );
 }
 
-/** `tau --version` prints "tau 0.3.12"; avoid doubling the runtime name. */
+/** Avoid doubling a runtime prefix when formatting diagnostic version labels. */
 export function versionLabel(runtime: string, version: string | null): string {
   if (!version) return runtime;
   const bare = version.startsWith(`${runtime} `) ? version.slice(runtime.length + 1) : version;
