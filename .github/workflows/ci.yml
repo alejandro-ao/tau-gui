@@ -35,8 +35,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
-      # Electron needs a virtual display and no paid provider: the fake JSONL
-      # runtime backs every end-to-end flow. Visual snapshots stay skipped here
+      # Electron needs a virtual display and no paid provider: the injected
+      # in-process fake Pi backs every end-to-end flow. Visual snapshots stay skipped here
       # (VISUAL is unset) because baselines are platform-specific.
       - run: xvfb-run --auto-servernum npx playwright test
         env:
@@ -66,4 +66,4 @@ jobs:
       - run: npm ci
       # Unsigned directory build only: signing/notarization runs from a release
       # workflow with secrets, never from pull requests.
-      - run: npm run package
+      - run: npm run package:smoke

@@ -20,12 +20,14 @@ export function StatusRow(): ReactNode {
       <div className="status-right">
         {broken ? (
           <>
-            <span>{snapshot.status === 'failed' ? 'runtime failed' : 'runtime disconnected'}</span>
+            <span role="status" aria-live="polite">
+              {snapshot.status === 'failed' ? 'embedded Pi failed' : 'embedded Pi disconnected'}
+            </span>
             <button
               type="button"
               className="ghost-button"
               onClick={() => void actions.start()}
-              title="Restart the runtime process"
+              title="Restart embedded Pi"
             >
               restart
             </button>

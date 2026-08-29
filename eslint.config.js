@@ -12,6 +12,7 @@ export default tseslint.config(
       'release/**',
       'node_modules/**',
       'test/fake/**',
+      'scripts/package-smoke.mjs',
     ],
   },
   js.configs.recommended,
