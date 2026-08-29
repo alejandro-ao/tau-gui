@@ -10,6 +10,14 @@ import type {
   ThinkingLevel,
 } from '../../../shared/domain.js';
 import type {
+  ExtensionDialog,
+  ExtensionHostStatus,
+  ExtensionPolicy,
+  ExtensionResource,
+  ExtensionUiEvent,
+  PortableToolRender,
+} from '../../../shared/extensions.js';
+import type {
   ContextFile,
   PromptQueueSnapshot,
   RuntimeSnapshot,
@@ -119,6 +127,8 @@ export type ModalKind =
   | 'hotkeys'
   | 'details'
   | 'settings'
+  | 'extensions'
+  | 'extensionDialog'
   | 'diagnostics'
   | 'commands'
   | 'skills'
@@ -134,6 +144,14 @@ export interface AppState {
   commands: CommandInfo[];
   resources: ResourceCatalog;
   contextFiles: ContextFile[];
+  extensionResources: ExtensionResource[];
+  extensionPolicy: ExtensionPolicy | null;
+  extensionHost: ExtensionHostStatus | null;
+  extensionDialog: ExtensionDialog | null;
+  extensionStatuses: Record<string, string>;
+  extensionSidebar: Record<string, { title: string; lines: string[] }>;
+  extensionMessages: { customType: string; text: string; data: string }[];
+  extensionToolRenders: PortableToolRender[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -187,6 +205,10 @@ export type Action =
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
   | { type: 'contextFiles'; files: ContextFile[] }
+  | { type: 'extensionResources'; resources: ExtensionResource[] }
+  | { type: 'extensionPolicy'; policy: ExtensionPolicy }
+  | { type: 'extensionHost'; host: ExtensionHostStatus }
+  | { type: 'extensionUi'; event: ExtensionUiEvent }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

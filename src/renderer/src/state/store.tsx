@@ -16,6 +16,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../../shared/domain.js';
+import type { ExtensionPolicy } from '../../../shared/extensions.js';
 import type {
   FileCompletion,
   PromptQueueItem,
@@ -84,6 +85,12 @@ export interface Actions {
   setAutoCompaction: (enabled: boolean) => Promise<void>;
   loadTree: () => Promise<TreeSnapshot | null>;
   loadDiagnostics: () => Promise<void>;
+  loadExtensions: () => Promise<void>;
+  updateExtensionPolicy: (
+    patch: Partial<Pick<ExtensionPolicy, 'userEnabled' | 'projectEnabled'>>,
+  ) => Promise<void>;
+  probeExtensionHost: () => Promise<void>;
+  respondExtensionDialog: (requestId: string, value: string | boolean | null) => Promise<void>;
   completePaths: (query: string) => Promise<FileCompletion[]>;
   relativize: (paths: string[]) => Promise<string[]>;
   setDraft: (text: string) => void;
@@ -234,6 +241,9 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           break;
         case 'sessionActivity':
           dispatch({ type: 'sessionActivity', activity: event.activity });
+          break;
+        case 'extensionUi':
+          dispatch({ type: 'extensionUi', event: event.event });
           break;
         case 'diagnostic':
           dispatch({ type: 'diagnostic', message: event.message });
@@ -666,6 +676,29 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       loadDiagnostics: async () => {
         const messages = await attempt('diagnostics.list', undefined, notice);
         if (messages) dispatch({ type: 'diagnostics', messages });
+      },
+      loadExtensions: async () => {
+        const [resources, policy, host] = await Promise.all([
+          attempt('extensions.list', undefined, notice),
+          attempt('extensions.policy.get', undefined, notice),
+          attempt('extensions.host.probe', undefined, notice),
+        ]);
+        if (resources) dispatch({ type: 'extensionResources', resources });
+        if (policy) dispatch({ type: 'extensionPolicy', policy });
+        if (host) dispatch({ type: 'extensionHost', host });
+      },
+      updateExtensionPolicy: async (patch) => {
+        const policy = await attempt('extensions.policy.update', { ...patch }, notice);
+        if (policy) dispatch({ type: 'extensionPolicy', policy });
+        const resources = await attempt('extensions.list', undefined, notice);
+        if (resources) dispatch({ type: 'extensionResources', resources });
+      },
+      probeExtensionHost: async () => {
+        const host = await attempt('extensions.host.probe', undefined, notice);
+        if (host) dispatch({ type: 'extensionHost', host });
+      },
+      respondExtensionDialog: async (requestId, value) => {
+        await attempt('extensions.dialog.respond', { requestId, value }, notice);
       },
       completePaths: async (query) => (await attempt('fs.complete', { query }, notice)) ?? [],
       relativize: async (paths) => (await attempt('fs.relativize', { paths }, notice)) ?? paths,

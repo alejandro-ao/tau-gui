@@ -1,5 +1,6 @@
 import type { AgentEvent, AgentMessage, AppSettings } from '../../../shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../../shared/domain.js';
+import type { ExtensionUiEvent } from '../../../shared/extensions.js';
 import type { RuntimeSnapshot, SessionTarget } from '../../../shared/ipc.js';
 import type { Action, AppState, TranscriptBlock } from './types.js';
 
@@ -31,6 +32,14 @@ export const INITIAL_STATE: AppState = {
   commands: [],
   resources: { skills: [], prompts: [], diagnostics: [] },
   contextFiles: [],
+  extensionResources: [],
+  extensionPolicy: null,
+  extensionHost: null,
+  extensionDialog: null,
+  extensionStatuses: {},
+  extensionSidebar: {},
+  extensionMessages: [],
+  extensionToolRenders: [],
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -164,6 +173,14 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, resources: action.resources };
     case 'contextFiles':
       return { ...state, contextFiles: action.files };
+    case 'extensionResources':
+      return { ...state, extensionResources: action.resources };
+    case 'extensionPolicy':
+      return { ...state, extensionPolicy: action.policy };
+    case 'extensionHost':
+      return { ...state, extensionHost: action.host };
+    case 'extensionUi':
+      return applyExtensionUi(state, action.event);
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.
@@ -214,6 +231,63 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, windowFocused: action.focused };
     case 'busy':
       return { ...state, busy: action.busy };
+  }
+}
+
+function applyExtensionUi(state: AppState, event: ExtensionUiEvent): AppState {
+  switch (event.type) {
+    case 'dialog':
+      return { ...state, extensionDialog: event.dialog, modal: 'extensionDialog' };
+    case 'dialog_closed':
+      return state.extensionDialog?.requestId === event.requestId
+        ? {
+            ...state,
+            extensionDialog: null,
+            modal: state.modal === 'extensionDialog' ? null : state.modal,
+          }
+        : state;
+    case 'notification':
+      return {
+        ...state,
+        diagnostics: [...state.diagnostics, `extension: ${event.message}`].slice(-MAX_DIAGNOSTICS),
+      };
+    case 'status': {
+      const key = `${event.extensionId}:${event.key}`;
+      const extensionStatuses = { ...state.extensionStatuses };
+      if (event.text === null) delete extensionStatuses[key];
+      else extensionStatuses[key] = event.text;
+      return { ...state, extensionStatuses };
+    }
+    case 'sidebar':
+      return {
+        ...state,
+        extensionSidebar: {
+          ...state.extensionSidebar,
+          [`${event.extensionId}:${event.key}`]: { title: event.title, lines: event.lines },
+        },
+      };
+    case 'custom_message':
+      return {
+        ...state,
+        extensionMessages: [
+          ...state.extensionMessages,
+          { customType: event.customType, text: event.text, data: event.data },
+        ].slice(-100),
+      };
+    case 'tool_render':
+      return {
+        ...state,
+        extensionToolRenders: [...state.extensionToolRenders, event.render].slice(-100),
+      };
+    case 'host':
+      return {
+        ...state,
+        extensionHost: {
+          status: event.status,
+          crashes: state.extensionHost?.crashes ?? 0,
+          detail: event.detail,
+        },
+      };
   }
 }
 

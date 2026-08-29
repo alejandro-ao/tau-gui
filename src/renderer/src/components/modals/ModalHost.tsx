@@ -3,6 +3,8 @@ import { useStore } from '../../state/store.js';
 import { CommandsModal } from './CommandsModal.js';
 import { DetailsModal } from './DetailsModal.js';
 import { DiagnosticsModal } from './DiagnosticsModal.js';
+import { ExtensionDialogModal } from './ExtensionDialogModal.js';
+import { ExtensionsModal } from './ExtensionsModal.js';
 import { HotkeysModal } from './HotkeysModal.js';
 import { ModelModal } from './ModelModal.js';
 import { PaletteModal } from './PaletteModal.js';
@@ -41,6 +43,10 @@ export function ModalHost(): ReactNode {
       return <DetailsModal />;
     case 'settings':
       return <SettingsModal />;
+    case 'extensions':
+      return <ExtensionsModal />;
+    case 'extensionDialog':
+      return <ExtensionDialogModal />;
     case 'diagnostics':
       return <DiagnosticsModal />;
     case 'commands':

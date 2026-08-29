@@ -27,6 +27,15 @@ export function SettingsModal(): ReactNode {
         <span>agent engine</span>
         <span data-testid="embedded-runtime">Pi SDK · bundled with the app</span>
 
+        <span>extensions</span>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => actions.openModal('extensions')}
+        >
+          trust and isolation…
+        </button>
+
         <label htmlFor="setting-cwd">project</label>
         <div className="settings-inline">
           <span className="dim" title={settings.cwd ?? undefined}>
