@@ -118,9 +118,7 @@ describe('SessionsRail', () => {
     const item = view.container.querySelector<HTMLElement>('.sessions-rail-item');
     expect(item?.textContent).toContain('Native task');
     expect(item?.textContent).not.toContain('stale app label');
-    expect(item?.title).toContain('public Pi SDK cannot activate an exact manager');
-    expect(item?.title).not.toContain('/work/native');
-    expect((item as HTMLButtonElement | null)?.disabled).toBe(true);
+    expect(item?.title).toBe('/work/native');
     expect(bridge.calls).toEqual([]);
   });
 
@@ -239,32 +237,100 @@ describe('SessionsRail', () => {
     expect(end?.querySelector('.sessions-rail-time')).toBeNull();
   });
 
-  it.each(['idle', 'stopped'] as const)(
-    'keeps persisted metadata non-activating while the runtime is %s',
-    async (status) => {
-      const { bridge, view } = await render({
-        status,
-        runtime: 'pi',
-        settings: {
-          agentRuntime: 'pi',
-          recentSessions: [
-            session({ id: 'p1', runtime: 'pi', path: '/sessions/stale-private-path.jsonl' }),
-          ],
-        },
-      });
-      const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
-      if (!item) throw new Error('sessions rail item missing');
+  it('marks a clicked session active while it is opening', async () => {
+    let finishSwitch: (() => void) | undefined;
+    const switching = new Promise<null>((resolve) => {
+      finishSwitch = () => resolve(null);
+    });
+    const { view } = await render({
+      status: 'idle',
+      agent: {
+        model: null,
+        thinkingLevel: 'medium',
+        isStreaming: false,
+        isCompacting: false,
+        persisted: false,
+        sessionId: 'current',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        pendingMessageCount: 0,
+      },
+      settings: {
+        recentSessions: [session({ id: 'current' }), session({ id: 'next' })],
+      },
+      results: { 'session.switch': switching },
+    });
+    const next = [...view.container.querySelectorAll<HTMLButtonElement>('.sessions-rail-item')][1];
+    if (!next) throw new Error('next session missing');
 
-      expect(item.disabled).toBe(true);
-      expect(item.title).toContain('public Pi SDK cannot activate an exact manager');
-      expect(item.title).not.toContain('stale-private-path');
-      await click(item);
-      await settle(view);
-      expect(bridge.payloads('session.switch')).toEqual([]);
-      expect(bridge.payloads('runtime.start')).toEqual([]);
-      expect(bridge.payloads('settings.update')).toEqual([]);
-    },
-  );
+    await click(next);
+
+    expect(next.dataset['active']).toBe('true');
+    expect(next.dataset['pending']).toBe('true');
+    expect(next.getAttribute('aria-busy')).toBe('true');
+    finishSwitch?.();
+    await settle(view);
+  });
+
+  it('resumes a session in the running runtime by id', async () => {
+    const { bridge, view } = await render({
+      status: 'idle',
+      settings: { recentSessions: [session({ id: 'here-1' })] },
+    });
+    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
+    if (!item) throw new Error('sessions rail item missing');
+    await click(item);
+    await settle(view);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'here-1' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
+  });
+
+  it('resumes a Pi session by opaque native id', async () => {
+    const { bridge, view } = await render({
+      status: 'idle',
+      settings: {
+        agentRuntime: 'pi',
+        recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
+      },
+    });
+    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
+    if (!item) throw new Error('sessions rail item missing');
+    await click(item);
+    await settle(view);
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
+  });
+
+  it('switches the runtime before resuming remembered metadata', async () => {
+    const { bridge, view } = await render({
+      status: 'idle',
+      settings: {
+        agentRuntime: 'tau',
+        recentSessions: [session({ id: 'p1', runtime: 'pi', path: '/sessions/pi.jsonl' })],
+      },
+    });
+    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
+    if (!item) throw new Error('sessions rail item missing');
+    await click(item);
+    await settle(view);
+    expect(bridge.payloads('settings.update')).toEqual([{ agentRuntime: 'pi' }]);
+    // Native metadata crosses IPC by opaque id, never by session-file path.
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'p1' }]);
+  });
+
+  it('restarts the runtime with the session reference when it is not running', async () => {
+    const { bridge, view } = await render({
+      status: 'stopped',
+      settings: { recentSessions: [session({ id: 'here-1' })] },
+    });
+    const item = view.container.querySelector<HTMLButtonElement>('.sessions-rail-item');
+    if (!item) throw new Error('sessions rail item missing');
+    await click(item);
+    await settle(view);
+    await view.flush();
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'here-1' }]);
+    expect(bridge.payloads('runtime.start')).toEqual([]);
+  });
 
   it('exports a catalog session without resuming it', async () => {
     const { bridge, view } = await render({

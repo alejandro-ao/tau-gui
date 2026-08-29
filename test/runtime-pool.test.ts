@@ -1,6 +1,3 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
@@ -62,41 +59,6 @@ describe('RuntimePool', () => {
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(1);
   });
-
-  it.each(['startup', 'live-switch'] as const)(
-    'rejects a main-settings legacy Pi resume before creating a manager during %s',
-    async (route) => {
-      const root = mkdtempSync(join(tmpdir(), 'tau-gui-pool-resume-'));
-      const external = join(root, 'external.jsonl');
-      const bytes = Buffer.from(`external-${route}`);
-      writeFileSync(external, bytes);
-      const settings = makeSettings();
-      settings.update({
-        agentRuntime: 'pi',
-        recentSessions: [
-          {
-            id: 'remembered-pi-session',
-            name: 'legacy',
-            path: external,
-            cwd: process.cwd(),
-            runtime: 'pi',
-            lastSeen: Date.now(),
-          },
-        ],
-      });
-      pool = new RuntimePool(settings, () => undefined);
-      if (route === 'live-switch') await pool.start();
-      const internals = pool as unknown as { managers: Set<unknown> };
-      const managersBefore = internals.managers.size;
-
-      await expect(pool.activateSession('remembered-pi-session')).rejects.toThrow(
-        'Session resume is unavailable',
-      );
-      expect(internals.managers.size).toBe(managersBefore);
-      expect(readFileSync(external)).toEqual(bytes);
-      rmSync(root, { recursive: true, force: true });
-    },
-  );
 
   it('serializes duplicate activation requests onto one session owner', async () => {
     const settings = makeSettings();

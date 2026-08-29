@@ -1,9 +1,6 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
-import {
-  SESSION_CLONE_UNAVAILABLE_REASON,
-  SESSION_RESUME_UNAVAILABLE_REASON,
-} from '../shared/domain.js';
+import { SESSION_CLONE_UNAVAILABLE_REASON } from '../shared/domain.js';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import {
   contextFilesSchema,
@@ -34,7 +31,6 @@ const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 export const CLONE_UNAVAILABLE_MESSAGE = `Session clone is unavailable: ${SESSION_CLONE_UNAVAILABLE_REASON}.`;
 export const IMPORT_UNAVAILABLE_MESSAGE =
   'Session import is unavailable: the public Pi SDK has no handle- or bytes-based no-follow validator that binds an expected file identity before opening.';
-export const RESUME_UNAVAILABLE_MESSAGE = `Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`;
 
 /** Executes one validated request. Throws on failure; the caller serializes it. */
 export async function handleRequest(
@@ -161,9 +157,8 @@ export async function handleRequest(
       await manager.newSession(target);
       return null;
     case 'session.switch':
-      // Fail before runtime resolution, settings lookup, catalog inspection, or
-      // any Pi pathname open. Metadata listing remains independently available.
-      throw new Error(RESUME_UNAVAILABLE_MESSAGE);
+      await manager.activateSession(request.payload.ref);
+      return null;
     case 'session.name':
       await manager.nameSession(sessionNameSchema.parse(request.payload.name), target);
       return null;

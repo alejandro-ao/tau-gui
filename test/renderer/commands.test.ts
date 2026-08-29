@@ -134,8 +134,7 @@ describe('command registry', () => {
     commands.find((command) => command.id === 'view.theme')?.run('/theme tau-light');
 
     expect(calls).toContain('nameSession:release prep');
-    expect(calls).not.toContain('switchSession:session-123');
-    expect(calls.join(' ')).toContain('public Pi SDK cannot activate an exact manager');
+    expect(calls).toContain('switchSession:session-123');
     expect(calls).toContain('compact:keep decisions');
     expect(calls).toContain('setModel:[object Object]');
     expect(calls).toContain('setThinking:medium');

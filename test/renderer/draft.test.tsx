@@ -88,10 +88,10 @@ describe('composer draft persistence', () => {
     const picker = query<HTMLInputElement>(view.container, '.picker-input');
     await type(picker, '/resume');
     await press(picker, 'Enter');
+    await click(query(view.container, '[data-modal-name="session"] [role="option"]'));
     await view.flush();
 
-    expect(bridge.payloads('session.switch')).toEqual([]);
-    expect(view.container.querySelector('[data-modal-name="session"]')).toBeNull();
+    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-9' }]);
     expect(composer(view).value).toBe('keep this draft');
   });
 });

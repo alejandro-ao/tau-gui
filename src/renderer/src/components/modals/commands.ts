@@ -1,6 +1,5 @@
 import {
   SESSION_CLONE_UNAVAILABLE_REASON,
-  SESSION_RESUME_UNAVAILABLE_REASON,
   THINKING_LEVELS,
   type SidebarPosition,
   type ThinkingLevel,
@@ -135,13 +134,23 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'session.resume',
     title: '/resume',
-    description: 'Saved-session metadata (activation unavailable)',
+    description: 'Browse Pi-native saved sessions',
     group: 'session',
     origin: 'frontend',
     slash: '/resume',
-    unavailable: SESSION_RESUME_UNAVAILABLE_REASON,
-    run: () =>
-      actions.notice(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`),
+    unavailable: null,
+    run: (invocation) => {
+      const sessionId = commandArgs(invocation);
+      if (!sessionId) {
+        actions.openModal('session');
+        return;
+      }
+      const session = catalogSessions(state.settings, state.sessions).find(
+        (candidate) => candidate.id === sessionId,
+      );
+      if (session) void actions.resumeSession(session);
+      else void actions.switchSession(sessionId);
+    },
   });
   add({
     id: 'session.tree',
@@ -540,9 +549,8 @@ export function buildPaletteExtras(state: AppState, actions: Actions): AppComman
       group: 'session',
       origin: 'backend',
       slash: null,
-      unavailable: SESSION_RESUME_UNAVAILABLE_REASON,
-      run: () =>
-        actions.notice(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`),
+      unavailable: null,
+      run: () => void actions.resumeSession(session),
     });
   }
 

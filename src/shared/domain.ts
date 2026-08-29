@@ -24,8 +24,6 @@ export type ProjectTrust = 'default' | 'approve-once' | 'decline-once';
 /** Optional protocol surfaces. Unsupported actions must be disabled, never faked. */
 export const SESSION_CLONE_UNAVAILABLE_REASON =
   'the public Pi SDK cannot activate the exact newly branched manager or an immutable artifact; switching reopens a pathname and cannot bind the created generation against same-user replacement';
-export const SESSION_RESUME_UNAVAILABLE_REASON =
-  'the public Pi SDK cannot activate an exact manager, immutable bytes, or a no-follow handle bound to the expected logical identity and full file generation without reopening a pathname';
 
 export interface RuntimeCapabilities {
   textPrompt: boolean;
@@ -417,7 +415,7 @@ export interface SessionRef {
 
 /** Bounded Pi-native session metadata. Session file paths never cross IPC. */
 export interface SessionSummary {
-  /** Opaque main-owned catalog identity used for metadata/export and React keys. */
+  /** Opaque main-owned catalog identity used for resume/export and React keys. */
   id: string;
   source: 'native' | 'recent';
   runtime: RuntimeKind;

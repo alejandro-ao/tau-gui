@@ -8,7 +8,6 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
-import { SESSION_RESUME_UNAVAILABLE_REASON } from '../../../shared/domain.js';
 import type {
   AppSettings,
   ModelRef,
@@ -67,7 +66,7 @@ export interface Actions {
   /** Chooses, persists, and opens a directory with a fresh session. */
   newSessionFromDirectoryPicker: () => Promise<void>;
   switchSession: (ref: string) => Promise<void>;
-  /** Persisted-session activation is fail-closed until Pi adds a safe public API. */
+  /** Resumes a recent session, switching runtime or restarting if needed. */
   resumeSession: (ref: SessionSummary) => Promise<void>;
   nameSession: (name: string) => Promise<void>;
   fork: (entryId: string, options: TreeNavigateOptions) => Promise<string | null>;
@@ -526,13 +525,39 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         }
       },
       newSessionFromDirectoryPicker: chooseDirectoryAndStart,
-      switchSession: (_ref) => {
-        notice(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`);
-        return Promise.resolve();
+      switchSession: async (ref) => {
+        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
+        try {
+          await navigate(navigation, () => invoke('session.switch', { ref }));
+        } finally {
+          finishNavigation(navigation);
+        }
       },
-      resumeSession: (_ref) => {
-        notice(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`);
-        return Promise.resolve();
+      resumeSession: async (ref) => {
+        const previousStatus = stateRef.current.snapshot.status;
+        const runtime: RuntimeKind = ref.runtime;
+        const navigation = beginNavigation(runtime);
+        try {
+          // Both native and remembered records expose only a main-owned opaque id.
+          const target = ref.id;
+          if (runtime !== stateRef.current.settings.agentRuntime) {
+            const settings = await attempt('settings.update', { agentRuntime: runtime }, notice);
+            if (!settings) return;
+            dispatch({ type: 'settings', settings });
+          }
+          const started =
+            previousStatus === 'idle' ||
+            previousStatus === 'running' ||
+            previousStatus === 'compacting' ||
+            previousStatus === 'retrying';
+          if (started) {
+            await navigate(navigation, () => invoke('session.switch', { ref: target }));
+            return;
+          }
+          await navigate(navigation, () => invoke('session.switch', { ref: target }));
+        } finally {
+          finishNavigation(navigation);
+        }
       },
       nameSession: async (name) => {
         await attempt('session.name', { name }, notice, viewed());

@@ -6,7 +6,6 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
-import { SESSION_RESUME_UNAVAILABLE_REASON } from '../../../shared/domain.js';
 import { useStore } from '../state/store.js';
 import { groupSessionsByWorkingDirectory, sessionLabel } from '../state/working-directories.js';
 import { formatRelativeTime } from './format.js';
@@ -16,13 +15,14 @@ export function SessionsRail(): ReactNode {
   const { state, actions } = useStore();
   const [width, setWidth] = useState(260);
   const [resizing, setResizing] = useState(false);
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const groups = useMemo(
     () => groupSessionsByWorkingDirectory(state.settings, state.sessions),
     [state.settings, state.sessions],
   );
   const sessionCount = groups.reduce((count, group) => count + group.sessions.length, 0);
-  const activeId = state.agent?.sessionId ?? null;
+  const activeId = pendingSessionId ?? state.agent?.sessionId ?? null;
   const resize = useCallback((nextWidth: number) => {
     const maximum = Math.min(420, Math.max(160, window.innerWidth * 0.45));
     setWidth(Math.round(Math.min(maximum, Math.max(160, nextWidth))));
@@ -120,10 +120,18 @@ export function SessionsRail(): ReactNode {
                           type="button"
                           className="sessions-rail-item"
                           data-active={session.sessionId === activeId}
+                          data-pending={session.id === pendingSessionId}
                           aria-current={session.sessionId === activeId ? 'true' : undefined}
-                          aria-disabled="true"
-                          disabled
-                          title={`Session resume unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}`}
+                          aria-busy={session.id === pendingSessionId}
+                          title={session.cwd ?? session.id}
+                          onClick={() => {
+                            setPendingSessionId(session.sessionId);
+                            void actions.resumeSession(session).finally(() => {
+                              setPendingSessionId((pending) =>
+                                pending === session.sessionId ? null : pending,
+                              );
+                            });
+                          }}
                         >
                           <span className="sessions-rail-primary">
                             <span className="sessions-rail-name">{label}</span>

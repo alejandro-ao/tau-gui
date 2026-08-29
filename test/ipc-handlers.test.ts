@@ -1,12 +1,4 @@
-import {
-  chmodSync,
-  linkSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
@@ -473,37 +465,6 @@ describe('capability-gated and adapter-contract actions', () => {
     });
     expect(calls.labels).toEqual([{ entryId: 'entry-1', label: 'bookmark' }]);
   });
-
-  it.each(['regular', 'symlink', 'hardlink', 'same-inode'])(
-    'rejects direct resume IPC before %s substitution activation or byte mutation',
-    async (substitution) => {
-      const root = mkdtempSync(join(tmpdir(), 'tau-gui-ipc-resume-'));
-      const selected = join(root, 'selected.jsonl');
-      const external = join(root, 'external.jsonl');
-      const bytes = Buffer.from(`external-${substitution}`);
-      writeFileSync(external, bytes);
-      if (substitution === 'symlink') symlinkSync(external, selected);
-      else if (substitution === 'hardlink' || substitution === 'same-inode') {
-        linkSync(external, selected);
-      } else writeFileSync(selected, bytes);
-
-      const { context } = makeContext();
-      let activations = 0;
-      context.manager.activateSession = () => {
-        activations += 1;
-        writeFileSync(selected, 'unsafe mutation');
-        return Promise.reject(new Error('activation reached'));
-      };
-
-      await expect(
-        handleRequest(context, { action: 'session.switch', payload: { ref: selected } }),
-      ).rejects.toThrow('Session resume is unavailable');
-      expect(activations).toBe(0);
-      expect(readFileSync(external)).toEqual(bytes);
-      expect(readFileSync(selected)).toEqual(bytes);
-      rmSync(root, { recursive: true, force: true });
-    },
-  );
 
   it('rejects direct clone IPC before runtime resolution or mutation', async () => {
     const { context, calls } = makeContext();
