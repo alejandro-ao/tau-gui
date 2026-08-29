@@ -14,7 +14,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining session listing/clone/import/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+- Remaining session listing/clone/import/export UI, images, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17. Main-owned provider auth, retry cancellation/progress, and public-setter-backed Pi preferences are complete on this branch.
 
 ## Active desktop contract audit
 
@@ -25,30 +25,27 @@ all required layers:
 Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer flow → tests
 ```
 
-SDK support by itself is not a desktop capability. In particular, Pi can list
-sessions and supplies primitives for auth, resources, tools, system prompts,
-images, retries, cloning, and extensions, but those features remain disabled
-until the app exposes bounded domain operations and usable desktop flows.
+SDK support by itself is not a desktop capability. Provider auth and retry controls now have bounded main/preload/renderer flows. Pi can also list sessions and supplies primitives for resources, tools, system prompts, images, cloning, and extensions, but those features remain disabled until their independent branches expose complete desktop flows.
 `CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
 minimum runtime operation for every capability; IPC, renderer, and test coverage
 are additional requirements.
 
-| Capability               | Runtime operation                  | IPC / renderer   | Advertised | Next action                                       |
-| ------------------------ | ---------------------------------- | ---------------- | ---------- | ------------------------------------------------- |
-| text prompts             | `prompt`                           | complete         | yes        | maintain contract tests                           |
-| steering / follow-ups    | `steer`, `followUp`                | complete         | yes        | maintain queue and E2E coverage                   |
-| direct bash              | `runShell`                         | complete         | yes        | maintain contract tests                           |
-| cancellable bash         | `abortShell`                       | no renderer flow | no         | add cancellation UX and E2E coverage              |
-| session tree / fork      | `getTree`, `fork`                  | complete         | yes        | add richer Pi branch/edit semantics               |
-| image prompts            | no image-bearing prompt operation  | missing          | no         | add bounded attachment DTOs and UI                |
-| retry controls           | retry events only                  | missing          | no         | add policy, progress, and cancellation operations |
-| session clone            | Pi SDK primitive only              | missing          | no         | add an application-domain clone flow              |
-| session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration          |
-| extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
-| provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
-| resource reload          | loader exists; no reload operation | missing          | no         | add counts, diagnostics, and refresh flow         |
-| system prompt inspection | active prompt exists only in main  | missing          | no         | add bounded local-only inspection                 |
-| tool catalog             | active tools exist only in main    | missing          | no         | add bounded schemas/origins and picker            |
+| Capability               | Runtime operation                  | IPC / renderer   | Advertised | Next action                                |
+| ------------------------ | ---------------------------------- | ---------------- | ---------- | ------------------------------------------ |
+| text prompts             | `prompt`                           | complete         | yes        | maintain contract tests                    |
+| steering / follow-ups    | `steer`, `followUp`                | complete         | yes        | maintain queue and E2E coverage            |
+| direct bash              | `runShell`                         | complete         | yes        | maintain contract tests                    |
+| cancellable bash         | `abortShell`                       | no renderer flow | no         | add cancellation UX and E2E coverage       |
+| session tree / fork      | `getTree`, `fork`                  | complete         | yes        | add richer Pi branch/edit semantics        |
+| image prompts            | no image-bearing prompt operation  | missing          | no         | add bounded attachment DTOs and UI         |
+| retry controls           | Pi state, events, `abortRetry()`   | complete         | yes        | maintain restoration/cancellation coverage |
+| session clone            | Pi SDK primitive only              | missing          | no         | add an application-domain clone flow       |
+| session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration   |
+| extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first           |
+| provider login/logout    | public `ModelRuntime` auth APIs    | complete         | yes        | maintain credential-redaction coverage     |
+| resource reload          | loader exists; no reload operation | missing          | no         | add counts, diagnostics, and refresh flow  |
+| system prompt inspection | active prompt exists only in main  | missing          | no         | add bounded local-only inspection          |
+| tool catalog             | active tools exist only in main    | missing          | no         | add bounded schemas/origins and picker     |
 
 The next implementation order is:
 
@@ -56,7 +53,7 @@ The next implementation order is:
    as complete vertical slices;
 2. replace app-owned-only recents with Pi-native session listing, then add clone
    and complete import/export flows;
-3. add provider authentication and Pi-owned retry/settings controls;
+3. maintain provider authentication and Pi-owned retry/settings controls;
 4. add images and extension interactions after their security boundaries are
    defined;
 5. remove the compatibility runtime and JSONL test infrastructure, then finish
