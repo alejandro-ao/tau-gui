@@ -32,6 +32,9 @@ export const INITIAL_STATE: AppState = {
   stats: null,
   sessions: [],
   models: [],
+  providerAuth: [],
+  authFlow: null,
+  piPreferences: null,
   thinkingLevels: [],
   commands: [],
   resources: { skills: [], prompts: [], diagnostics: [] },
@@ -171,6 +174,12 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, sessions: action.sessions };
     case 'models':
       return { ...state, models: action.models };
+    case 'providerAuth':
+      return { ...state, providerAuth: action.providers };
+    case 'authFlow':
+      return { ...state, authFlow: action.event };
+    case 'piPreferences':
+      return { ...state, piPreferences: action.preferences };
     case 'thinkingLevels':
       return { ...state, thinkingLevels: action.levels };
     case 'commands':

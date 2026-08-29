@@ -11,6 +11,8 @@ import {
 import type {
   AppSettings,
   ModelRef,
+  PiAgentPreferencesPatch,
+  ProviderAuthMethod,
   RuntimeKind,
   SessionSummary,
   ThinkingLevel,
@@ -91,6 +93,14 @@ export interface Actions {
   quit: () => Promise<void>;
   forgetSession: (id: string) => Promise<void>;
   setAutoCompaction: (enabled: boolean) => Promise<void>;
+  loadProviderAuth: () => Promise<void>;
+  loginProvider: (providerId: string, method: ProviderAuthMethod) => Promise<void>;
+  respondProviderAuth: (flowId: string, challengeId: string, value: string) => Promise<void>;
+  cancelProviderAuth: (flowId: string) => Promise<void>;
+  logoutProvider: (providerId: string) => Promise<void>;
+  loadPiPreferences: () => Promise<void>;
+  updatePiPreferences: (patch: PiAgentPreferencesPatch) => Promise<void>;
+  abortRetry: () => Promise<void>;
   loadTree: () => Promise<TreeSnapshot | null>;
   loadDiagnostics: () => Promise<void>;
   inspectSystemPrompt: () => Promise<void>;
@@ -267,6 +277,15 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         case 'sessionActivity':
           dispatch({ type: 'sessionActivity', activity: event.activity });
           break;
+        case 'auth':
+          dispatch({ type: 'authFlow', event: event.event });
+          dispatch({ type: 'modal', modal: 'auth' });
+          if (event.event.type === 'complete') {
+            void attempt('auth.providers', undefined, notice).then((providers) => {
+              if (providers) dispatch({ type: 'providerAuth', providers });
+            });
+          }
+          break;
         case 'diagnostic':
           dispatch({ type: 'diagnostic', message: event.message });
           break;
@@ -276,7 +295,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       }
     });
     return unsubscribe;
-  }, [refresh]);
+  }, [notice, refresh]);
 
   // Bootstrap exactly once. React development StrictMode replays effects;
   // without this guard both passes can race two runtime.start requests and
@@ -751,6 +770,48 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         await attempt('session.autoCompaction', { enabled }, notice, viewed());
         const snapshot = await attempt('runtime.snapshot', undefined, notice);
         if (snapshot) dispatch({ type: 'snapshot', snapshot });
+      },
+      loadProviderAuth: async () => {
+        const providers = await attempt('auth.providers', undefined, notice, viewed());
+        if (providers) dispatch({ type: 'providerAuth', providers });
+      },
+      loginProvider: async (providerId, method) => {
+        dispatch({ type: 'authFlow', event: null });
+        try {
+          await invoke('auth.login', { providerId, method }, viewed());
+        } catch (error) {
+          notice((error as Error).message);
+        } finally {
+          const providers = await attempt('auth.providers', undefined, notice, viewed());
+          if (providers) dispatch({ type: 'providerAuth', providers });
+        }
+      },
+      respondProviderAuth: async (flowId, challengeId, value) => {
+        await attempt('auth.respond', { flowId, challengeId, value }, notice, viewed());
+      },
+      cancelProviderAuth: async (flowId) => {
+        await attempt('auth.cancel', { flowId }, notice, viewed());
+      },
+      logoutProvider: async (providerId) => {
+        await run(async () => {
+          await invoke('auth.logout', { providerId }, viewed());
+          const providers = await invoke('auth.providers', undefined, viewed());
+          dispatch({ type: 'providerAuth', providers });
+          await refresh();
+        });
+      },
+      loadPiPreferences: async () => {
+        const preferences = await attempt('pi.preferences.get', undefined, notice, viewed());
+        if (preferences) dispatch({ type: 'piPreferences', preferences });
+      },
+      updatePiPreferences: async (patch) => {
+        const preferences = await attempt('pi.preferences.update', { ...patch }, notice, viewed());
+        if (preferences) dispatch({ type: 'piPreferences', preferences });
+      },
+      abortRetry: async () => {
+        await attempt('retry.abort', undefined, notice, viewed());
+        const preferences = await attempt('pi.preferences.get', undefined, notice, viewed());
+        if (preferences) dispatch({ type: 'piPreferences', preferences });
       },
       loadTree: async () => attempt('agent.tree', undefined, notice, viewed()),
       loadDiagnostics: async () => {

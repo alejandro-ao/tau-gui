@@ -8,7 +8,7 @@
 
 export type RuntimeKind = 'tau' | 'pi';
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 
 export const THINKING_LEVELS: readonly ThinkingLevel[] = [
   'off',
@@ -17,6 +17,7 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
   'medium',
   'high',
   'xhigh',
+  'max',
 ];
 
 export type ProjectTrust = 'default' | 'approve-once' | 'decline-once';
@@ -84,6 +85,93 @@ export interface ModelCycleResult {
   model: Model;
   thinkingLevel: ThinkingLevel;
   isScoped: boolean;
+}
+
+/* ---------------------------------------------------- auth and Pi preferences */
+
+export type ProviderAuthMethod = 'api_key' | 'oauth';
+
+/** Sanitized provider metadata. Credentials and tokens never enter this DTO. */
+export interface ProviderAuthStatus {
+  id: string;
+  name: string;
+  methods: ProviderAuthMethod[];
+  configured: boolean;
+  credentialType: ProviderAuthMethod | null;
+  source: string | null;
+}
+
+export type AuthFlowEvent =
+  | {
+      flowId: string;
+      type: 'prompt';
+      challengeId: string;
+      input: 'text' | 'secret' | 'select' | 'manual_code';
+      message: string;
+      placeholder: string | null;
+      options: { id: string; label: string; description: string | null }[];
+    }
+  | {
+      flowId: string;
+      type: 'info' | 'progress';
+      message: string;
+      links: { url: string; label: string | null }[];
+    }
+  | {
+      flowId: string;
+      type: 'auth_url';
+      url: string;
+      instructions: string | null;
+    }
+  | {
+      flowId: string;
+      type: 'device_code';
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds: number | null;
+      expiresInSeconds: number | null;
+    }
+  | { flowId: string; type: 'complete'; success: boolean; message: string };
+
+export interface PiAgentPreferences {
+  steeringMode: 'all' | 'one-at-a-time';
+  followUpMode: 'all' | 'one-at-a-time';
+  transport: 'sse' | 'websocket' | 'websocket-cached' | 'auto';
+  retryEnabled: boolean;
+  retryMaxRetries: number;
+  retryBaseDelayMs: number;
+  providerTimeoutMs: number | null;
+  providerMaxRetries: number;
+  providerMaxRetryDelayMs: number;
+  isRetrying: boolean;
+  retryAttempt: number;
+  autoCompactionEnabled: boolean;
+  compactionReserveTokens: number;
+  compactionKeepRecentTokens: number;
+  defaultProvider: string | null;
+  defaultModel: string | null;
+  defaultThinkingLevel: ThinkingLevel | null;
+  /** Pi exposes public setters for these fields in this pinned SDK version. */
+  writable: {
+    queueModes: boolean;
+    transport: boolean;
+    retryEnabled: boolean;
+    retryPolicy: boolean;
+    autoCompaction: boolean;
+    compactionThresholds: boolean;
+    modelDefaults: boolean;
+  };
+}
+
+export interface PiAgentPreferencesPatch {
+  steeringMode?: 'all' | 'one-at-a-time';
+  followUpMode?: 'all' | 'one-at-a-time';
+  transport?: 'sse' | 'websocket' | 'websocket-cached' | 'auto';
+  retryEnabled?: boolean;
+  autoCompactionEnabled?: boolean;
+  defaultProvider?: string;
+  defaultModel?: string;
+  defaultThinkingLevel?: ThinkingLevel;
 }
 
 /* ---------------------------------------------------------------- messages */

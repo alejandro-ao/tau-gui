@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
+import { AuthModal } from './AuthModal.js';
 import { CommandsModal } from './CommandsModal.js';
 import { DetailsModal } from './DetailsModal.js';
 import { DiagnosticsModal } from './DiagnosticsModal.js';
@@ -44,6 +45,8 @@ export function ModalHost(): ReactNode {
       return <DetailsModal />;
     case 'settings':
       return <SettingsModal />;
+    case 'auth':
+      return <AuthModal />;
     case 'diagnostics':
       return <DiagnosticsModal />;
     case 'commands':

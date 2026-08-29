@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  authFlowEventSchema,
   bashResultSchema,
   bridgeEventSchema,
   contextFilesSchema,
@@ -11,6 +12,8 @@ import {
   MAX_TREE_PREVIEW,
   MAX_TREE_ROWS,
   parseSessionIpcResult,
+  piAgentPreferencesSchema,
+  providerAuthListSchema,
   requestSchema,
   resourceCatalogSchema,
   sessionCatalogSchema,
@@ -123,6 +126,104 @@ describe('IPC request validation', () => {
         },
       ]).success,
     ).toBe(false);
+  });
+
+  it('strictly bounds provider auth and Pi preference requests', () => {
+    expect(requestSchema.safeParse({ action: 'auth.providers' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login',
+        payload: { providerId: 'openai', method: 'oauth' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.respond',
+        payload: { flowId: 'flow-1', challengeId: 'challenge-1', value: 'x'.repeat(8_193) },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login',
+        payload: { providerId: 'openai', method: 'oauth', token: 'must-not-cross' },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'pi.preferences.update',
+        payload: { retryEnabled: true, retryMaxRetries: 999 },
+      }).success,
+    ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'retry.abort' }).success).toBe(true);
+  });
+
+  it('validates sanitized auth, preference, and challenge results', () => {
+    expect(
+      providerAuthListSchema.safeParse([
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          methods: ['api_key', 'oauth'],
+          configured: true,
+          credentialType: 'oauth',
+          source: 'OAuth',
+        },
+      ]).success,
+    ).toBe(true);
+    expect(
+      providerAuthListSchema.safeParse([
+        {
+          id: 'openai',
+          name: 'OpenAI',
+          methods: ['api_key'],
+          configured: true,
+          credentialType: 'api_key',
+          source: 'sk-secret',
+          key: 'secret',
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      authFlowEventSchema.safeParse({
+        flowId: 'flow-1',
+        type: 'prompt',
+        challengeId: 'challenge-1',
+        input: 'secret',
+        message: 'API key',
+        placeholder: null,
+        options: [],
+      }).success,
+    ).toBe(true);
+    expect(
+      piAgentPreferencesSchema.safeParse({
+        steeringMode: 'all',
+        followUpMode: 'one-at-a-time',
+        transport: 'auto',
+        retryEnabled: true,
+        retryMaxRetries: 3,
+        retryBaseDelayMs: 2_000,
+        providerTimeoutMs: null,
+        providerMaxRetries: 0,
+        providerMaxRetryDelayMs: 60_000,
+        isRetrying: false,
+        retryAttempt: 0,
+        autoCompactionEnabled: true,
+        compactionReserveTokens: 16_384,
+        compactionKeepRecentTokens: 20_000,
+        defaultProvider: null,
+        defaultModel: null,
+        defaultThinkingLevel: 'max',
+        writable: {
+          queueModes: true,
+          transport: true,
+          retryEnabled: true,
+          retryPolicy: false,
+          autoCompaction: true,
+          compactionThresholds: false,
+          modelDefaults: true,
+        },
+      }).success,
+    ).toBe(true);
   });
 
   it('never lets the renderer choose the probed binary', () => {

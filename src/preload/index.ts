@@ -14,6 +14,8 @@ import {
   imageAttachmentListSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
+  piAgentPreferencesSchema,
+  providerAuthListSchema,
   resourceCatalogSchema,
   parseSessionIpcResult,
   resourceReloadResultSchema,
@@ -84,6 +86,12 @@ const bridge: TauBridge = {
     }
     if (action === 'images.prepare') {
       return imageAttachmentListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'auth.providers') {
+      return providerAuthListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'pi.preferences.get' || action === 'pi.preferences.update') {
+      return piAgentPreferencesSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return parseSessionIpcResult(action, response.value) as IpcResult<typeof action>;
   },

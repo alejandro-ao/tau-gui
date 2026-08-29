@@ -3,8 +3,11 @@ import type {
   AgentMessage,
   AgentState,
   AppSettings,
+  AuthFlowEvent,
   CommandInfo,
   Model,
+  PiAgentPreferences,
+  ProviderAuthStatus,
   ResourceCatalog,
   SessionStats,
   SessionSummary,
@@ -127,6 +130,7 @@ export type ModalKind =
   | 'hotkeys'
   | 'details'
   | 'settings'
+  | 'auth'
   | 'diagnostics'
   | 'commands'
   | 'skills'
@@ -142,6 +146,9 @@ export interface AppState {
   stats: SessionStats | null;
   sessions: SessionSummary[];
   models: Model[];
+  providerAuth: ProviderAuthStatus[];
+  authFlow: AuthFlowEvent | null;
+  piPreferences: PiAgentPreferences | null;
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
   resources: ResourceCatalog;
@@ -201,6 +208,9 @@ export type Action =
   | { type: 'stats'; stats: SessionStats }
   | { type: 'sessions'; sessions: SessionSummary[] }
   | { type: 'models'; models: Model[] }
+  | { type: 'providerAuth'; providers: ProviderAuthStatus[] }
+  | { type: 'authFlow'; event: AuthFlowEvent | null }
+  | { type: 'piPreferences'; preferences: PiAgentPreferences }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }

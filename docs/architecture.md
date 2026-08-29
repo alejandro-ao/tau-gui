@@ -48,6 +48,12 @@ Image attachment paths travel only from Electron's dropped-file bridge into a va
 
 The renderer can preview and remove up to eight images, but cannot choose MIME, dimensions, model payload bytes, or cache ownership. Navigation drops renderer attachment state and unused main entries expire. Ordinary non-image drops retain the existing constrained path-insertion behavior.
 
+## Provider auth, retry, and Pi preferences
+
+Provider login/logout is orchestrated by the active embedded Pi runtime in Electron main through public `ModelRuntime` APIs. The renderer receives only bounded provider status and interactive challenge DTOs. API-key input is component-local until one validated renderer-to-main response; keys, OAuth credentials, credential environment, and synchronization errors containing credential objects never enter renderer state, events, diagnostics, or logs. OAuth URLs/device codes are sanitized and remain explicit user actions.
+
+Pi's `SettingsManager` remains authoritative for queue delivery modes, transport, retry enablement, automatic compaction, and default model/provider/thinking preferences. Public setters are flushed before IPC success and state is re-read after every mutation. The pinned SDK exposes retry-policy and compaction-threshold getters but no persistent setters, so those values are displayed read-only rather than written through private files. Retry progress comes from normalized Pi events and cancellation calls public `AgentSession.abortRetry()`.
+
 ## Migration state
 
 Production uses the embedded Pi adapter. System-prompt inspection, tool-catalog inspection, and resource reload have complete desktop flows. Session listing, tree navigation/labels, cloning, import, active HTML export, and active/inactive portable JSONL export also have bounded desktop flows. Inactive JSONL export requires a fresh complete catalog; active export binds the live main-only path, physical identity, and authoritative session ID, including supported legacy paths outside catalog roots. Tree navigation offers no summary, default summary, or bounded custom-focus summary (plus an optional label) through public `navigateTree()`, with cancellation/failure retaining retry UI. Pi 0.84.2's inactive HTML helper is internal and not exported from the public package entry point, so the app does not deep-import or fake that operation. Other SDK surfaces such as images, cancellable/streaming bash, retries, and provider authentication remain capability-gated until each has bounded domain types and tests.

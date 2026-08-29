@@ -15,7 +15,8 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining provider auth, retries, extension UI, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Bounded native multi-image prompts are complete. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
+- Remaining extension UI, cancellable bash UX, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
+- Bounded native multi-image prompts, Pi-native session workflows, main-owned provider authentication, retry cancellation/progress, and public-setter-backed Pi preferences are complete.
 
 ## Active desktop contract audit
 
@@ -26,36 +27,35 @@ all required layers:
 Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer flow → tests
 ```
 
-SDK support by itself is not a desktop capability. Pi-native listing and cloning
-are now complete desktop slices; auth, resources reload, tools, system prompts,
-retries and extensions remain disabled until the app exposes bounded
-domain operations and usable desktop flows.
+SDK support by itself is not a desktop capability. Pi-native sessions, images,
+provider authentication, retry/settings controls, resource reload, tool catalog,
+and system-prompt inspection are complete desktop slices. Extension dialogs and
+cancellable bash remain disabled until they have bounded desktop flows.
 `CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
 minimum runtime operation for every capability; IPC, renderer, and test coverage
 are additional requirements.
 
-| Capability               | Runtime operation                    | IPC / renderer   | Advertised | Next action                                       |
-| ------------------------ | ------------------------------------ | ---------------- | ---------- | ------------------------------------------------- |
-| text prompts             | `prompt`                             | complete         | yes        | maintain contract tests                           |
-| steering / follow-ups    | `steer`, `followUp`                  | complete         | yes        | maintain queue and E2E coverage                   |
-| direct bash              | `runShell`                           | complete         | yes        | maintain contract tests                           |
-| cancellable bash         | `abortShell`                         | no renderer flow | no         | add cancellation UX and E2E coverage              |
-| session tree / fork      | bounded rows, `navigateTree`, labels | complete         | yes        | maintain cancellation/adversarial coverage        |
-| image prompts            | bounded SDK image prompt options     | complete         | yes        | maintain normalization/security coverage          |
-| retry controls           | retry events only                    | missing          | no         | add policy, progress, and cancellation operations |
-| session clone            | public branch create + switch        | complete         | yes        | maintain cleanup/lifecycle coverage               |
-| session listing          | preflight + `SessionManager.listAll` | complete         | yes        | upstream abortable bounded listing API            |
-| extension dialogs        | extensions intentionally disabled    | missing          | no         | define trust and isolation first                  |
-| provider login/logout    | Pi SDK primitive only                | missing          | no         | add main-owned auth flows                         |
-| resource reload          | `reloadResources`                    | complete         | yes        | maintain lifecycle/count/diagnostic tests         |
-| system prompt inspection | `inspectSystemPrompt`                | complete         | yes        | keep output local-only and bounded                |
-| tool catalog             | `listTools`                          | complete         | yes        | keep schemas/origins bounded and plain-text       |
+| Capability               | Runtime operation                      | IPC / renderer   | Advertised | Next action                                |
+| ------------------------ | -------------------------------------- | ---------------- | ---------- | ------------------------------------------ |
+| text prompts             | `prompt`                               | complete         | yes        | maintain contract tests                    |
+| steering / follow-ups    | `steer`, `followUp`                    | complete         | yes        | maintain queue and E2E coverage            |
+| direct bash              | `runShell`                             | complete         | yes        | maintain contract tests                    |
+| cancellable bash         | `abortShell`                           | no renderer flow | no         | add cancellation UX and E2E coverage       |
+| session tree / fork      | bounded rows, `fork`, labels           | complete         | yes        | maintain adversarial coverage              |
+| image prompts            | bounded SDK image prompt options       | complete         | yes        | maintain normalization/security coverage   |
+| retry controls           | Pi state, events, `abortRetry()`       | complete         | yes        | maintain restoration/cancellation coverage |
+| session clone            | public branch create + switch          | complete         | yes        | maintain cleanup/lifecycle coverage        |
+| session listing          | preflight + `SessionManager.listAll()` | complete         | yes        | upstream abortable bounded listing API     |
+| extension dialogs        | extensions intentionally disabled      | missing          | no         | define trust and isolation first           |
+| provider login/logout    | public `ModelRuntime` auth APIs        | complete         | yes        | maintain credential-redaction coverage     |
+| resource reload          | `reloadResources`                      | complete         | yes        | maintain lifecycle/count coverage          |
+| system prompt inspection | `inspectSystemPrompt`                  | complete         | yes        | keep output local-only and bounded         |
+| tool catalog             | `listTools`                            | complete         | yes        | keep schemas/origins bounded               |
 
 The next implementation order is:
 
-1. add provider authentication and Pi-owned retry/settings controls;
-2. maintain native image prompts and add extension interactions after their
-   isolation boundary is defined;
+1. add extension interactions after their isolation boundary is defined;
+2. add cancellable bash UX and E2E coverage;
 3. remove the compatibility runtime and JSONL test infrastructure, then finish
    release hardening.
 

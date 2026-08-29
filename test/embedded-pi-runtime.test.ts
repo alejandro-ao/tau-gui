@@ -13,7 +13,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { SessionManager } from '@earendil-works/pi-coding-agent';
+import { ModelRuntime, SessionManager, SettingsManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
 import { ImportRecoveryService } from '../src/main/services/import-recovery.js';
@@ -23,7 +23,7 @@ import {
   EmbeddedPiRuntime,
 } from '../src/main/runtime/embedded-pi-runtime.js';
 import { MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
-import type { RuntimeStatus } from '../src/shared/domain.js';
+import type { AuthFlowEvent, RuntimeStatus } from '../src/shared/domain.js';
 import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
 import {
@@ -60,6 +60,15 @@ function recoveryHealth(agentDir: string): Promise<{ retained: number; capacity:
   return new ImportRecoveryService(agentDir, () => Promise.resolve('')).health();
 }
 
+async function waitFor<T>(read: () => T | undefined): Promise<T> {
+  for (let index = 0; index < 100; index += 1) {
+    const value = read();
+    if (value !== undefined) return value;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error('condition was not reached');
+}
+
 afterEach(async () => {
   await active?.stop();
   active = null;
@@ -90,11 +99,11 @@ describe('EmbeddedPiRuntime', () => {
       toolCatalog: true,
       imagePrompt: true,
       abortBash: false,
-      retryControls: false,
+      retryControls: true,
       sessionClone: true,
       sessionList: true,
       extensionDialogs: false,
-      providerLogin: false,
+      providerLogin: true,
     });
   });
 
@@ -617,6 +626,127 @@ describe('EmbeddedPiRuntime', () => {
       throw new Error('active failure');
     };
     await expect(runtime.listTools()).resolves.toMatchObject({ tools: [], truncated: true });
+  });
+
+  it('owns provider credentials and Pi preferences without exposing secrets', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tau-gui-auth-settings-'));
+    roots.push(root);
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    mkdirSync(cwd, { recursive: true });
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(agentDir, 'auth.json'),
+      modelsPath: null,
+      refreshOnCreate: false,
+    });
+    const settingsManager = SettingsManager.inMemory({
+      steeringMode: 'one-at-a-time',
+      followUpMode: 'one-at-a-time',
+      retry: { enabled: false, maxRetries: 4, baseDelayMs: 25 },
+      compaction: { enabled: true, reserveTokens: 8_000, keepRecentTokens: 12_000 },
+    });
+    const authEvents: AuthFlowEvent[] = [];
+    const runtime = new EmbeddedPiRuntime(
+      {
+        event: () => undefined,
+        status: () => undefined,
+        diagnostic: () => undefined,
+        auth: (event) => authEvents.push(event),
+      },
+      { agentDir, home: root, modelRuntime, settingsManager },
+    );
+    active = runtime;
+    await runtime.start({
+      kind: 'pi',
+      binary: '',
+      cwd,
+      extraArgs: [],
+      projectTrust: 'default',
+    });
+
+    const login = runtime.loginProvider('openai', 'api_key');
+    await waitFor(() => authEvents.find((event) => event.type === 'prompt'));
+    const challenge = authEvents.find((event) => event.type === 'prompt');
+    if (!challenge || challenge.type !== 'prompt') throw new Error('missing API-key challenge');
+    expect(challenge.input).toBe('secret');
+    expect(JSON.stringify(challenge)).not.toContain('desktop-test-key');
+    await runtime.respondProviderAuth(challenge.flowId, challenge.challengeId, 'desktop-test-key');
+    await login;
+
+    const providers = await runtime.listProviderAuth();
+    expect(providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: 'openai', configured: true, credentialType: 'api_key' }),
+      ]),
+    );
+    expect(JSON.stringify(providers)).not.toContain('desktop-test-key');
+
+    const updated = await runtime.updatePiPreferences({
+      steeringMode: 'all',
+      followUpMode: 'all',
+      transport: 'sse',
+      retryEnabled: true,
+      autoCompactionEnabled: false,
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5',
+      defaultThinkingLevel: 'max',
+    });
+    expect(updated).toMatchObject({
+      steeringMode: 'all',
+      followUpMode: 'all',
+      transport: 'sse',
+      retryEnabled: true,
+      autoCompactionEnabled: false,
+      retryMaxRetries: 4,
+      retryBaseDelayMs: 25,
+      compactionReserveTokens: 8_000,
+      compactionKeepRecentTokens: 12_000,
+      defaultProvider: 'openai',
+      defaultModel: 'gpt-5',
+      defaultThinkingLevel: 'max',
+    });
+    expect(updated.writable).toMatchObject({
+      retryPolicy: false,
+      compactionThresholds: false,
+    });
+    await runtime.abortRetry();
+    await runtime.logoutProvider('openai');
+    expect(
+      (await runtime.listProviderAuth()).find((provider) => provider.id === 'openai'),
+    ).toMatchObject({
+      configured: false,
+    });
+  });
+
+  it('cancels an outstanding provider challenge authoritatively', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tau-gui-auth-cancel-'));
+    roots.push(root);
+    const cwd = join(root, 'project');
+    mkdirSync(cwd, { recursive: true });
+    const modelRuntime = await ModelRuntime.create({
+      authPath: join(root, 'auth.json'),
+      modelsPath: null,
+      refreshOnCreate: false,
+    });
+    const authEvents: AuthFlowEvent[] = [];
+    const runtime = new EmbeddedPiRuntime(
+      {
+        event: () => undefined,
+        status: () => undefined,
+        diagnostic: () => undefined,
+        auth: (event) => authEvents.push(event),
+      },
+      { agentDir: join(root, 'agent'), home: root, modelRuntime },
+    );
+    active = runtime;
+    await runtime.start({ kind: 'pi', binary: '', cwd, extraArgs: [], projectTrust: 'default' });
+    const login = runtime.loginProvider('openai', 'api_key');
+    await waitFor(() => authEvents.find((event) => event.type === 'prompt'));
+    const prompt = authEvents.find((event) => event.type === 'prompt');
+    if (!prompt) throw new Error('missing prompt');
+    await runtime.cancelProviderAuth(prompt.flowId);
+    await expect(login).rejects.toThrow('cancelled');
+    expect(authEvents.at(-1)).toMatchObject({ type: 'complete', success: false });
   });
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {

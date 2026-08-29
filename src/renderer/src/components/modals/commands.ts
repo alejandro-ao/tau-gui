@@ -87,13 +87,6 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
 
   const gate = (supported: boolean, reason: string): string | null => (supported ? null : reason);
 
-  /**
-   * Reason for a command the GUI has no implementation for: the capability gap
-   * when the runtime lacks the surface, otherwise the missing-GUI work.
-   */
-  const missing = (supported: boolean, capabilityReason: string): string =>
-    supported ? 'this is not implemented in the desktop app yet' : capabilityReason;
-
   /* ------------------------------------------------------------- sessions */
 
   add({
@@ -459,18 +452,39 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       : { unavailable: 'resource reload is not exposed by the desktop application contract' }),
   });
   for (const action of ['login', 'logout'] as const) {
-    add({
+    const command = {
       id: `runtime.${action}`,
       title: `/${action}`,
       description: `Provider ${action}`,
-      group: 'runtime',
-      origin: 'backend',
+      group: 'runtime' as const,
+      origin: 'backend' as const,
       slash: `/${action}`,
-      unavailable: missing(
-        capabilities.providerLogin,
-        'provider credential management is not exposed by the desktop application contract',
-      ),
-    });
+    };
+    if (capabilities.providerLogin) {
+      add({
+        ...command,
+        unavailable: null,
+        run: () => {
+          void actions.loadProviderAuth();
+          actions.openModal('auth');
+        },
+      });
+    } else {
+      add({ ...command, unavailable: 'this runtime cannot manage provider credentials' });
+    }
+  }
+  const retryCommand = {
+    id: 'runtime.abortRetry',
+    title: '/abort-retry',
+    description: 'Cancel the current Pi retry delay',
+    group: 'runtime' as const,
+    origin: 'backend' as const,
+    slash: '/abort-retry',
+  };
+  if (capabilities.retryControls) {
+    add({ ...retryCommand, unavailable: null, run: () => void actions.abortRetry() });
+  } else {
+    add({ ...retryCommand, unavailable: 'this runtime cannot cancel retries' });
   }
   /* ------------------------------------------------- runtime-discovered */
 

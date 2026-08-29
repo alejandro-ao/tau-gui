@@ -111,10 +111,22 @@
 
 ## Secrets
 
-- Credentials are owned by Pi's main-process model runtime and standard agent
-  configuration. The renderer never reads, stores, or forwards provider keys.
-- `process.env` is passed to the child process but never sent to the renderer or
-  written to logs.
+- Credentials are owned by Pi's main-process `ModelRuntime`. Stored credentials
+  remain in `~/.pi/agent/auth.json` (or the configured Pi agent directory) with
+  Pi's `0600` file policy; this app does not copy, migrate, or mirror them into
+  Electron settings. Existing Pi credentials are discovered in place.
+- Provider status DTOs contain only provider id/name, supported auth methods,
+  configured/type state, and the generic labels `stored` or `ambient`. They never
+  contain API keys, tokens, credential commands, provider-scoped environment,
+  headers, filesystem locations, or raw synchronization errors.
+- API-key input remains local to the authentication modal until one validated
+  renderer-to-main response. It is never dispatched into application state,
+  echoed through events, included in diagnostics, or retained after submission.
+  OAuth events expose only bounded prompts, HTTPS/HTTP authorization URLs,
+  device codes, progress, and completion status. Cancellation aborts pending
+  SDK prompts and clears their resolver.
+- `process.env` remains main-owned and is never sent to the renderer or written
+  to logs.
 - Settings persisted by the GUI contain only binary paths, provider/model names,
   UI preferences, session references, and resource-directory paths explicitly
   selected through Electron's native folder chooser.

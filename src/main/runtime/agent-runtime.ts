@@ -16,6 +16,11 @@ import type {
   Model,
   ModelCycleResult,
   ModelRef,
+  AuthFlowEvent,
+  PiAgentPreferences,
+  PiAgentPreferencesPatch,
+  ProviderAuthMethod,
+  ProviderAuthStatus,
   PromptInput,
   RuntimeCapabilities,
   RuntimeKind,
@@ -50,6 +55,7 @@ export interface RuntimeSink {
   event(event: AgentEvent): void;
   status(status: RuntimeStatus, detail?: string | null): void;
   diagnostic(line: string): void;
+  auth?(event: AuthFlowEvent): void;
 }
 
 export interface AgentRuntime {
@@ -74,6 +80,14 @@ export interface AgentRuntime {
   cycleThinking(): Promise<ThinkingLevel | null>;
   setAutoCompaction(enabled: boolean): Promise<void>;
   compact(instructions?: string): Promise<CompactionResult>;
+  listProviderAuth?(): Promise<ProviderAuthStatus[]>;
+  loginProvider?(providerId: string, method: ProviderAuthMethod): Promise<void>;
+  respondProviderAuth?(flowId: string, challengeId: string, value: string): Promise<void>;
+  cancelProviderAuth?(flowId: string): Promise<void>;
+  logoutProvider?(providerId: string): Promise<void>;
+  getPiPreferences?(): Promise<PiAgentPreferences>;
+  updatePiPreferences?(patch: PiAgentPreferencesPatch): Promise<PiAgentPreferences>;
+  abortRetry?(): Promise<void>;
   runShell(command: string, excludeFromContext: boolean): Promise<BashResult>;
   abortShell(): Promise<void>;
   newSession(): Promise<void>;
@@ -126,12 +140,18 @@ export const CAPABILITY_RUNTIME_METHODS = {
   followUps: ['followUp'],
   directBash: ['runShell'],
   abortBash: ['abortShell'],
-  retryControls: null,
+  retryControls: ['getPiPreferences', 'updatePiPreferences', 'abortRetry'],
   sessionTree: ['getTree', 'fork', 'setLabel'],
   sessionClone: ['clone'],
   sessionList: ['listSessions'],
   extensionDialogs: null,
-  providerLogin: null,
+  providerLogin: [
+    'listProviderAuth',
+    'loginProvider',
+    'respondProviderAuth',
+    'cancelProviderAuth',
+    'logoutProvider',
+  ],
   resourceReload: ['reloadResources'],
   systemPromptInspection: ['inspectSystemPrompt'],
   toolCatalog: ['listTools'],

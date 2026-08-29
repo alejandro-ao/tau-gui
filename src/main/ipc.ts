@@ -14,6 +14,8 @@ import {
   toolCatalogSchema,
   treeNavigateResultSchema,
   treeSnapshotSchema,
+  piAgentPreferencesSchema,
+  providerAuthListSchema,
 } from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
@@ -50,6 +52,8 @@ export async function handleRequest(
     manager.readRuntime(target, operation);
   const mutate = <T>(operation: (runtime: Runtime) => Promise<T>): Promise<T> =>
     manager.mutateRuntime(target, operation);
+  // Authentication challenges must remain callable while a login promise is pending.
+  const runtime = (): Runtime => manager.runtimeFor(target);
 
   switch (request.action) {
     case 'settings.get':
@@ -193,6 +197,61 @@ export async function handleRequest(
         await manager.refreshState(false, target);
         return result;
       });
+
+    case 'auth.providers': {
+      const active = runtime();
+      if (!active.listProviderAuth) throw new Error('Provider authentication is unavailable');
+      return providerAuthListSchema.parse(await active.listProviderAuth());
+    }
+    case 'auth.login': {
+      const active = runtime();
+      if (!active.loginProvider) throw new Error('Provider authentication is unavailable');
+      await active.loginProvider(request.payload.providerId, request.payload.method);
+      await manager.refreshState(false, target);
+      return null;
+    }
+    case 'auth.respond': {
+      const active = runtime();
+      if (!active.respondProviderAuth) throw new Error('Provider authentication is unavailable');
+      await active.respondProviderAuth(
+        request.payload.flowId,
+        request.payload.challengeId,
+        request.payload.value,
+      );
+      return null;
+    }
+    case 'auth.cancel': {
+      const active = runtime();
+      if (!active.cancelProviderAuth) throw new Error('Provider authentication is unavailable');
+      await active.cancelProviderAuth(request.payload.flowId);
+      return null;
+    }
+    case 'auth.logout': {
+      const active = runtime();
+      if (!active.logoutProvider) throw new Error('Provider authentication is unavailable');
+      await active.logoutProvider(request.payload.providerId);
+      await manager.refreshState(false, target);
+      return null;
+    }
+    case 'pi.preferences.get': {
+      const active = runtime();
+      if (!active.getPiPreferences) throw new Error('Pi preferences are unavailable');
+      return piAgentPreferencesSchema.parse(await active.getPiPreferences());
+    }
+    case 'pi.preferences.update': {
+      const active = runtime();
+      if (!active.updatePiPreferences) throw new Error('Pi preferences are unavailable');
+      const preferences = await active.updatePiPreferences(request.payload);
+      await manager.refreshState(false, target);
+      return piAgentPreferencesSchema.parse(preferences);
+    }
+    case 'retry.abort': {
+      const active = runtime();
+      if (!active.abortRetry) throw new Error('Retry cancellation is unavailable');
+      await active.abortRetry();
+      await manager.refreshState(false, target);
+      return null;
+    }
 
     case 'thinking.list':
       return read((runtime) => runtime.listThinkingLevels());

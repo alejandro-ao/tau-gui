@@ -1,9 +1,11 @@
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { open } from 'node:fs/promises';
-import { createHash, randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import {
+  type ModelRuntime,
   SessionManager,
+  type SettingsManager,
   createAgentSessionFromServices,
   createAgentSessionRuntime,
   createAgentSessionServices,
@@ -33,6 +35,10 @@ import type {
   Model,
   ModelCycleResult,
   ModelRef,
+  PiAgentPreferences,
+  PiAgentPreferencesPatch,
+  ProviderAuthMethod,
+  ProviderAuthStatus,
   PromptInput,
   RuntimeCapabilities,
   RuntimeLaunchConfig,
@@ -80,16 +86,42 @@ export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   followUps: true,
   directBash: true,
   abortBash: false,
-  retryControls: false,
+  retryControls: true,
   sessionTree: true,
   sessionClone: true,
   sessionList: true,
   extensionDialogs: false,
-  providerLogin: false,
+  providerLogin: true,
   resourceReload: true,
   systemPromptInspection: true,
   toolCatalog: true,
 };
+
+type AuthPromptLike =
+  | {
+      signal?: AbortSignal;
+      type: 'text' | 'secret' | 'manual_code';
+      message: string;
+      placeholder?: string;
+    }
+  | {
+      signal?: AbortSignal;
+      type: 'select';
+      message: string;
+      options: readonly { id: string; label: string; description?: string }[];
+    };
+
+type AuthEventLike =
+  | { type: 'info'; message: string; links?: readonly { url: string; label?: string }[] }
+  | { type: 'auth_url'; url: string; instructions?: string }
+  | {
+      type: 'device_code';
+      userCode: string;
+      verificationUri: string;
+      intervalSeconds?: number;
+      expiresInSeconds?: number;
+    }
+  | { type: 'progress'; message: string };
 
 /**
  * Pi SDK adapter used by the packaged application.
@@ -125,6 +157,17 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     sessionId: string;
     physical: PhysicalFile;
   } | null = null;
+  private readonly modelRuntime: ModelRuntime | undefined;
+  private readonly settingsManager: SettingsManager | undefined;
+  private authFlow: {
+    id: string;
+    controller: AbortController;
+    pending: {
+      id: string;
+      resolve: (value: string) => void;
+      reject: (error: Error) => void;
+    } | null;
+  } | null = null;
 
   constructor(
     sink: RuntimeSink,
@@ -136,6 +179,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       importDestinationName?: () => string;
       /** Test seam for source/destination races after exclusive creation. */
       exportAfterCreate?: (destination: string) => void | Promise<void>;
+      /** Public SDK service injection for deterministic no-provider tests. */
+      modelRuntime?: ModelRuntime;
+      settingsManager?: SettingsManager;
     } = {},
   ) {
     this.sink = sink;
@@ -144,6 +190,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.spawnSession = options.spawnSession ?? null;
     this.importDestinationName = options.importDestinationName ?? (() => `${randomUUID()}.jsonl`);
     this.exportAfterCreate = options.exportAfterCreate;
+    this.modelRuntime = options.modelRuntime;
+    this.settingsManager = options.settingsManager;
   }
 
   get running(): boolean {
@@ -183,6 +231,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       const services = await createAgentSessionServices({
         cwd,
         agentDir,
+        modelRuntime: this.modelRuntime,
+        settingsManager: this.settingsManager,
         // Extensions execute arbitrary Node.js. Keep them disabled until the
         // desktop extension trust/UI contract tracked in issue #17 lands.
         resourceLoaderOptions: {
@@ -225,6 +275,9 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async stop(): Promise<void> {
     const runtime = this.runtime;
+    this.authFlow?.controller.abort();
+    this.authFlow?.pending?.reject(new Error('Provider login cancelled'));
+    this.authFlow = null;
     this.runtime = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
@@ -372,6 +425,269 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   cycleThinking(): Promise<ThinkingLevel | null> {
     const level = this.session.cycleThinkingLevel();
     return Promise.resolve(level ? normalizeThinkingLevel(level) : null);
+  }
+
+  private waitForAuthPrompt(
+    flow: NonNullable<EmbeddedPiRuntime['authFlow']>,
+    prompt: AuthPromptLike,
+  ): Promise<string> {
+    if (flow.controller.signal.aborted)
+      return Promise.reject(new Error('Provider login cancelled'));
+    flow.pending?.reject(new Error('Provider login challenge replaced'));
+    const challengeId = randomUUID();
+    const options =
+      prompt.type === 'select'
+        ? prompt.options.slice(0, 50).map((option) => ({
+            id: boundedText(option.id, 200),
+            label: boundedText(option.label, 300),
+            description: option.description ? boundedText(option.description, 1_000) : null,
+          }))
+        : [];
+    this.sink.auth?.({
+      flowId: flow.id,
+      type: 'prompt',
+      challengeId,
+      input: prompt.type,
+      message: boundedText(prompt.message, 4_096),
+      placeholder:
+        'placeholder' in prompt && prompt.placeholder ? boundedText(prompt.placeholder, 500) : null,
+      options,
+    });
+    return new Promise<string>((resolve, reject) => {
+      flow.pending = { id: challengeId, resolve, reject };
+      const abort = () => {
+        if (flow.pending?.id === challengeId) flow.pending = null;
+        reject(new Error('Provider login cancelled'));
+      };
+      flow.controller.signal.addEventListener('abort', abort, { once: true });
+      prompt.signal?.addEventListener('abort', abort, { once: true });
+    });
+  }
+
+  private emitAuthNotification(flowId: string, event: AuthEventLike): void {
+    if (event.type === 'auth_url') {
+      this.sink.auth?.({
+        flowId,
+        type: 'auth_url',
+        url: safeAuthUrl(event.url),
+        instructions: event.instructions ? boundedText(event.instructions, 4_096) : null,
+      });
+      return;
+    }
+    if (event.type === 'device_code') {
+      this.sink.auth?.({
+        flowId,
+        type: 'device_code',
+        userCode: boundedText(event.userCode, 500),
+        verificationUri: safeAuthUrl(event.verificationUri),
+        intervalSeconds: boundedOptionalInteger(event.intervalSeconds, 86_400),
+        expiresInSeconds: boundedOptionalInteger(event.expiresInSeconds, 86_400),
+      });
+      return;
+    }
+    this.sink.auth?.({
+      flowId,
+      type: event.type,
+      message: boundedText(event.message, 4_096),
+      links:
+        event.type === 'info'
+          ? (event.links ?? []).slice(0, 10).map((link) => ({
+              url: safeAuthUrl(link.url),
+              label: link.label ? boundedText(link.label, 300) : null,
+            }))
+          : [],
+    });
+  }
+
+  async listProviderAuth(): Promise<ProviderAuthStatus[]> {
+    const modelRuntime = this.host.services.modelRuntime;
+    const credentials = new Map(
+      (await modelRuntime.listCredentials({ signal: AbortSignal.timeout(5_000) })).map((item) => [
+        item.providerId,
+        item.type,
+      ]),
+    );
+    const statuses = await Promise.all(
+      modelRuntime
+        .getProviders()
+        .slice(0, 100)
+        .map(async (provider) => {
+          const providerId = boundedIdentifier(provider.id);
+          if (providerId !== provider.id) return null;
+          const methods: ProviderAuthMethod[] = [];
+          if (provider.auth.apiKey?.login) methods.push('api_key');
+          if (provider.auth.oauth) methods.push('oauth');
+          let check: Awaited<ReturnType<typeof modelRuntime.checkAuth>>;
+          try {
+            check = await modelRuntime.checkAuth(provider.id, {
+              signal: AbortSignal.timeout(5_000),
+            });
+          } catch {
+            check = undefined;
+          }
+          const credentialType = credentials.get(provider.id) ?? check?.type ?? null;
+          return {
+            id: providerId,
+            name: boundedText(provider.name, 200),
+            methods,
+            configured: check !== undefined,
+            credentialType,
+            source: credentialType
+              ? credentials.has(provider.id)
+                ? `stored ${credentialType === 'oauth' ? 'OAuth' : 'API key'}`
+                : `ambient ${credentialType === 'oauth' ? 'OAuth' : 'credential'}`
+              : null,
+          } satisfies ProviderAuthStatus;
+        }),
+    );
+    return statuses
+      .filter((status): status is ProviderAuthStatus => status !== null)
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }
+
+  async loginProvider(providerId: string, method: ProviderAuthMethod): Promise<void> {
+    if (this.authFlow) throw new Error('A provider login is already in progress');
+    const provider = this.host.services.modelRuntime.getProvider(providerId);
+    if (!provider) throw new Error('Unknown provider');
+    if (method === 'api_key' && !provider.auth.apiKey?.login) {
+      throw new Error('This provider does not support API-key login');
+    }
+    if (method === 'oauth' && !provider.auth.oauth) {
+      throw new Error('This provider does not support OAuth login');
+    }
+
+    const flowId = randomUUID();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10 * 60_000);
+    const flow = { id: flowId, controller, pending: null } satisfies NonNullable<
+      EmbeddedPiRuntime['authFlow']
+    >;
+    this.authFlow = flow;
+    try {
+      await this.host.services.modelRuntime.login(providerId, method, {
+        signal: controller.signal,
+        prompt: (prompt) => this.waitForAuthPrompt(flow, prompt),
+        notify: (event) => this.emitAuthNotification(flowId, event),
+      });
+      this.sink.auth?.({
+        flowId,
+        type: 'complete',
+        success: true,
+        message: 'Provider login complete',
+      });
+    } catch {
+      const cancelled = controller.signal.aborted;
+      this.sink.auth?.({
+        flowId,
+        type: 'complete',
+        success: false,
+        message: cancelled ? 'Provider login cancelled' : 'Provider login failed',
+      });
+      throw new Error(cancelled ? 'Provider login cancelled' : 'Provider login failed');
+    } finally {
+      clearTimeout(timeout);
+      if (this.authFlow === flow) this.authFlow = null;
+    }
+  }
+
+  respondProviderAuth(flowId: string, challengeId: string, value: string): Promise<void> {
+    const flow = this.authFlow;
+    if (!flow || flow.id !== flowId || flow.pending?.id !== challengeId) {
+      return Promise.reject(new Error('Provider login challenge is no longer active'));
+    }
+    const pending = flow.pending;
+    flow.pending = null;
+    pending.resolve(value);
+    return Promise.resolve();
+  }
+
+  cancelProviderAuth(flowId: string): Promise<void> {
+    const flow = this.authFlow;
+    if (!flow || flow.id !== flowId) return Promise.resolve();
+    flow.controller.abort();
+    flow.pending?.reject(new Error('Provider login cancelled'));
+    flow.pending = null;
+    return Promise.resolve();
+  }
+
+  async logoutProvider(providerId: string): Promise<void> {
+    try {
+      await this.host.services.modelRuntime.logout(providerId, {
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch {
+      throw new Error('Provider logout failed');
+    }
+  }
+
+  getPiPreferences(): Promise<PiAgentPreferences> {
+    const session = this.session;
+    const settings = session.settingsManager;
+    const retry = settings.getRetrySettings();
+    const providerRetry = settings.getProviderRetrySettings();
+    const compaction = settings.getCompactionSettings();
+    const global = settings.getGlobalSettings();
+    return Promise.resolve({
+      steeringMode: session.steeringMode,
+      followUpMode: session.followUpMode,
+      transport: settings.getTransport(),
+      retryEnabled: session.autoRetryEnabled,
+      retryMaxRetries: retry.maxRetries,
+      retryBaseDelayMs: retry.baseDelayMs,
+      providerTimeoutMs: providerRetry.timeoutMs ?? null,
+      providerMaxRetries: providerRetry.maxRetries ?? 0,
+      providerMaxRetryDelayMs: providerRetry.maxRetryDelayMs,
+      isRetrying: session.isRetrying,
+      retryAttempt: session.retryAttempt,
+      autoCompactionEnabled: session.autoCompactionEnabled,
+      compactionReserveTokens: compaction.reserveTokens,
+      compactionKeepRecentTokens: compaction.keepRecentTokens,
+      defaultProvider: global.defaultProvider ?? null,
+      defaultModel: global.defaultModel ?? null,
+      defaultThinkingLevel: global.defaultThinkingLevel
+        ? normalizeThinkingLevel(global.defaultThinkingLevel)
+        : null,
+      writable: {
+        queueModes: true,
+        transport: true,
+        retryEnabled: true,
+        retryPolicy: false,
+        autoCompaction: true,
+        compactionThresholds: false,
+        modelDefaults: true,
+      },
+    });
+  }
+
+  async updatePiPreferences(patch: PiAgentPreferencesPatch): Promise<PiAgentPreferences> {
+    const session = this.session;
+    const settings = session.settingsManager;
+    if (patch.steeringMode) session.setSteeringMode(patch.steeringMode);
+    if (patch.followUpMode) session.setFollowUpMode(patch.followUpMode);
+    if (patch.transport) settings.setTransport(patch.transport);
+    if (patch.retryEnabled !== undefined) session.setAutoRetryEnabled(patch.retryEnabled);
+    if (patch.autoCompactionEnabled !== undefined) {
+      session.setAutoCompactionEnabled(patch.autoCompactionEnabled);
+    }
+    if (patch.defaultProvider && patch.defaultModel) {
+      settings.setDefaultModelAndProvider(patch.defaultProvider, patch.defaultModel);
+    } else {
+      if (patch.defaultProvider) settings.setDefaultProvider(patch.defaultProvider);
+      if (patch.defaultModel) settings.setDefaultModel(patch.defaultModel);
+    }
+    if (patch.defaultThinkingLevel) {
+      settings.setDefaultThinkingLevel(patch.defaultThinkingLevel);
+    }
+    await settings.flush();
+    for (const error of settings.drainErrors()) {
+      this.sink.diagnostic(`Pi settings ${error.scope} write failed`);
+    }
+    return this.getPiPreferences();
+  }
+
+  abortRetry(): Promise<void> {
+    this.session.abortRetry();
+    return Promise.resolve();
   }
 
   setAutoCompaction(enabled: boolean): Promise<void> {
@@ -998,6 +1314,38 @@ function resourceDescription(value: string): string | null {
 }
 
 /** Pi permits YAML-folded descriptions that retain a trailing newline. */
+function boundedText(value: string, limit: number): string {
+  return [...value]
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 0x1f || codePoint === 0x7f ? ' ' : character;
+    })
+    .join('')
+    .trim()
+    .slice(0, limit);
+}
+
+function boundedIdentifier(value: string): string {
+  const bounded = boundedText(value, 128).replace(/[^A-Za-z0-9._:@/-]/g, '-');
+  return bounded || 'unknown';
+}
+
+function boundedOptionalInteger(value: number | undefined, max: number): number | null {
+  return typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.min(max, Math.trunc(value)))
+    : null;
+}
+
+function safeAuthUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol)) throw new Error('unsupported');
+    return url.toString().slice(0, 4_096);
+  } catch {
+    throw new Error('Provider returned an invalid authentication URL');
+  }
+}
+
 function boundedMetadata(value: string, limit: number): string {
   return [...value.normalize('NFC')]
     .map((character) => (/\p{Cc}|\p{Cf}|\p{Cs}/u.test(character) ? ' ' : character))
