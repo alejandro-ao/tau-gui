@@ -162,6 +162,7 @@ export async function boundedSessionList(root: string): Promise<{
   }
 
   const directoryPaths = [rootReal];
+  let completeRootScan = true;
   try {
     const handle = await opendir(rootReal);
     let entries = 0;
@@ -172,7 +173,14 @@ export async function boundedSessionList(root: string): Promise<{
         if (entries > SESSION_IO_LIMITS.entriesPerDirectory) {
           throw new Error('Session root entry budget exceeded');
         }
-        if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+        if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
+          completeRootScan = false;
+          if (diagnostics.length < 20) {
+            diagnostics.push('Skipped unsafe or unknown session-root child');
+          }
+          continue;
+        }
+        if (!entry.isDirectory()) continue;
         directoryPaths.push(resolve(rootReal, entry.name));
         if (directoryPaths.length > SESSION_IO_LIMITS.directories) {
           throw new Error('Session directory budget exceeded');
@@ -187,7 +195,7 @@ export async function boundedSessionList(root: string): Promise<{
 
   const budget = { files: 0, bytes: 0 };
   const approved: ApprovedDirectory[] = [];
-  let complete = true;
+  let complete = completeRootScan;
   for (const directory of directoryPaths) {
     try {
       approved.push(await inspectDirectory(directory, rootReal, budget, started));

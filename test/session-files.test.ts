@@ -119,6 +119,8 @@ describe('privileged session filesystem guards', () => {
     await symlink(outside, join(sessions, 'child'));
     const childResult = await boundedSessionList(sessions);
     expect(childResult.sessions).toEqual([]);
+    expect(childResult.complete).toBe(false);
+    expect(childResult.diagnostics).toContain('Skipped unsafe or unknown session-root child');
 
     const fileTarget = join(outside, 'outside.jsonl');
     await writeFile(fileTarget, '{}');
