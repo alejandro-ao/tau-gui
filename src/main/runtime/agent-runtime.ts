@@ -83,7 +83,7 @@ export interface AgentRuntime {
  */
 export const CAPABILITY_RUNTIME_METHODS = {
   textPrompt: ['prompt'],
-  imagePrompt: null,
+  imagePrompt: ['prompt', 'steer', 'followUp'],
   steering: ['steer'],
   followUps: ['followUp'],
   directBash: ['runShell'],
@@ -361,18 +361,28 @@ export class JsonlAgentRuntime implements AgentRuntime {
   }
 
   prompt(input: PromptInput): Promise<void> {
-    return this.rpc.request<void>('prompt', { message: input.text }, 0).then(() => undefined);
+    return this.rpc
+      .request<void>('prompt', { message: input.text, images: input.images }, 0)
+      .then(() => undefined);
   }
 
   steer(input: PromptInput): Promise<void> {
     return this.rpc
-      .request<void>('prompt', { message: input.text, streamingBehavior: 'steer' }, 0)
+      .request<void>(
+        'prompt',
+        { message: input.text, images: input.images, streamingBehavior: 'steer' },
+        0,
+      )
       .then(() => undefined);
   }
 
   followUp(input: PromptInput): Promise<void> {
     return this.rpc
-      .request<void>('prompt', { message: input.text, streamingBehavior: 'followUp' }, 0)
+      .request<void>(
+        'prompt',
+        { message: input.text, images: input.images, streamingBehavior: 'followUp' },
+        0,
+      )
       .then(() => undefined);
   }
 

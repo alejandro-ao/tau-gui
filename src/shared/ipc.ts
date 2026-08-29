@@ -5,6 +5,7 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import { IMAGE_LIMITS, imageAttachmentListSchema, type ImageAttachmentPreview } from './images.js';
 import { resourceCatalogSchema } from './resources.js';
 import type {
   AgentEvent,
@@ -154,9 +155,41 @@ export const requestSchema = z.discriminatedUnion('action', [
   }),
   z.object({ action: z.literal('runtime.snapshot') }),
 
-  z.object({ action: z.literal('agent.prompt'), payload: z.object({ text: z.string().min(1) }) }),
-  z.object({ action: z.literal('agent.steer'), payload: z.object({ text: z.string().min(1) }) }),
-  z.object({ action: z.literal('agent.followUp'), payload: z.object({ text: z.string().min(1) }) }),
+  z.object({
+    action: z.literal('agent.prompt'),
+    payload: z
+      .object({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
+  }),
+  z.object({
+    action: z.literal('agent.steer'),
+    payload: z
+      .object({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
+  }),
+  z.object({
+    action: z.literal('agent.followUp'),
+    payload: z
+      .object({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
+  }),
+  z.object({
+    action: z.literal('images.prepare'),
+    payload: z.object({ paths: z.array(safePathText).min(1).max(IMAGE_LIMITS.count) }).strict(),
+  }),
+  z.object({
+    action: z.literal('images.remove'),
+    payload: z.object({ id: z.string().uuid() }).strict(),
+  }),
   z.object({ action: z.literal('queue.snapshot') }).strict(),
   z.object({ action: z.literal('queue.pop') }).strict(),
   z.object({
@@ -237,7 +270,7 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
 
-export { resourceCatalogSchema };
+export { imageAttachmentListSchema, resourceCatalogSchema };
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
@@ -310,6 +343,8 @@ export interface IpcResultMap {
   'agent.prompt': null;
   'agent.steer': null;
   'agent.followUp': null;
+  'images.prepare': ImageAttachmentPreview[];
+  'images.remove': null;
   'queue.snapshot': PromptQueueSnapshot;
   'queue.pop': PromptQueueItem | null;
   'queue.resolve': boolean;

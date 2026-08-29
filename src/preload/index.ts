@@ -8,6 +8,7 @@ import type {
 } from '../shared/ipc.js';
 import {
   contextFilesSchema,
+  imageAttachmentListSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
@@ -49,6 +50,9 @@ const bridge: TauBridge = {
     }
     if (action === 'context.list') {
       return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'images.prepare') {
+      return imageAttachmentListSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return response.value as IpcResult<typeof action>;
   },

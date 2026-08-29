@@ -8,6 +8,7 @@ import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { ImageAttachmentService } from './services/image-attachments.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -38,6 +39,7 @@ const CSP = buildCsp(isDev);
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
+let images: ImageAttachmentService;
 
 function broadcast(event: BridgeEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -121,6 +123,7 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
+  images = new ImageAttachmentService();
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -139,7 +142,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, window: () => mainWindow },
+        { settings, manager, images, window: () => mainWindow },
         parsed.data,
       );
       return { ok: true, value };

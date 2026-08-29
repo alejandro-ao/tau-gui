@@ -324,6 +324,7 @@ export interface TreeSnapshot {
 
 export interface PromptInput {
   text: string;
+  images?: { type: 'image'; data: string; mimeType: string }[];
 }
 
 export interface CompactionResult {

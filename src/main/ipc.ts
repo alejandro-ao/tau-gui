@@ -1,11 +1,17 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
-import { contextFilesSchema, resourceCatalogSchema } from '../shared/ipc.js';
+import {
+  contextFilesSchema,
+  imageAttachmentListSchema,
+  resourceCatalogSchema,
+} from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
+import type { ImageAttachmentService } from './services/image-attachments.js';
 import { discoverTauResources } from './services/resources.js';
+import type { AgentRuntime } from './runtime/agent-runtime.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 
@@ -13,6 +19,7 @@ export interface HandlerContext {
   settings: SettingsStore;
   manager: RuntimePool;
   window: () => BrowserWindow | null;
+  images?: ImageAttachmentService;
 }
 
 const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
@@ -70,15 +77,58 @@ export async function handleRequest(
     case 'runtime.snapshot':
       return manager.snapshot();
 
-    case 'agent.prompt':
-      await runtime().prompt({ text: request.payload.text });
+    case 'agent.prompt': {
+      const active = runtime();
+      const images = request.payload.attachmentIds?.length
+        ? requiredImageService(context).take(
+            request.payload.attachmentIds,
+            await imageSessionKey(active, true),
+          )
+        : undefined;
+      await active.prompt({ text: request.payload.text, images });
       return null;
-    case 'agent.steer':
-      manager.enqueuePrompt('steering', request.payload.text, target);
+    }
+    case 'agent.steer': {
+      if (request.payload.attachmentIds?.length) {
+        const active = runtime();
+        const images = requiredImageService(context).take(
+          request.payload.attachmentIds,
+          await imageSessionKey(active, true),
+        );
+        await active.steer({ text: request.payload.text, images });
+      } else {
+        manager.enqueuePrompt('steering', request.payload.text, target);
+      }
       return null;
-    case 'agent.followUp':
-      manager.enqueuePrompt('follow-up', request.payload.text, target);
+    }
+    case 'agent.followUp': {
+      if (request.payload.attachmentIds?.length) {
+        const active = runtime();
+        const images = requiredImageService(context).take(
+          request.payload.attachmentIds,
+          await imageSessionKey(active, true),
+        );
+        await active.followUp({ text: request.payload.text, images });
+      } else {
+        manager.enqueuePrompt('follow-up', request.payload.text, target);
+      }
       return null;
+    }
+    case 'images.prepare': {
+      const active = runtime();
+      const key = await imageSessionKey(active, true);
+      return imageAttachmentListSchema.parse(
+        await requiredImageService(context).prepare(request.payload.paths, key),
+      );
+    }
+    case 'images.remove': {
+      const active = runtime();
+      requiredImageService(context).remove(
+        request.payload.id,
+        await imageSessionKey(active, false),
+      );
+      return null;
+    }
     case 'queue.snapshot':
       return manager.queueSnapshot(target);
     case 'queue.pop':
@@ -248,6 +298,20 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+function requiredImageService(context: HandlerContext): ImageAttachmentService {
+  if (!context.images) throw new Error('Image attachments are unavailable');
+  return context.images;
+}
+
+async function imageSessionKey(runtime: AgentRuntime, requireCapability: boolean): Promise<string> {
+  const state = await runtime.getState();
+  if (requireCapability && !state.model?.input.includes('image')) {
+    throw new Error('The active model does not support image prompts');
+  }
+  if (!state.sessionId) throw new Error('No active session for image attachments');
+  return `${runtime.kind}:${state.sessionId}`;
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {
