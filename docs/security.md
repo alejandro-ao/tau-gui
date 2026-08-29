@@ -119,32 +119,36 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- The GUI never parses Pi session JSONL. Desktop import is disabled and fails
-  before opening a source picker or creating/mutating a file. Pi 0.84.2's public
-  root export exposes only path-based `SessionManager.open(path, ...)`: its
-  implementation resolves and follows the path, initializes an empty file, and
-  rewrites legacy versions during migration. The public package has no API that
-  consumes caller-provided immutable bytes or an already-open no-follow handle,
-  validates an expected device/inode/generation, and returns a manager that can be
-  activated without reopening a path. Therefore copying first does not close the
-  accepted same-user swap window on the app-owned copy, and import cannot be
-  claimed safe. The smallest sufficient upstream surface is one public operation
-  that non-mutatingly validates immutable bytes or a no-follow handle, checks an
-  expected identity/generation, and activates or returns the validated manager
-  without any later path reopen. Until then `sessionImport` is false and `/import`
-  explains this blocker without disclosing paths.
-- Recovery access remains for artifacts retained by older builds. Diagnostics →
-  **reveal import recovery** is main-owned and independent of runtime lifecycle.
-  Creation, validation, enumeration, and platform reveal failures are caught and
-  collapsed to fixed path-free unavailable DTOs/errors before IPC. Retained
-  markers remain capped at 32; the app performs no automatic path-based cleanup.
+- The GUI never parses Pi session JSONL. Public `SessionManager` APIs perform
+  validation/listing/tree work. Import validates the selected source's no-follow,
+  singly-linked, bounded physical identity, copies from that handle directly to one
+  exclusive random final file under `<agent-dir>/imported-sessions`, and only then
+  lets `SessionManager.open()` validate or migrate the app-owned final. Pi never
+  opens or mutates the external chooser source. The app rejects owned logical IDs
+  before switching through the public runtime API. Successful imports create no
+  disposable staging copy and never consume recovery capacity. Existing files are
+  never overwritten. Node does not expose handle-relative unlink, so the app never
+  path-deletes session artifacts after a separate ownership check. Malformed,
+  duplicate, migration, replacement, and uncertain-copy failures retain and mark
+  any created final; same-user replacements deliberately survive. Retained markers
+  are capped at 32. Diagnostics → **reveal import recovery** uses an application
+  service keyed by the configured Pi agent directory, so health/reveal remain
+  available with no selected owner and while runtimes are stopped, failed, or
+  restarting. Neither the directory nor a platform reveal error crosses renderer
+  IPC. The default is `~/.pi/agent/imported-sessions`; a configured Pi agent
+  directory replaces `~/.pi/agent`. Quit the app before manual recovery. Delete
+  only a `*.retained` marker and its matching JSONL after inspecting them; ordinary
+  unmarked JSONL files are real imported sessions. Every marker suffix consumes
+  one of 32 slots even if replaced by a symlink or unknown entry. Restarting
+  preserves files, markers, and capacity; the app never performs automatic or
+  path-based cleanup.
 - Catalog discovery uses iterative directory handles and directory/file/byte/time
   metadata budgets. Roots, children, and files are lstat/realpath checked for
   containment, symlinks and hardlinks are rejected, SDK calls are sequential,
   and malformed SDK records are isolated. Catalog results carry an explicit
   completeness bit: skipped directories, omitted/malformed/duplicate records,
-  identity conflicts, or budget truncation make identity-sensitive resume/export
-  operations fail closed until a later complete scan recovers. Pi
+  identity conflicts, or budget truncation make identity-sensitive import and
+  reservation operations fail closed until a later complete scan recovers. Pi
   0.84.2's public `list/listAll` API
   has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
   mutation between the final metadata recheck and Pi's read cannot be eliminated
@@ -157,17 +161,12 @@
   arguments/results, or extension/custom details. Editable navigation text is
   capped at 100,000 characters after Pi mutates the branch and carries an explicit
   truncation flag, so successful mutation is never reported as schema failure.
-  Native resume and portable export resolve every opaque selection through a fresh
-  complete catalog; stale tokens cannot select an in-place replacement because the
-  token binds path, device/inode, size, mtime, and ctime. Active export is allowed
-  only when its current session ID and full physical
-  generation (device/inode, size, mtime, and ctime) match that fresh record.
-  Legacy external active files are never treated as authoritative export sources.
-  Export opens the catalog source no-follow, checks the full generation before and
-  after copying, and exclusively creates the native-dialog destination in a
-  revalidated physical parent. Inactive pre-call and active/during-copy same-inode
-  overwrite, truncate, rewrite, and valid foreign-session replacements are rejected.
-  It never overwrites:
+  Portable export resolves inactive selections through a fresh complete catalog.
+  Active export instead binds the runtime's main-only live path, authoritative
+  session ID, and physical identity, which also supports main-owned legacy paths
+  outside catalog roots. It opens the source no-follow, copies through that handle,
+  checks source timestamps/identity/size for stability, and exclusively creates the
+  native-dialog destination in a revalidated physical parent. It never overwrites:
   a collision explains the create-new-only rule and reopens the save dialog.
   Renderer requests cannot supply paths. HTML export's weaker boundary is the
   destination path: Pi's public root SDK exposes only `exportToHtml(path)`, not a

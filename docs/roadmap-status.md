@@ -6,7 +6,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
-- Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, labels, cloning, HTML/native-catalog JSONL export, bounded session catalogs, resources, and context-file metadata. Import is explicitly blocked.
+- Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, labels, cloning, import, HTML/JSONL export, bounded session catalogs, resources, and context-file metadata.
 - The app injects a trusted `spawn_session` SDK tool that creates an independently
   running session in the current directory or another existing directory. The
   main-process runtime pool owns its queue, lifecycle, and sidebar activity.
@@ -27,7 +27,7 @@ Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer fl
 
 SDK support by itself is not a desktop capability. Pi-native listing and cloning
 are now complete desktop slices; auth, resources reload, tools, system prompts,
-images, retries, import, and extensions remain disabled until the app exposes bounded
+images, retries, and extensions remain disabled until the app exposes bounded
 domain operations and usable desktop flows.
 `CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
 minimum runtime operation for every capability; IPC, renderer, and test coverage
@@ -43,7 +43,6 @@ are additional requirements.
 | image prompts            | no image-bearing prompt operation    | missing          | no         | add bounded attachment DTOs and UI                |
 | retry controls           | retry events only                    | missing          | no         | add policy, progress, and cancellation operations |
 | session clone            | public branch create + switch        | complete         | yes        | maintain cleanup/lifecycle coverage               |
-| session import           | path-following/mutating open only    | fail-closed UI   | no         | upstream immutable handle/bytes validator         |
 | session listing          | preflight + `SessionManager.listAll` | complete         | yes        | upstream abortable bounded listing API            |
 | extension dialogs        | extensions intentionally disabled    | missing          | no         | define trust and isolation first                  |
 | provider login/logout    | Pi SDK primitive only                | missing          | no         | add main-owned auth flows                         |
@@ -55,14 +54,12 @@ The next implementation order is:
 
 1. expose system-prompt inspection, tool-catalog inspection, and resource reload
    as complete vertical slices;
-2. expose inactive-session HTML export if Pi adds a public root export; portable
-   JSONL export remains limited to fresh complete native catalog records;
+2. expose inactive-session HTML export if Pi adds a public root export; inactive
+   portable JSONL export is already available from the Pi-native picker;
 3. add provider authentication and Pi-owned retry/settings controls;
 4. add images and extension interactions after their security boundaries are
    defined;
-5. enable import only after Pi exposes immutable handle/bytes validation and
-   activation without a path reopen;
-6. remove the compatibility runtime and JSONL test infrastructure, then finish
+5. remove the compatibility runtime and JSONL test infrastructure, then finish
    release hardening.
 
 ## Roadmap reconciliation notes
@@ -199,8 +196,8 @@ claims.
   backing paths are absent from all
   renderer settings/state/status DTOs and renderer fallback never creates IDs.
 - New/switch/name, bounded flat-row tree navigation with explicitly truncated editable user turns,
-  labels, no/default/custom branch summaries, clone, fresh-native-catalog portable
-  export, HTML export, fail-closed import explanation, compaction, settings, and diagnostics modals.
+  labels, no/default/custom branch summaries, clone, staged exclusive JSONL
+  duplicate-ID-safe import/export, HTML export, compaction, settings, and diagnostics modals.
   Renderer-visible runtime/settings state and every bounded bridge event variant
   are schema-parsed in main and preload.
 - Concurrent live sessions through a main-process runtime pool: selecting a
