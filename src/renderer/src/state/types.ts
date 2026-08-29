@@ -9,6 +9,7 @@ import type {
   SessionStats,
   ThinkingLevel,
 } from '../../../shared/domain.js';
+import type { ImageAttachmentPreview } from '../../../shared/images.js';
 import type {
   ContextFile,
   PromptQueueSnapshot,
@@ -134,6 +135,7 @@ export interface AppState {
   commands: CommandInfo[];
   resources: ResourceCatalog;
   contextFiles: ContextFile[];
+  imageAttachments: ImageAttachmentPreview[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -187,6 +189,7 @@ export type Action =
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
   | { type: 'contextFiles'; files: ContextFile[] }
+  | { type: 'imageAttachments'; attachments: ImageAttachmentPreview[] }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

@@ -227,6 +227,8 @@ export function Composer(): ReactNode {
       },
       [actions, applyText, cursor, draft],
     ),
+    useCallback((paths: string[]) => void actions.addImagePaths(paths), [actions]),
+    capabilities.imagePrompt,
   );
 
   // Keep focus in the composer for ordinary window clicks so typing never gets lost.
@@ -412,6 +414,25 @@ export function Composer(): ReactNode {
             completion.accept(completion.kind === 'slash' ? 'run' : 'insert', item)
           }
         />
+      ) : null}
+      {state.imageAttachments.length > 0 ? (
+        <div className="composer-attachments" aria-label="image attachments">
+          {state.imageAttachments.map((image) => (
+            <div className="composer-attachment" key={image.id}>
+              <img
+                src={`data:${image.mimeType};base64,${image.previewData}`}
+                alt={`${image.width} by ${image.height} attachment preview`}
+              />
+              <button
+                type="button"
+                aria-label={`remove ${image.width} by ${image.height} image`}
+                onClick={() => void actions.removeImage(image.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
       ) : null}
       <div
         className="composer"

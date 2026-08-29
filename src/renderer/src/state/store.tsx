@@ -50,6 +50,8 @@ export interface Actions {
   submit: (text: string) => Promise<void>;
   steer: (text: string) => Promise<void>;
   followUp: (text: string) => Promise<void>;
+  addImagePaths: (paths: string[]) => Promise<void>;
+  removeImage: (id: string) => Promise<void>;
   popQueued: () => Promise<QueueRecall | null>;
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
@@ -386,15 +388,63 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       // whichever runtime happens to be selected when it arrives.
       submit: async (text) => {
         if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
-        await attempt('agent.prompt', { text }, notice, viewed());
+        const attachmentIds = stateRef.current.imageAttachments.map((image) => image.id);
+        try {
+          await invoke(
+            'agent.prompt',
+            { text, ...(attachmentIds.length ? { attachmentIds } : {}) },
+            viewed(),
+          );
+          if (attachmentIds.length) dispatch({ type: 'imageAttachments', attachments: [] });
+        } catch (error) {
+          notice((error as Error).message);
+        }
       },
       steer: async (text) => {
         if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
-        await attempt('agent.steer', { text }, notice, viewed());
+        const attachmentIds = stateRef.current.imageAttachments.map((image) => image.id);
+        try {
+          await invoke(
+            'agent.steer',
+            { text, ...(attachmentIds.length ? { attachmentIds } : {}) },
+            viewed(),
+          );
+          if (attachmentIds.length) dispatch({ type: 'imageAttachments', attachments: [] });
+        } catch (error) {
+          notice((error as Error).message);
+        }
       },
       followUp: async (text) => {
         if (stateRef.current.sessionTransitioning) return notice(OPENING_SESSION);
-        await attempt('agent.followUp', { text }, notice, viewed());
+        const attachmentIds = stateRef.current.imageAttachments.map((image) => image.id);
+        try {
+          await invoke(
+            'agent.followUp',
+            { text, ...(attachmentIds.length ? { attachmentIds } : {}) },
+            viewed(),
+          );
+          if (attachmentIds.length) dispatch({ type: 'imageAttachments', attachments: [] });
+        } catch (error) {
+          notice((error as Error).message);
+        }
+      },
+      addImagePaths: async (paths) => {
+        const current = stateRef.current.imageAttachments;
+        if (current.length + paths.length > 8) {
+          notice('A prompt can contain at most 8 images.');
+          return;
+        }
+        const prepared = await attempt('images.prepare', { paths }, notice, viewed());
+        if (prepared) {
+          dispatch({ type: 'imageAttachments', attachments: [...current, ...prepared] });
+        }
+      },
+      removeImage: async (id) => {
+        await attempt('images.remove', { id }, notice, viewed());
+        dispatch({
+          type: 'imageAttachments',
+          attachments: stateRef.current.imageAttachments.filter((image) => image.id !== id),
+        });
       },
       popQueued: async () => {
         if (stateRef.current.sessionTransitioning) return null;

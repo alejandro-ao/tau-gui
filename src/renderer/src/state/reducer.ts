@@ -31,6 +31,7 @@ export const INITIAL_STATE: AppState = {
   commands: [],
   resources: { skills: [], prompts: [], diagnostics: [] },
   contextFiles: [],
+  imageAttachments: [],
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -114,6 +115,7 @@ export function reducer(state: AppState, action: Action): AppState {
         agent: null,
         stats: null,
         contextFiles: [],
+        imageAttachments: [],
         blocks: [],
         streamingAssistantId: null,
         streamingThinkingId: null,
@@ -164,6 +166,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, resources: action.resources };
     case 'contextFiles':
       return { ...state, contextFiles: action.files };
+    case 'imageAttachments':
+      return { ...state, imageAttachments: action.attachments };
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.
