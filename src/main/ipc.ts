@@ -205,8 +205,16 @@ export async function handleRequest(
       return destination ? runtime().exportHtml(destination) : null;
     }
     case 'session.exportJsonl': {
-      const destination = await pickExportPath(context, 'jsonl');
-      return destination ? runtime().exportJsonl(destination, request.payload?.sessionId) : null;
+      while (true) {
+        const destination = await pickExportPath(context, 'jsonl');
+        if (!destination) return null;
+        try {
+          return await runtime().exportJsonl(destination, request.payload?.sessionId);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          await showExportCollision(context);
+        }
+      }
     }
 
     case 'shell.run':
@@ -327,6 +335,19 @@ async function pickExportPath(
     ? await dialog.showSaveDialog(window, options)
     : await dialog.showSaveDialog(options);
   return result.canceled ? null : (result.filePath ?? null);
+}
+
+async function showExportCollision(context: HandlerContext): Promise<void> {
+  const options = {
+    type: 'warning' as const,
+    title: 'Choose a new export file',
+    message: 'That file already exists. Portable export creates new files only.',
+    detail: 'Choose a different filename; the existing file was not changed.',
+    buttons: ['Choose another name'],
+  };
+  const window = context.window();
+  if (window) await dialog.showMessageBox(window, options);
+  else await dialog.showMessageBox(options);
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {

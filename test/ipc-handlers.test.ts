@@ -11,6 +11,7 @@ const electronMocks = vi.hoisted(() => ({
   writeText: vi.fn(),
   showOpenDialog: vi.fn(),
   showSaveDialog: vi.fn(),
+  showMessageBox: vi.fn(() => Promise.resolve({ response: 0 })),
 }));
 
 vi.mock('electron', () => ({
@@ -18,6 +19,7 @@ vi.mock('electron', () => ({
   dialog: {
     showSaveDialog: electronMocks.showSaveDialog,
     showOpenDialog: electronMocks.showOpenDialog,
+    showMessageBox: electronMocks.showMessageBox,
   },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
@@ -513,6 +515,29 @@ describe('capability-gated and adapter-contract actions', () => {
     await expect(
       handleRequest(context, { action: 'session.revealImportRecovery' }),
     ).resolves.toBeNull();
+  });
+
+  it('explains create-new-only collisions and reopens the export dialog', async () => {
+    electronMocks.showSaveDialog
+      .mockResolvedValueOnce({ canceled: false, filePath: '/chosen/existing.jsonl' })
+      .mockResolvedValueOnce({ canceled: false, filePath: '/chosen/new.jsonl' });
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor(null);
+    const originalExport = active.exportJsonl.bind(active);
+    active.exportJsonl = vi.fn((path: string, sessionId?: string) => {
+      if (path.endsWith('existing.jsonl')) {
+        return Promise.reject(Object.assign(new Error('exists'), { code: 'EEXIST' }));
+      }
+      return originalExport(path, sessionId);
+    });
+
+    await expect(
+      handleRequest(context, { action: 'session.exportJsonl', payload: {} }),
+    ).resolves.toBe('/chosen/new.jsonl');
+    expect(electronMocks.showMessageBox).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('creates new files only') }),
+    );
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(2);
   });
 
   it('gets import and export paths only from native dialogs', async () => {
