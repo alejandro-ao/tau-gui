@@ -164,6 +164,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         return appSettings;
       },
     } as Context['settings'],
+    importRecovery: {
+      health: () => Promise.resolve({ retained: 2, capacity: 32 }),
+      reveal: () => Promise.resolve(),
+    } as Context['importRecovery'],
     manager: {
       active,
       runtimeFor: () => active,
@@ -494,6 +498,21 @@ describe('capability-gated and adapter-contract actions', () => {
       payload: { name: '  release\u202E\nprep  ' },
     });
     expect(calls.names).toEqual(['release  prep']);
+  });
+
+  it('serves import recovery without resolving a selected runtime', async () => {
+    const { context } = makeContext();
+    context.manager.runtimeFor = (() => {
+      throw new Error('Session is no longer available: /private/failed-session');
+    }) as Context['manager']['runtimeFor'];
+
+    await expect(handleRequest(context, { action: 'session.importHealth' })).resolves.toEqual({
+      retained: 2,
+      capacity: 32,
+    });
+    await expect(
+      handleRequest(context, { action: 'session.revealImportRecovery' }),
+    ).resolves.toBeNull();
   });
 
   it('gets import and export paths only from native dialogs', async () => {

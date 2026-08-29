@@ -1,3 +1,4 @@
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { app, BrowserWindow, ipcMain, shell, session as electronSession } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
@@ -14,6 +15,7 @@ import {
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { ImportRecoveryService } from './services/import-recovery.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -44,6 +46,7 @@ const CSP = buildCsp(isDev);
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
+let importRecovery: ImportRecoveryService;
 
 function broadcast(event: BridgeEvent): void {
   const parsed = bridgeEventSchema.safeParse(event);
@@ -129,6 +132,7 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
+  importRecovery = new ImportRecoveryService(getAgentDir(), (path) => shell.openPath(path));
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -148,7 +152,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, window: () => mainWindow },
+        { settings, manager, importRecovery, window: () => mainWindow },
         parsed.data,
       );
       return {

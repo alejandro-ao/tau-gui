@@ -52,9 +52,7 @@ import {
   exclusiveCopy,
   inspectPhysicalFile,
   markRetainedArtifact,
-  retainedArtifactCount,
   retainPhysicalFile,
-  SESSION_IO_LIMITS,
   type PhysicalFile,
 } from './session-files.js';
 
@@ -540,18 +538,6 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (!prepared) return;
     await retainPhysicalFile(prepared.physical, (message) => this.sink.diagnostic(message));
     await markRetainedArtifact(prepared.destination).catch(() => undefined);
-  }
-
-  async importRecoveryHealth(): Promise<{ retained: number; capacity: number }> {
-    const root = await ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
-    return {
-      retained: await retainedArtifactCount(root),
-      capacity: SESSION_IO_LIMITS.retainedArtifacts,
-    };
-  }
-
-  async importRecoveryDirectory(): Promise<string> {
-    return ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {

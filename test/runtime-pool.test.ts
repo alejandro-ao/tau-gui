@@ -518,7 +518,15 @@ describe('RuntimePool', () => {
     pool = new RuntimePool(settings, () => undefined);
     await pool.start();
     const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    const context = { settings, manager: pool, window: () => null };
+    const context = {
+      settings,
+      manager: pool,
+      importRecovery: {
+        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        reveal: () => Promise.resolve(),
+      },
+      window: () => null,
+    };
 
     // Renderer refreshes create empty queue storage. That storage is state, not
     // authority to keep routing after an ordinary stop removes the live owner.
@@ -598,7 +606,15 @@ describe('RuntimePool', () => {
     // Exercise the renderer-facing IPC handlers while there is no manager.
     // Claims retain their stable identity, restores stay in this session, and
     // an accepted edit can be safely enqueued for the same recovery target.
-    const context = { settings, manager: pool, window: () => null };
+    const context = {
+      settings,
+      manager: pool,
+      importRecovery: {
+        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        reveal: () => Promise.resolve(),
+      },
+      window: () => null,
+    };
     await handleRequest(context, {
       action: 'agent.steer',
       payload: { text: 'steering after failed restart' },

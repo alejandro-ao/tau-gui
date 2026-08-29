@@ -13,6 +13,7 @@ import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
+import type { ImportRecoveryAccess } from './services/import-recovery.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 import { recentSummary, rendererSettings } from './services/session-identity.js';
@@ -20,6 +21,7 @@ import { recentSummary, rendererSettings } from './services/session-identity.js'
 export interface HandlerContext {
   settings: SettingsStore;
   manager: RuntimePool;
+  importRecovery: ImportRecoveryAccess;
   window: () => BrowserWindow | null;
 }
 
@@ -171,19 +173,11 @@ export async function handleRequest(
       await manager.importSession(input, target);
       return null;
     }
-    case 'session.importHealth': {
-      const active = runtime();
-      if (!active.importRecoveryHealth) throw new Error('Import recovery is unavailable');
-      return active.importRecoveryHealth();
-    }
-    case 'session.revealImportRecovery': {
-      const active = runtime();
-      if (!active.importRecoveryDirectory) throw new Error('Import recovery is unavailable');
-      const directory = await active.importRecoveryDirectory();
-      const error = await shell.openPath(directory);
-      if (error) throw new Error(`Could not reveal import recovery directory: ${error}`);
+    case 'session.importHealth':
+      return context.importRecovery.health();
+    case 'session.revealImportRecovery':
+      await context.importRecovery.reveal();
       return null;
-    }
     case 'session.list': {
       const snapshot = manager.snapshot();
       const active = snapshot.capabilities ?? runtime().capabilities;

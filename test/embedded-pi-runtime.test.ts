@@ -13,6 +13,7 @@ import { dirname, join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
+import { ImportRecoveryService } from '../src/main/services/import-recovery.js';
 import { SESSION_IO_LIMITS } from '../src/main/runtime/session-files.js';
 import {
   EMBEDDED_PI_CAPABILITIES,
@@ -24,6 +25,10 @@ import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
 let active: EmbeddedPiRuntime | null = null;
+
+function recoveryHealth(agentDir: string): Promise<{ retained: number; capacity: number }> {
+  return new ImportRecoveryService(agentDir, () => Promise.resolve('')).health();
+}
 
 afterEach(async () => {
   await active?.stop();
@@ -140,7 +145,7 @@ describe('EmbeddedPiRuntime', () => {
       const imported = readFileSync((await runtime.getState()).sessionFile!, 'utf8');
       expect(imported).toContain('"version":3');
     }
-    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
+    expect(await recoveryHealth(agentDir)).toEqual({ retained: 0, capacity: 32 });
   });
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {
@@ -448,7 +453,7 @@ describe('EmbeddedPiRuntime', () => {
       await runtime.prepareImport(candidatePath);
       await runtime.importJsonl(candidatePath);
     }
-    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
+    expect(await recoveryHealth(agentDir)).toEqual({ retained: 0, capacity: 32 });
 
     const leafBeforeOversized = (await runtime.getTree()).leafId;
     const oversizedEntry = sessionInternals.runtime.session.sessionManager.appendMessage({
@@ -491,6 +496,6 @@ describe('EmbeddedPiRuntime', () => {
     await expect(runtime.prepareImport(malformed)).rejects.toThrow();
     expect(readdirSync(importedRoot)).toHaveLength(retainedBeforeMalformed + 2);
     expect(readFileSync(malformed, 'utf8')).toBe('{not-jsonl}\n');
-    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 1, capacity: 32 });
+    expect(await recoveryHealth(agentDir)).toEqual({ retained: 1, capacity: 32 });
   });
 });
