@@ -49,6 +49,7 @@ interface Calls {
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
+  imagePrepare: number;
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -69,6 +70,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     resolved: [],
     openedDirectories: [],
     resourceDirectories: [],
+    imagePrepare: 0,
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
@@ -81,6 +83,29 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       calls.entries.push(cursor);
       return Promise.resolve(snapshot);
     },
+    getState: () =>
+      Promise.resolve({
+        model: {
+          id: 'text-model',
+          name: 'Text Model',
+          provider: 'fake',
+          api: 'fake',
+          reasoning: false,
+          input: ['text'],
+          contextWindow: 1_000,
+          maxTokens: 100,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
+        thinkingLevel: 'off',
+        isStreaming: false,
+        isCompacting: false,
+        sessionFile: null,
+        sessionId: 'session-1',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 0,
+        pendingMessageCount: 0,
+      }),
   };
 
   const context = {
@@ -134,6 +159,12 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       effectiveProjectTrust: launchProjectTrust,
     } as unknown as Context['manager'],
     window: () => null,
+    images: {
+      prepare: () => {
+        calls.imagePrepare += 1;
+        return Promise.resolve([]);
+      },
+    } as unknown as Context['images'],
   } as Context;
   return { context, calls };
 }
@@ -346,6 +377,17 @@ describe('capability-gated and adapter-contract actions', () => {
       }),
     ).toBe(true);
     expect(calls.resolved).toEqual([{ id: 'prompt-1', outcome: 'restore', target: session }]);
+  });
+
+  it('rejects image preparation when the active model is text-only', async () => {
+    const { context, calls } = makeContext();
+    await expect(
+      handleRequest(context, {
+        action: 'images.prepare',
+        payload: { paths: ['/tmp/image.png'] },
+      }),
+    ).rejects.toThrow('does not support image prompts');
+    expect(calls.imagePrepare).toBe(0);
   });
 
   it('routes agent.entries with and without a cursor', async () => {

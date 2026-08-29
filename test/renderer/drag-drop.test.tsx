@@ -11,8 +11,8 @@ afterEach(() => {
   mounted = null;
 });
 
-function fileWithPath(name: string, path: string): File {
-  const file = new File(['content'], name);
+function fileWithPath(name: string, path: string, type = ''): File {
+  const file = new File(['content'], name, { type });
   // Electron exposes the real path through the preload bridge, not File.path.
   Object.defineProperty(file, 'path', { value: path });
   return file;
@@ -45,6 +45,43 @@ describe('file drop', () => {
       { paths: ['/work/project/src/app.ts', '/work/project/notes/a b.md'] },
     ]);
     expect(composer(view).value).toBe('please read src/app.ts "notes/a b.md"');
+  });
+
+  it('prepares bounded image previews instead of inserting image paths', async () => {
+    const id = crypto.randomUUID();
+    const { view, bridge } = await renderApp({
+      runtime: 'pi',
+      capabilities: { imagePrompt: true },
+      results: {
+        'images.prepare': [
+          {
+            id,
+            mimeType: 'image/png',
+            width: 1,
+            height: 1,
+            sizeBytes: 68,
+            previewData: 'AAAA',
+          },
+        ],
+      },
+    });
+    mounted = view;
+    await drop([fileWithPath('pixel.png', '/private/pixel.png', 'image/png')]);
+    await view.flush();
+
+    expect(bridge.payloads('images.prepare')).toEqual([{ paths: ['/private/pixel.png'] }]);
+    expect(bridge.payloads('fs.relativize')).toEqual([]);
+    expect(view.container.querySelector('.composer-attachment img')).not.toBeNull();
+    expect(view.container.textContent).not.toContain('/private/pixel.png');
+
+    await type(composer(view), 'describe this');
+    await act(async () => {
+      composer(view).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(bridge.payloads('agent.prompt')).toEqual([
+      { text: 'describe this', attachmentIds: [id] },
+    ]);
   });
 
   it('ignores drops without file paths', async () => {

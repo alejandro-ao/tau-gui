@@ -39,7 +39,7 @@ describe('EmbeddedPiRuntime', () => {
     }
 
     expect(EMBEDDED_PI_CAPABILITIES).toMatchObject({
-      imagePrompt: false,
+      imagePrompt: true,
       abortBash: false,
       retryControls: false,
       sessionClone: false,
