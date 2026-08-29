@@ -119,21 +119,23 @@
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
 - The GUI never parses Pi session JSONL. Public `SessionManager` APIs perform
-  validation/listing/tree work. Import first opens a no-follow, singly-linked,
-  bounded source, copies it into an app-owned staging file, validates that file
-  with `SessionManager.open()`, rejects any logical ID already in the owned
-  catalog (including portable copies of the selected session), then uses an
-  exclusive random destination and public runtime switching. The staged and
-  destination no-follow identities are rechecked immediately before switching,
-  and the final runtime snapshot must match the reserved logical and physical
-  identity exactly. Existing files are never overwritten. Node does not expose
-  handle-relative unlink, so the app never path-deletes session artifacts after
-  a separate ownership check: a same-user swap could otherwise replace the path
-  before unlink. Failed/cancelled clone and import artifacts, and consumed staging
-  copies, are deliberately retained with bounded path-free diagnostics. Import
-  staging has a 32-artifact capacity and then fails closed until the user performs
-  explicit recovery, preventing an unbounded staging leak. Retained clone files
-  remain ordinary catalogued sessions under the existing finite catalog budgets.
+  validation/listing/tree work. Import validates the selected no-follow,
+  singly-linked, bounded source with `SessionManager.open()`, rechecks its physical
+  identity, rejects any logical ID already in the complete owned catalog, then
+  copies from a matching open handle directly to one exclusive random final file
+  under `<agent-dir>/imported-sessions` and switches through the public runtime API.
+  Successful imports therefore create no disposable staging copy and never consume
+  recovery capacity. Existing files are never overwritten. Node does not expose
+  handle-relative unlink, so the app never path-deletes session artifacts after a
+  separate ownership check. Failed/uncertain created destinations are retained,
+  marked, and capped at 32; same-user replacements deliberately survive.
+  Diagnostics → **reveal import recovery** opens the exact directory without
+  sending its path to the renderer. The default is `~/.pi/agent/imported-sessions`;
+  a configured Pi agent directory replaces `~/.pi/agent`. Quit the app before
+  manual recovery. Delete only a `*.retained` marker and its matching JSONL after
+  inspecting them; ordinary unmarked JSONL files are real imported sessions.
+  Each retained marker consumes one of 32 slots. Restarting preserves both files
+  and capacity; the app never performs automatic or path-based cleanup.
 - Catalog discovery uses iterative directory handles and directory/file/byte/time
   metadata budgets. Roots, children, and files are lstat/realpath checked for
   containment, symlinks and hardlinks are rejected, SDK calls are sequential,
@@ -153,7 +155,13 @@
   arguments/results, or extension/custom details. Editable navigation text is
   capped at 100,000 characters after Pi mutates the branch and carries an explicit
   truncation flag, so successful mutation is never reported as schema failure.
-  Portable export is an opaque main-process copy to an Electron-dialog-selected
-  destination; renderer requests cannot supply import/export paths. The selected
-  export destination is the sole intentional session-related path returned to the
-  renderer, only after the user chose it in the native save dialog.
+  Portable export reloads a complete catalog, binds active or inactive selection
+  to its current device/inode/size, opens the source no-follow, copies through that
+  handle, checks source timestamps/identity/size for stability, and exclusively
+  creates the native-dialog destination in a revalidated physical parent. It does
+  not overwrite an existing destination. Renderer requests cannot supply paths.
+  HTML export has a weaker boundary: Pi's public root SDK exposes only
+  `exportToHtml(path)`, not handle-based source/destination APIs, so the app can
+  provide a native-dialog path but cannot apply the JSONL handle guarantees. The
+  selected export destination is the sole intentional session-related path
+  returned to the renderer after the user chose it.
