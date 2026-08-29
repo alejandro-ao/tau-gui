@@ -15,6 +15,7 @@ import {
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { ImageAttachmentService } from './services/image-attachments.js';
 import { ImportRecoveryService } from './services/import-recovery.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
@@ -47,6 +48,7 @@ let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
 let importRecovery: ImportRecoveryService;
+let images: ImageAttachmentService;
 
 function broadcast(event: BridgeEvent): void {
   const parsed = bridgeEventSchema.safeParse(event);
@@ -133,6 +135,7 @@ void app.whenReady().then(() => {
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
   importRecovery = new ImportRecoveryService(getAgentDir(), (path) => shell.openPath(path));
+  images = new ImageAttachmentService();
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -152,7 +155,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, importRecovery, window: () => mainWindow },
+        { settings, manager, importRecovery, images, window: () => mainWindow },
         parsed.data,
       );
       return {

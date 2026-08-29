@@ -42,6 +42,12 @@ Prompt scheduling (including settle and background-session paths) records an exa
 
 These calls remain transcript-addressed through the existing optional `{ runtime, sessionId }` IPC envelope. The renderer also captures the navigation generation and target for `/system`, `/tools`, and `/reload`, discarding delayed data and modal actions after navigation. Reducer actions repeat the target check as defense in depth. A session switch therefore cannot redirect or later display an operation for whichever runtime becomes active.
 
+## Native image prompts
+
+Image attachment paths travel only from Electron's dropped-file bridge into a validated main-process preparation request. Main opens files no-follow, validates regular-file identity, magic MIME, per-file/aggregate byte limits, and dimensions before using Pi's public worker-backed `resizeImage()` normalization. Model-ready base64 remains in a session-scoped, expiring main cache; the renderer receives only opaque UUIDs and separately bounded 512px previews. Prompt submission resolves IDs against the current session and rechecks the active model's `image` input capability before calling public `AgentSession.prompt/steer/followUp` image options.
+
+The renderer can preview and remove up to eight images, but cannot choose MIME, dimensions, model payload bytes, or cache ownership. Navigation drops renderer attachment state and unused main entries expire. Ordinary non-image drops retain the existing constrained path-insertion behavior.
+
 ## Migration state
 
 Production uses the embedded Pi adapter. System-prompt inspection, tool-catalog inspection, and resource reload have complete desktop flows. Session listing, tree navigation/labels, cloning, import, active HTML export, and active/inactive portable JSONL export also have bounded desktop flows. Inactive JSONL export requires a fresh complete catalog; active export binds the live main-only path, physical identity, and authoritative session ID, including supported legacy paths outside catalog roots. Tree navigation offers no summary, default summary, or bounded custom-focus summary (plus an optional label) through public `navigateTree()`, with cancellation/failure retaining retry UI. Pi 0.84.2's inactive HTML helper is internal and not exported from the public package entry point, so the app does not deep-import or fake that operation. Other SDK surfaces such as images, cancellable/streaming bash, retries, and provider authentication remain capability-gated until each has bounded domain types and tests.

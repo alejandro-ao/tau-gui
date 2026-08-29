@@ -58,7 +58,7 @@ interface Calls {
   popped: number;
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
-  prompts: { text: string; target: unknown }[];
+  prompts: { input: { text: string }; target: unknown }[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
   labels: { entryId: string; label: string | null }[];
   clones: unknown[];
@@ -66,6 +66,7 @@ interface Calls {
   jsonlExports: { path: string; sessionId?: string }[];
   names: string[];
   refreshed: number;
+  imagePrepare: number;
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -93,14 +94,26 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     jsonlExports: [],
     names: [],
     refreshed: 0,
+    imagePrepare: 0,
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
     capabilities: { ...DEFAULT_CAPABILITIES, sessionList: true },
+    kind: 'pi' as const,
     getState: () =>
       Promise.resolve({
-        model: null,
+        model: {
+          id: 'text-model',
+          name: 'Text Model',
+          provider: 'fake',
+          api: 'fake',
+          reasoning: false,
+          input: ['text'],
+          contextWindow: 1_000,
+          maxTokens: 100,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        },
         thinkingLevel: 'off' as const,
         isStreaming: false,
         isCompacting: false,
@@ -220,8 +233,8 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         operation(active),
       mutateRuntime: (_target: unknown, operation: (runtime: typeof active) => Promise<unknown>) =>
         operation(active),
-      prompt: (text: string, target: unknown) => {
-        calls.prompts.push({ text, target });
+      prompt: (input: { text: string }, target: unknown) => {
+        calls.prompts.push({ input, target });
         return Promise.resolve();
       },
       enqueuePrompt: (kind: string, text: string, target: unknown) =>
@@ -269,6 +282,12 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
     } as unknown as Context['manager'],
     window: () => null,
+    images: {
+      prepare: () => {
+        calls.imagePrepare += 1;
+        return Promise.resolve([]);
+      },
+    } as unknown as Context['images'],
   } as Context;
   return { context, calls };
 }
@@ -502,7 +521,7 @@ describe('capability-gated and adapter-contract actions', () => {
       payload: { text: 'reserved direct work' },
       session,
     });
-    expect(calls.prompts).toEqual([{ text: 'reserved direct work', target: session }]);
+    expect(calls.prompts).toEqual([{ input: { text: 'reserved direct work' }, target: session }]);
   });
 
   it('routes editable submissions and atomic pop through the application queue', async () => {
@@ -599,6 +618,17 @@ describe('capability-gated and adapter-contract actions', () => {
     const result = handleRequest(context, { action: 'agent.tree' });
     await expect(result).rejects.toThrow();
     await expect(result).rejects.not.toThrow(/maximum call stack|RangeError/i);
+  });
+
+  it('rejects image preparation when the active model is text-only', async () => {
+    const { context, calls } = makeContext();
+    await expect(
+      handleRequest(context, {
+        action: 'images.prepare',
+        payload: { paths: ['/tmp/image.png'] },
+      }),
+    ).rejects.toThrow('does not support image prompts');
+    expect(calls.imagePrepare).toBe(0);
   });
 
   it('routes agent.entries with and without a cursor', async () => {

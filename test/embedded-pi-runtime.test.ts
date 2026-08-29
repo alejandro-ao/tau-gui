@@ -88,7 +88,7 @@ describe('EmbeddedPiRuntime', () => {
       resourceReload: true,
       systemPromptInspection: true,
       toolCatalog: true,
-      imagePrompt: false,
+      imagePrompt: true,
       abortBash: false,
       retryControls: false,
       sessionClone: true,

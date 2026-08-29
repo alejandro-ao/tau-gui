@@ -75,7 +75,7 @@ import { boundJson, boundedToolText } from './untrusted.js';
  */
 export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   textPrompt: true,
-  imagePrompt: false,
+  imagePrompt: true,
   steering: true,
   followUps: true,
   directBash: true,
@@ -274,15 +274,15 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async prompt(input: PromptInput): Promise<void> {
-    await this.session.prompt(input.text);
+    await this.session.prompt(input.text, { images: input.images });
   }
 
   async steer(input: PromptInput): Promise<void> {
-    await this.session.steer(input.text);
+    await this.session.steer(input.text, input.images);
   }
 
   async followUp(input: PromptInput): Promise<void> {
-    await this.session.followUp(input.text);
+    await this.session.followUp(input.text, input.images);
   }
 
   abort(): Promise<void> {

@@ -5,6 +5,7 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import { IMAGE_LIMITS, imageAttachmentListSchema, type ImageAttachmentPreview } from './images.js';
 import {
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
@@ -615,15 +616,40 @@ const requestUnion = z.discriminatedUnion('action', [
 
   z.strictObject({
     action: z.literal('agent.prompt'),
-    payload: z.strictObject({ text: z.string().min(1) }),
+    payload: z
+      .strictObject({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
   }),
   z.strictObject({
     action: z.literal('agent.steer'),
-    payload: z.strictObject({ text: z.string().min(1) }),
+    payload: z
+      .strictObject({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
   }),
   z.strictObject({
     action: z.literal('agent.followUp'),
-    payload: z.strictObject({ text: z.string().min(1) }),
+    payload: z
+      .strictObject({
+        text: z.string().min(1).max(1_000_000),
+        attachmentIds: z.array(z.string().uuid()).max(IMAGE_LIMITS.count).optional(),
+      })
+      .strict(),
+  }),
+  z.strictObject({
+    action: z.literal('images.prepare'),
+    payload: z
+      .strictObject({ paths: z.array(safePathText).min(1).max(IMAGE_LIMITS.count) })
+      .strict(),
+  }),
+  z.strictObject({
+    action: z.literal('images.remove'),
+    payload: z.strictObject({ id: z.string().uuid() }).strict(),
   }),
   z.strictObject({ action: z.literal('queue.snapshot') }).strict(),
   z.strictObject({ action: z.literal('queue.pop') }).strict(),
@@ -796,6 +822,7 @@ function strictTopLevel(allowed: ReadonlySet<string>): z.ZodType<unknown> {
 export const requestSchema = strictTopLevel(new Set(['action', 'payload'])).pipe(requestUnion);
 
 export {
+  imageAttachmentListSchema,
   resourceCatalogSchema,
   entrySnapshotSchema,
   resourceReloadResultSchema,
@@ -882,6 +909,8 @@ export interface IpcResultMap {
   'agent.prompt': null;
   'agent.steer': null;
   'agent.followUp': null;
+  'images.prepare': ImageAttachmentPreview[];
+  'images.remove': null;
   'queue.snapshot': PromptQueueSnapshot;
   'queue.pop': PromptQueueItem | null;
   'queue.resolve': boolean;

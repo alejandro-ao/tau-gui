@@ -10,6 +10,7 @@ import type {
   SessionSummary,
   ThinkingLevel,
 } from '../../../shared/domain.js';
+import type { ImageAttachmentPreview } from '../../../shared/images.js';
 import type {
   ResourceReloadResult,
   SystemPromptInspection,
@@ -149,6 +150,7 @@ export interface AppState {
   systemPromptInspection: SystemPromptInspection | null;
   toolCatalog: ToolCatalog;
   resourceReload: ResourceReloadResult | null;
+  imageAttachments: ImageAttachmentPreview[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -203,6 +205,7 @@ export type Action =
   | { type: 'commands'; commands: CommandInfo[] }
   | { type: 'resources'; resources: ResourceCatalog }
   | { type: 'contextFiles'; files: ContextFile[] }
+  | { type: 'imageAttachments'; attachments: ImageAttachmentPreview[] }
   | {
       type: 'systemPromptInspection';
       inspection: SystemPromptInspection;

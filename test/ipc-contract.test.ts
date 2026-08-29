@@ -20,6 +20,7 @@ import {
   treeSnapshotSchema,
 } from '../src/shared/ipc.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { IMAGE_LIMITS, imageAttachmentListSchema } from '../src/shared/images.js';
 import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
@@ -79,6 +80,49 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'settings.rememberWorkingDirectory' }).success).toBe(
       false,
     );
+  });
+
+  it('bounds image preparation and prompt attachment tokens', () => {
+    const ids = Array.from({ length: IMAGE_LIMITS.count }, () => crypto.randomUUID());
+    expect(
+      requestSchema.safeParse({
+        action: 'images.prepare',
+        payload: { paths: ['/tmp/a.png', '/tmp/b.jpg'] },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'agent.prompt',
+        payload: { text: 'describe', attachmentIds: ids },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'agent.prompt',
+        payload: { text: 'describe', attachmentIds: [...ids, crypto.randomUUID()] },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'images.prepare',
+        payload: {
+          paths: Array.from({ length: IMAGE_LIMITS.count + 1 }, (_, i) => `/tmp/${i}.png`),
+        },
+      }).success,
+    ).toBe(false);
+    expect(
+      imageAttachmentListSchema.safeParse([
+        {
+          id: crypto.randomUUID(),
+          mimeType: 'image/png',
+          width: 10,
+          height: 10,
+          sizeBytes: 100,
+          previewData: 'AAAA',
+          path: '/must/not/cross',
+        },
+      ]).success,
+    ).toBe(false);
   });
 
   it('never lets the renderer choose the probed binary', () => {

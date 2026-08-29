@@ -1052,7 +1052,7 @@ describe('RuntimePool', () => {
 
     const reload = pool.reloadResources(target);
     await waitFor(() => entered);
-    await expect(pool.prompt('must not overlap', target)).rejects.toThrow(
+    await expect(pool.prompt({ text: 'must not overlap' }, target)).rejects.toThrow(
       'resources are reloading',
     );
     pool.enqueuePrompt('follow-up', 'deferred until reload', target);
@@ -1112,11 +1112,13 @@ describe('RuntimePool', () => {
 
     const reload = pool.reloadResources(target);
     const rejection = expect(reload).rejects.toThrow('reload failed');
-    await expect(pool.prompt('blocked', target)).rejects.toThrow('resources are reloading');
+    await expect(pool.prompt({ text: 'blocked' }, target)).rejects.toThrow(
+      'resources are reloading',
+    );
     await waitFor(() => entered);
     gate.reject(new Error('reload failed'));
     await rejection;
-    await expect(pool.prompt('after failure', target)).resolves.toBeUndefined();
+    await expect(pool.prompt({ text: 'after failure' }, target)).resolves.toBeUndefined();
     expect(prompt).toHaveBeenCalledWith({ text: 'after failure' });
   });
 
@@ -1143,7 +1145,7 @@ describe('RuntimePool', () => {
     const prompt = vi.spyOn(backgroundRuntime, 'prompt').mockResolvedValue(undefined);
 
     const reload = pool.reloadResources(background);
-    await expect(pool.prompt('blocked background', background)).rejects.toThrow(
+    await expect(pool.prompt({ text: 'blocked background' }, background)).rejects.toThrow(
       'resources are reloading',
     );
     pool.enqueuePrompt('follow-up', 'background deferred', background);

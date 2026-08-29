@@ -15,7 +15,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining provider auth, images, retries, extension UI, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
+- Remaining provider auth, retries, extension UI, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Bounded native multi-image prompts are complete. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
 
 ## Active desktop contract audit
 
@@ -28,7 +28,7 @@ Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer fl
 
 SDK support by itself is not a desktop capability. Pi-native listing and cloning
 are now complete desktop slices; auth, resources reload, tools, system prompts,
-images, retries, and extensions remain disabled until the app exposes bounded
+retries and extensions remain disabled until the app exposes bounded
 domain operations and usable desktop flows.
 `CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
 minimum runtime operation for every capability; IPC, renderer, and test coverage
@@ -41,7 +41,7 @@ are additional requirements.
 | direct bash              | `runShell`                           | complete         | yes        | maintain contract tests                           |
 | cancellable bash         | `abortShell`                         | no renderer flow | no         | add cancellation UX and E2E coverage              |
 | session tree / fork      | bounded rows, `navigateTree`, labels | complete         | yes        | maintain cancellation/adversarial coverage        |
-| image prompts            | no image-bearing prompt operation    | missing          | no         | add bounded attachment DTOs and UI                |
+| image prompts            | bounded SDK image prompt options     | complete         | yes        | maintain normalization/security coverage          |
 | retry controls           | retry events only                    | missing          | no         | add policy, progress, and cancellation operations |
 | session clone            | public branch create + switch        | complete         | yes        | maintain cleanup/lifecycle coverage               |
 | session listing          | preflight + `SessionManager.listAll` | complete         | yes        | upstream abortable bounded listing API            |
@@ -54,8 +54,8 @@ are additional requirements.
 The next implementation order is:
 
 1. add provider authentication and Pi-owned retry/settings controls;
-2. add images and extension interactions after their security boundaries are
-   defined;
+2. maintain native image prompts and add extension interactions after their
+   isolation boundary is defined;
 3. remove the compatibility runtime and JSONL test infrastructure, then finish
    release hardening.
 

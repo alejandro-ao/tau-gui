@@ -11,6 +11,7 @@ import {
   bridgeEventSchema,
   contextFilesSchema,
   entrySnapshotSchema,
+  imageAttachmentListSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
@@ -80,6 +81,9 @@ const bridge: TauBridge = {
     }
     if (action === 'shell.run') {
       return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'images.prepare') {
+      return imageAttachmentListSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return parseSessionIpcResult(action, response.value) as IpcResult<typeof action>;
   },

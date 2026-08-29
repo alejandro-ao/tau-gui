@@ -122,6 +122,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'agent.prompt': null,
     'agent.steer': null,
     'agent.followUp': null,
+    'images.prepare': [],
+    'images.remove': null,
     'agent.abort': null,
     'shell.run': { command: '', output: 'ok', exitCode: 0, cancelled: false, truncated: false },
     'agent.state': options.agent ?? null,

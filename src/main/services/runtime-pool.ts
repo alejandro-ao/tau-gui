@@ -1,6 +1,12 @@
 import { realpath, stat } from 'node:fs/promises';
 import { inspectPhysicalFile } from '../runtime/session-files.js';
-import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
+import type {
+  AgentEvent,
+  AgentState,
+  ProjectTrust,
+  PromptInput,
+  RuntimeKind,
+} from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { AgentRuntime } from '../runtime/agent-runtime.js';
 import type { SpawnSessionRequest, SpawnSessionResult } from '../runtime/spawn-session-tool.js';
@@ -99,11 +105,11 @@ export class RuntimePool {
   }
 
   /** Starts direct work only after atomically claiming the target manager. */
-  async prompt(text: string, target?: SessionTarget | null): Promise<void> {
+  async prompt(input: PromptInput, target?: SessionTarget | null): Promise<void> {
     const manager = this.managerFor(target);
     const claimed = this.claimWorkStart(manager);
     try {
-      await manager.active.prompt({ text });
+      await manager.active.prompt(input);
     } catch (error) {
       // A rejected handoff did not start agent work; release it for reload/retry.
       if (claimed.lifecycle.phase === 'handoff') claimed.lifecycle.phase = 'ready';
