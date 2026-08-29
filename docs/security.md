@@ -133,6 +133,15 @@
   expected identity/generation, and activates or returns the validated manager
   without any later path reopen. Until then `sessionImport` is false and `/import`
   explains this blocker without disclosing paths.
+- Clone fails before branch artifact creation and runtime switching. Pi 0.84.2 can
+  call `createBranchedSession` on the exact live manager, but its public activation
+  operation then accepts and reopens the returned pathname. A same-user process can
+  replace that pathname between creation and activation, so inspecting the artifact
+  does not bind what Pi later opens. The missing upstream surface is exact-manager
+  activation or immutable artifact/handle activation bound to the created generation,
+  with no later path reopen. Until then `sessionClone` is false; direct clone IPC and
+  `/clone` return one fixed path-free blocker, and no desktop clone replacement path
+  is reachable.
 - Recovery access remains for artifacts retained by older builds. Diagnostics →
   **reveal import recovery** is main-owned and independent of runtime lifecycle.
   Creation, validation, enumeration, and platform reveal failures are caught and
