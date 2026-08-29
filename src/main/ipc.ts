@@ -171,6 +171,19 @@ export async function handleRequest(
       await manager.importSession(input, target);
       return null;
     }
+    case 'session.importHealth': {
+      const active = runtime();
+      if (!active.importRecoveryHealth) throw new Error('Import recovery is unavailable');
+      return active.importRecoveryHealth();
+    }
+    case 'session.revealImportRecovery': {
+      const active = runtime();
+      if (!active.importRecoveryDirectory) throw new Error('Import recovery is unavailable');
+      const directory = await active.importRecoveryDirectory();
+      const error = await shell.openPath(directory);
+      if (error) throw new Error(`Could not reveal import recovery directory: ${error}`);
+      return null;
+    }
     case 'session.list': {
       const snapshot = manager.snapshot();
       const active = snapshot.capabilities ?? runtime().capabilities;

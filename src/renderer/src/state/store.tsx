@@ -73,6 +73,8 @@ export interface Actions {
   setLabel: (entryId: string, label: string | null) => Promise<void>;
   cloneSession: () => Promise<void>;
   importJsonl: () => Promise<void>;
+  importRecoveryHealth: () => Promise<{ retained: number; capacity: number } | null>;
+  revealImportRecovery: () => Promise<void>;
   compact: (instructions?: string) => Promise<void>;
   exportHtml: () => Promise<void>;
   exportJsonl: (sessionId?: string) => Promise<void>;
@@ -612,6 +614,11 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           });
         });
       },
+      importRecoveryHealth: async () =>
+        attempt('session.importHealth', undefined, notice, viewed()),
+      revealImportRecovery: async () => {
+        await attempt('session.revealImportRecovery', undefined, notice, viewed());
+      },
       exportHtml: async () => {
         const path = await attempt('session.exportHtml', undefined, notice, viewed());
         if (path) announceExport(dispatch, path);
@@ -636,7 +643,7 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
           await attempt('settings.removeResourceDirectory', { kind, path }, notice),
         );
       },
-      probeRuntime: async (kind, binary) => attempt('runtime.probe', { kind, binary }, notice),
+      probeRuntime: async (kind, _binary) => attempt('runtime.probe', { kind }, notice),
       updateSettings: async (patch) => {
         const settings = await attempt('settings.update', patch, notice);
         if (settings) dispatch({ type: 'settings', settings });

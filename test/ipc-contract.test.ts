@@ -174,6 +174,8 @@ describe('IPC request validation', () => {
     for (const request of [
       { action: 'session.clone' },
       { action: 'session.importJsonl' },
+      { action: 'session.importHealth' },
+      { action: 'session.revealImportRecovery' },
       { action: 'session.list', payload: { scope: 'all' } },
       { action: 'session.exportHtml' },
       { action: 'session.exportJsonl', payload: {} },
@@ -466,7 +468,9 @@ describe('IPC request validation', () => {
     expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
 
     expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
-    expect(envelopeSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(false);
+    expect(envelopeSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(
+      false,
+    );
     expect(requestSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(false);
     expect(
       envelopeSchema.safeParse({

@@ -117,6 +117,8 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'fs.complete': [],
     'fs.relativize': [],
     'diagnostics.list': [],
+    'session.importHealth': { retained: 0, capacity: 32 },
+    'session.revealImportRecovery': null,
     'session.fork': {
       editorText: null,
       editorTextTruncated: false,

@@ -560,7 +560,10 @@ const requestUnion = z.discriminatedUnion('action', [
     action: z.literal('settings.rememberWorkingDirectory'),
     payload: z.strictObject({ cwd: z.string().min(1) }).strict(),
   }),
-  z.strictObject({ action: z.literal('settings.forgetSession'), payload: z.strictObject({ id: z.string() }) }),
+  z.strictObject({
+    action: z.literal('settings.forgetSession'),
+    payload: z.strictObject({ id: z.string() }),
+  }),
 
   z.strictObject({
     action: z.literal('runtime.start'),
@@ -580,9 +583,18 @@ const requestUnion = z.discriminatedUnion('action', [
   }),
   z.strictObject({ action: z.literal('runtime.snapshot') }),
 
-  z.strictObject({ action: z.literal('agent.prompt'), payload: z.strictObject({ text: z.string().min(1) }) }),
-  z.strictObject({ action: z.literal('agent.steer'), payload: z.strictObject({ text: z.string().min(1) }) }),
-  z.strictObject({ action: z.literal('agent.followUp'), payload: z.strictObject({ text: z.string().min(1) }) }),
+  z.strictObject({
+    action: z.literal('agent.prompt'),
+    payload: z.strictObject({ text: z.string().min(1) }),
+  }),
+  z.strictObject({
+    action: z.literal('agent.steer'),
+    payload: z.strictObject({ text: z.string().min(1) }),
+  }),
+  z.strictObject({
+    action: z.literal('agent.followUp'),
+    payload: z.strictObject({ text: z.string().min(1) }),
+  }),
   z.strictObject({ action: z.literal('queue.snapshot') }).strict(),
   z.strictObject({ action: z.literal('queue.pop') }).strict(),
   z.strictObject({
@@ -610,13 +622,18 @@ const requestUnion = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('models.cycle') }),
 
   z.strictObject({ action: z.literal('thinking.list') }),
-  z.strictObject({ action: z.literal('thinking.set'), payload: z.strictObject({ level: thinkingLevel }) }),
+  z.strictObject({
+    action: z.literal('thinking.set'),
+    payload: z.strictObject({ level: thinkingLevel }),
+  }),
   z.strictObject({ action: z.literal('thinking.cycle') }),
 
   z.strictObject({ action: z.literal('session.new') }),
   z.strictObject({
     action: z.literal('session.switch'),
-    payload: z.strictObject({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) }).strict(),
+    payload: z
+      .strictObject({ ref: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/) })
+      .strict(),
   }),
   z
     .object({
@@ -657,6 +674,8 @@ const requestUnion = z.discriminatedUnion('action', [
   }),
   z.strictObject({ action: z.literal('session.clone') }).strict(),
   z.strictObject({ action: z.literal('session.importJsonl') }).strict(),
+  z.strictObject({ action: z.literal('session.importHealth') }).strict(),
+  z.strictObject({ action: z.literal('session.revealImportRecovery') }).strict(),
   z.strictObject({
     action: z.literal('session.list'),
     payload: z.strictObject({ scope: z.enum(['cwd', 'all']) }).strict(),
@@ -690,7 +709,10 @@ const requestUnion = z.discriminatedUnion('action', [
 
   z.strictObject({
     action: z.literal('fs.complete'),
-    payload: z.strictObject({ query: z.string(), limit: z.number().int().min(1).max(200).optional() }),
+    payload: z.strictObject({
+      query: z.string(),
+      limit: z.number().int().min(1).max(200).optional(),
+    }),
   }),
   z.strictObject({ action: z.literal('fs.pickDirectory') }),
   z.strictObject({
@@ -698,9 +720,18 @@ const requestUnion = z.discriminatedUnion('action', [
     payload: z.strictObject({ paths: z.array(z.string()) }),
   }),
 
-  z.strictObject({ action: z.literal('ui.openExternal'), payload: z.strictObject({ url: z.string() }) }),
-  z.strictObject({ action: z.literal('ui.copyText'), payload: z.strictObject({ text: z.string() }) }),
-  z.strictObject({ action: z.literal('ui.setTitle'), payload: z.strictObject({ title: z.string() }) }),
+  z.strictObject({
+    action: z.literal('ui.openExternal'),
+    payload: z.strictObject({ url: z.string() }),
+  }),
+  z.strictObject({
+    action: z.literal('ui.copyText'),
+    payload: z.strictObject({ text: z.string() }),
+  }),
+  z.strictObject({
+    action: z.literal('ui.setTitle'),
+    payload: z.strictObject({ title: z.string() }),
+  }),
   z.strictObject({
     action: z.literal('ui.notify'),
     payload: z.strictObject({ title: z.string(), body: z.string() }),
@@ -831,6 +862,8 @@ export interface IpcResultMap {
   'session.label': null;
   'session.clone': null;
   'session.importJsonl': null;
+  'session.importHealth': { retained: number; capacity: number };
+  'session.revealImportRecovery': null;
   'session.list': SessionSummary[];
   'session.compact': CompactionResult;
   'session.exportHtml': string | null;
@@ -855,6 +888,12 @@ export type IpcResult<A extends IpcAction> = IpcResultMap[A];
 
 const nullableExportPathSchema = safePathText.nullable();
 const nullResultSchema = z.null();
+const importHealthSchema = z
+  .object({
+    retained: z.number().int().nonnegative().max(32),
+    capacity: z.literal(32),
+  })
+  .strict();
 
 /** Strict second-boundary schemas for the Pi-native session slice. */
 export function parseSessionIpcResult(action: IpcAction, value: unknown): unknown {
@@ -882,6 +921,8 @@ export function parseSessionIpcResult(action: IpcAction, value: unknown): unknow
       return treeSnapshotSchema.parse(value);
     case 'session.list':
       return sessionCatalogSchema.parse(value);
+    case 'session.importHealth':
+      return importHealthSchema.parse(value);
     case 'session.fork':
       return treeNavigateResultSchema.parse(value);
     case 'session.new':
@@ -889,6 +930,7 @@ export function parseSessionIpcResult(action: IpcAction, value: unknown): unknow
     case 'session.name':
     case 'session.clone':
     case 'session.importJsonl':
+    case 'session.revealImportRecovery':
     case 'session.label':
       return nullResultSchema.parse(value);
     case 'session.exportHtml':
