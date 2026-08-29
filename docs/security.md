@@ -100,8 +100,21 @@
   always allowed for projects outside home). Anything further — including
   absolute paths such as `/etc/` — returns an empty result list rather than an
   error.
-- Dropped file paths are only relativized for display; the renderer receives no
-  filesystem handles.
+- Dropped ordinary file paths are only relativized for display; the renderer
+  receives no filesystem handles. Image-looking drops are sent immediately to
+  privileged validation and are never retained in renderer state.
+- Native image prompts allow PNG, JPEG, GIF, and WebP magic only. Main enforces
+  10 MiB/file, 30 MiB aggregate input, eight images, 12,000px source dimensions,
+  2,000px/4 MiB normalized model images, and 24 MiB aggregate model payload.
+  Pi's public worker-backed resizer performs decoding/normalization only after
+  header dimensions are bounded. Symlinks, hardlinks, changing files, MIME
+  spoofing, unsupported formats, duplicate IDs, cross-session IDs, expired IDs,
+  and text-only active models fail closed.
+- Renderer previews are independent 512px/256 KiB encodings with a 2 MiB
+  aggregate IPC cap. They are untrusted `data:` images permitted by the existing
+  CSP; model-ready encodings and original paths remain main-only. Removing or
+  consuming an attachment deletes its opaque cache entry, and unused entries
+  expire after 30 minutes.
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.

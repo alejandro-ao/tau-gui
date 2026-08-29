@@ -32,6 +32,12 @@ Editable prompts entered during a running turn are owned by a per-session main-p
 
 Session-scoped commands are addressed, not implied. Every renderer request may carry the `{ runtime, sessionId }` transcript it was issued for, and the pool routes prompts, steering, aborts, reads, model/thinking changes, naming, forking, compaction, export, and direct shell commands to the process that owns that session. Session-scoped IPC is not serialized against lifecycle transitions, so resolving through "whatever is selected right now" lets a switch already in flight redirect a prompt or a transcript read into the wrong session. Authoritative reads are bound to the same identity and rejected by the reducer when they describe another transcript, and submissions are refused while a session is still opening because their transcript is not yet known. An empty session never reuses a runtime that is mid-run: `new_session` swaps the session underneath the live agent, so the remainder of that turn would be written into the new transcript and both would be corrupted; busy runtimes stay in the background and the new session gets its own process. A failed activation is reconciled instead of silently leaving the cleared view attached to a still-streaming background runtime.
 
+## Native image prompts
+
+Image attachment paths travel only from Electron's dropped-file bridge into a validated main-process preparation request. Main opens files no-follow, validates regular-file identity, magic MIME, per-file/aggregate byte limits, and dimensions before using Pi's public worker-backed `resizeImage()` normalization. Model-ready base64 remains in a session-scoped, expiring main cache; the renderer receives only opaque UUIDs and separately bounded 512px previews. Prompt submission resolves IDs against the current session and rechecks the active model's `image` input capability before calling public `AgentSession.prompt/steer/followUp` image options.
+
+The renderer can preview and remove up to eight images, but cannot choose MIME, dimensions, model payload bytes, or cache ownership. Navigation drops renderer attachment state and unused main entries expire. Ordinary non-image drops retain the existing constrained path-insertion behavior.
+
 ## Migration state
 
 Production uses the embedded Pi adapter. It already has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, resources, system prompts, tools, and provider authentication. Desktop flows are still capability-gated until each surface has bounded domain types and tests.
