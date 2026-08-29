@@ -2,7 +2,7 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
 import { bridgeEventSchema, parseSessionIpcResult } from '../src/shared/ipc.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
@@ -58,12 +58,14 @@ interface Calls {
   popped: number;
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
+  prompts: { text: string; target: unknown }[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
   labels: { entryId: string; label: string | null }[];
   clones: unknown[];
   imports: string[];
   jsonlExports: { path: string; sessionId?: string }[];
   names: string[];
+  refreshed: number;
 }
 
 function makeContext(settingsPatch: Partial<AppSettings> = {}): {
@@ -83,16 +85,19 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     popped: 0,
     resolved: [],
     openedDirectories: [],
+    prompts: [],
     resourceDirectories: [],
     labels: [],
     clones: [],
     imports: [],
     jsonlExports: [],
     names: [],
+    refreshed: 0,
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
+    capabilities: { ...DEFAULT_CAPABILITIES, sessionList: true },
     getState: () =>
       Promise.resolve({
         model: null,
@@ -140,6 +145,44 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       calls.jsonlExports.push({ path, ...(sessionId ? { sessionId } : {}) });
       return Promise.resolve(path);
     },
+    getTree: () => Promise.resolve({ rows: [], leafId: snapshot.leafId, truncated: false }),
+    inspectSystemPrompt: () =>
+      Promise.resolve({
+        text: 'private system prompt',
+        totalCharacters: 21,
+        truncated: false,
+        origin: 'active Pi session',
+      }),
+    listTools: () =>
+      Promise.resolve({
+        tools: [
+          {
+            name: 'read',
+            description: 'Read files',
+            origin: 'builtin',
+            active: true,
+            parameters: { type: 'object' },
+            schemaTruncated: false,
+          },
+        ],
+        total: 1,
+        truncated: false,
+        diagnostics: [],
+      }),
+    runShell: (command: string) =>
+      Promise.resolve({
+        command,
+        output: 'ok',
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }),
+    reloadResources: () =>
+      Promise.resolve({
+        before: { skills: 1, prompts: 1, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        after: { skills: 2, prompts: 1, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        diagnostics: [],
+      }),
   };
 
   const context = {
@@ -173,6 +216,14 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     manager: {
       active,
       runtimeFor: () => active,
+      readRuntime: (_target: unknown, operation: (runtime: typeof active) => Promise<unknown>) =>
+        operation(active),
+      mutateRuntime: (_target: unknown, operation: (runtime: typeof active) => Promise<unknown>) =>
+        operation(active),
+      prompt: (text: string, target: unknown) => {
+        calls.prompts.push({ text, target });
+        return Promise.resolve();
+      },
       enqueuePrompt: (kind: string, text: string, target: unknown) =>
         calls.queued.push({ kind, text, target }),
       queueSnapshot: () => ({
@@ -207,6 +258,15 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
+      refreshState: () => {
+        calls.refreshed += 1;
+        return Promise.resolve();
+      },
+      reloadResources: async () => {
+        const result = await active.reloadResources();
+        calls.refreshed += 1;
+        return result;
+      },
     } as unknown as Context['manager'],
     window: () => null,
   } as Context;
@@ -385,10 +445,64 @@ describe('context.list handler', () => {
 });
 
 describe('capability-gated and adapter-contract actions', () => {
+  it('validates direct shell results in main before returning them', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    active.runShell = () =>
+      Promise.resolve({
+        command: 'huge',
+        output: 'x'.repeat(64 * 1024 + 1),
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      });
+
+    await expect(
+      handleRequest(context, {
+        action: 'shell.run',
+        payload: { command: 'huge', excludeFromContext: false },
+      }),
+    ).rejects.toThrow();
+  });
+
+  it('routes bounded local-only introspection and reload to the adapter', async () => {
+    const { context, calls } = makeContext();
+    const session = { runtime: 'pi' as const, sessionId: 'session-1' };
+
+    await expect(
+      handleRequest(context, { action: 'agent.inspectSystemPrompt', session }),
+    ).resolves.toMatchObject({ text: 'private system prompt' });
+    await expect(handleRequest(context, { action: 'tools.list', session })).resolves.toMatchObject({
+      total: 1,
+    });
+    await expect(
+      handleRequest(context, { action: 'resources.reload', session }),
+    ).resolves.toMatchObject({ after: { skills: 2 } });
+    expect(calls.refreshed).toBe(1);
+  });
+
+  it('rejects malformed introspection output at the main boundary', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor(null);
+    active.inspectSystemPrompt = () => Promise.resolve({ text: process.env } as never);
+    await expect(handleRequest(context, { action: 'agent.inspectSystemPrompt' })).rejects.toThrow();
+  });
+
   it('routes shell.abort to the adapter', async () => {
     const { context, calls } = makeContext();
     expect(await handleRequest(context, { action: 'shell.abort' })).toBeNull();
     expect(calls.abortShell).toBe(1);
+  });
+
+  it('routes direct prompts through the pool work reservation', async () => {
+    const { context, calls } = makeContext();
+    const session = { runtime: 'tau' as const, sessionId: 'session-1' };
+    await handleRequest(context, {
+      action: 'agent.prompt',
+      payload: { text: 'reserved direct work' },
+      session,
+    });
+    expect(calls.prompts).toEqual([{ text: 'reserved direct work', target: session }]);
   });
 
   it('routes editable submissions and atomic pop through the application queue', async () => {
@@ -428,6 +542,63 @@ describe('capability-gated and adapter-contract actions', () => {
     const state = await handleRequest(context, { action: 'agent.state' });
     expect(state).toMatchObject({ persisted: true, sessionId: 'session-1' });
     expect(state).not.toHaveProperty('sessionFile');
+  });
+
+  it('rejects oversized restored response identifiers at the main boundary', async () => {
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor();
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    active.getEntries = () => Promise.resolve({ entries: [], leafId: huge });
+    active.getTree = () => Promise.resolve({ rows: [], leafId: huge, truncated: false });
+
+    await expect(handleRequest(context, { action: 'agent.entries' })).rejects.toThrow();
+    await expect(handleRequest(context, { action: 'agent.tree' })).rejects.toThrow();
+  });
+
+  it.each([
+    [
+      'over-budget rows',
+      {
+        rows: Array.from({ length: 2_001 }, () => ({
+          id: 'entry',
+          parentId: null,
+          depth: 0,
+          kind: 'message',
+          role: 'user',
+          timestamp: '2026-01-01T00:00:00Z',
+          preview: 'safe',
+          label: null,
+        })),
+        leafId: null,
+        truncated: true,
+      },
+    ],
+    [
+      'over-depth rows',
+      {
+        rows: [
+          {
+            id: 'entry',
+            parentId: null,
+            depth: 129,
+            kind: 'message',
+            role: 'user',
+            timestamp: '2026-01-01T00:00:00Z',
+            preview: 'safe',
+            label: null,
+          },
+        ],
+        leafId: null,
+        truncated: true,
+      },
+    ],
+  ] as const)('rejects a %s malformed adapter tree without stack overflow', async (_kind, tree) => {
+    const { context } = makeContext();
+    context.manager.runtimeFor().getTree = () => Promise.resolve(tree as never);
+
+    const result = handleRequest(context, { action: 'agent.tree' });
+    await expect(result).rejects.toThrow();
+    await expect(result).rejects.not.toThrow(/maximum call stack|RangeError/i);
   });
 
   it('routes agent.entries with and without a cursor', async () => {

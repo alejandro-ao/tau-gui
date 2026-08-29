@@ -106,6 +106,18 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'thinking.list': [],
     'commands.list': [],
     'resources.list': { skills: [], prompts: [], diagnostics: [] },
+    'resources.reload': {
+      before: { skills: 0, prompts: 0, themes: 2, contextFiles: 0, extensions: 0, tools: 4 },
+      after: { skills: 0, prompts: 0, themes: 2, contextFiles: 0, extensions: 0, tools: 4 },
+      diagnostics: [],
+    },
+    'agent.inspectSystemPrompt': {
+      text: 'You are a coding agent.',
+      totalCharacters: 23,
+      truncated: false,
+      origin: 'active Pi session',
+    },
+    'tools.list': { tools: [], total: 0, truncated: false, diagnostics: [] },
     'context.list': [],
     'agent.prompt': null,
     'agent.steer': null,

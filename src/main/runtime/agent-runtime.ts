@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { MAX_TREE_EDITOR_TEXT, type ContextFile } from '../../shared/ipc.js';
 import type {
+  ResourceReloadResult,
+  SystemPromptInspection,
+  ToolCatalog,
+} from '../../shared/introspection.js';
+import type {
   AgentEvent,
   AgentMessage,
   AgentState,
@@ -28,6 +33,7 @@ import {
   normalizeEvent,
   normalizeMessages,
   normalizeModel,
+  normalizeSessionIdentifier,
   normalizeState,
   normalizeStats,
   normalizeThinkingLevel,
@@ -101,6 +107,10 @@ export interface AgentRuntime {
   /** Direct SDK runtimes can expose authoritative resource metadata. */
   getResources?(): Promise<ResourceCatalog>;
   getContextFiles?(): Promise<ContextFile[]>;
+  /** Local-only inspection; callers must never append this result to session messages. */
+  inspectSystemPrompt?(): Promise<SystemPromptInspection>;
+  listTools?(): Promise<ToolCatalog>;
+  reloadResources?(): Promise<ResourceReloadResult>;
 }
 
 /**
@@ -122,9 +132,9 @@ export const CAPABILITY_RUNTIME_METHODS = {
   sessionList: ['listSessions'],
   extensionDialogs: null,
   providerLogin: null,
-  resourceReload: null,
-  systemPromptInspection: null,
-  toolCatalog: null,
+  resourceReload: ['reloadResources'],
+  systemPromptInspection: ['inspectSystemPrompt'],
+  toolCatalog: ['listTools'],
 } as const satisfies Record<keyof RuntimeCapabilities, readonly (keyof AgentRuntime)[] | null>;
 
 /** Extension status text may carry terminal colour codes meant for a TUI. */
@@ -422,7 +432,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     const data = asRecord(await this.rpc.request('get_entries', params));
     return {
       entries: normalizeEntries(data['entries']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      leafId: normalizeSessionIdentifier(data['leafId']),
     };
   }
 

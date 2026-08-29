@@ -147,21 +147,21 @@ Session JSONL files are runtime-owned. The GUI never reads them.
 
 ## Capability differences
 
-| Capability                         | Tau            | Pi                    |
-| ---------------------------------- | -------------- | --------------------- |
-| text prompt, steering, follow-ups  | yes            | yes                   |
-| image prompts                      | no             | yes                   |
-| direct bash                        | yes (blocking) | yes (streaming)       |
-| cancel direct bash                 | no             | yes                   |
-| queue modes / retry controls       | no             | yes                   |
-| session clone                      | no             | yes                   |
-| portable session listing           | no             | no                    |
-| extension dialogs/widgets          | no             | yes (own subprotocol) |
-| scoped model list/toggle commands  | no             | no                    |
-| `/system`, `/tools`, login, reload | no             | partial               |
+| Capability                        | Tau            | Pi                    |
+| --------------------------------- | -------------- | --------------------- |
+| text prompt, steering, follow-ups | yes            | yes                   |
+| image prompts                     | no             | yes                   |
+| direct bash                       | yes (blocking) | yes (streaming)       |
+| cancel direct bash                | no             | yes                   |
+| queue modes / retry controls      | no             | yes                   |
+| session clone                     | no             | yes                   |
+| portable session listing          | no             | no                    |
+| extension dialogs/widgets         | no             | yes (own subprotocol) |
+| scoped model list/toggle commands | no             | no                    |
+| `/system`, `/tools`, `/reload`    | no             | desktop SDK flow      |
+| provider login/logout             | no             | SDK only; no UI       |
 
-`src/main/runtime/spec.ts` is the single source of truth for these flags in the
-app, and the renderer must gate optional controls on them rather than guessing.
+`src/main/runtime/spec.ts` remains the legacy JSONL capability source. The embedded adapter advertises `/system`, `/tools`, and `/reload` only because each now has a bounded domain operation, validated IPC/preload result, local renderer modal, and tests. The renderer must gate optional controls on these flags rather than guessing.
 
 Neither runtime exposes a command to list or edit scoped models; `cycle_model`
 only reports the runtime's own `isScoped` flag for the model it selected. The

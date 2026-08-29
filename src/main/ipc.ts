@@ -2,10 +2,15 @@ import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import {
+  bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   resourceCatalogSchema,
+  resourceReloadResultSchema,
   sessionCatalogSchema,
   sessionNameSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
   treeNavigateResultSchema,
   treeSnapshotSchema,
 } from '../shared/ipc.js';
@@ -36,7 +41,11 @@ export async function handleRequest(
   // Session-scoped commands are routed by the transcript identity the renderer
   // acted on, so an in-flight session switch cannot redirect them.
   const target = request.session ?? null;
-  const runtime = (): ReturnType<typeof manager.runtimeFor> => manager.runtimeFor(target);
+  type Runtime = ReturnType<typeof manager.runtimeFor>;
+  const read = <T>(operation: (runtime: Runtime) => Promise<T>): Promise<T> =>
+    manager.readRuntime(target, operation);
+  const mutate = <T>(operation: (runtime: Runtime) => Promise<T>): Promise<T> =>
+    manager.mutateRuntime(target, operation);
 
   switch (request.action) {
     case 'settings.get':
@@ -80,7 +89,7 @@ export async function handleRequest(
       return manager.snapshot();
 
     case 'agent.prompt':
-      await runtime().prompt({ text: request.payload.text });
+      await manager.prompt(request.payload.text, target);
       return null;
     case 'agent.steer':
       manager.enqueuePrompt('steering', request.payload.text, target);
@@ -95,10 +104,10 @@ export async function handleRequest(
     case 'queue.resolve':
       return manager.resolvePromptRecall(request.payload.id, request.payload.outcome, target);
     case 'agent.abort':
-      await runtime().abort();
+      await mutate((runtime) => runtime.abort());
       return null;
     case 'agent.state': {
-      const state = await runtime().getState();
+      const state = await read((runtime) => runtime.getState());
       return {
         model: state.model,
         thinkingLevel: state.thinkingLevel,
@@ -113,40 +122,46 @@ export async function handleRequest(
       };
     }
     case 'agent.messages':
-      return runtime().getMessages();
+      return read((runtime) => runtime.getMessages());
     case 'agent.entries':
-      return runtime().getEntries(request.payload?.cursor);
+      return entrySnapshotSchema.parse(
+        await read((runtime) => runtime.getEntries(request.payload?.cursor)),
+      );
     case 'agent.tree':
-      return treeSnapshotSchema.parse(await runtime().getTree());
+      return treeSnapshotSchema.parse(await read((runtime) => runtime.getTree()));
     case 'agent.stats':
-      return runtime().getStats();
+      return read((runtime) => runtime.getStats());
 
     case 'models.list':
-      return runtime().listModels();
-    case 'models.set': {
-      // Model/thinking mutations change the authoritative agent state, so the
-      // snapshot is refreshed like it is for session mutations below.
-      const model = await runtime().setModel(request.payload);
-      await manager.refreshState(false, target);
-      return model;
-    }
-    case 'models.cycle': {
-      const result = await runtime().cycleModel();
-      await manager.refreshState(false, target);
-      return result;
-    }
+      return read((runtime) => runtime.listModels());
+    case 'models.set':
+      // Model/thinking mutations and their authoritative refresh hold one gate.
+      return mutate(async (runtime) => {
+        const model = await runtime.setModel(request.payload);
+        await manager.refreshState(false, target);
+        return model;
+      });
+    case 'models.cycle':
+      return mutate(async (runtime) => {
+        const result = await runtime.cycleModel();
+        await manager.refreshState(false, target);
+        return result;
+      });
 
     case 'thinking.list':
-      return runtime().listThinkingLevels();
+      return read((runtime) => runtime.listThinkingLevels());
     case 'thinking.set':
-      await runtime().setThinking(request.payload.level);
-      await manager.refreshState(false, target);
+      await mutate(async (runtime) => {
+        await runtime.setThinking(request.payload.level);
+        await manager.refreshState(false, target);
+      });
       return null;
-    case 'thinking.cycle': {
-      const level = await runtime().cycleThinking();
-      await manager.refreshState(false, target);
-      return level;
-    }
+    case 'thinking.cycle':
+      return mutate(async (runtime) => {
+        const level = await runtime.cycleThinking();
+        await manager.refreshState(false, target);
+        return level;
+      });
 
     case 'session.new':
       await manager.newSession(target);
@@ -159,10 +174,10 @@ export async function handleRequest(
       return null;
     case 'session.fork':
       return treeNavigateResultSchema.parse(
-        await runtime().fork(request.payload.entryId, request.payload),
+        await mutate((runtime) => runtime.fork(request.payload.entryId, request.payload)),
       );
     case 'session.label':
-      await runtime().setLabel(request.payload.entryId, request.payload.label);
+      await mutate((runtime) => runtime.setLabel(request.payload.entryId, request.payload.label));
       return null;
     case 'session.clone':
       await manager.cloneSession(target);
@@ -180,9 +195,10 @@ export async function handleRequest(
       return null;
     case 'session.list': {
       const snapshot = manager.snapshot();
-      const active = snapshot.capabilities ?? runtime().capabilities;
-      const native =
-        active?.sessionList !== false ? await runtime().listSessions(request.payload.scope) : [];
+      const active = await read((runtime) => Promise.resolve(runtime.capabilities));
+      const native = active.sessionList
+        ? await read((runtime) => runtime.listSessions(request.payload.scope))
+        : [];
       const nativeSessions = new Set(
         native.map((session) => `${session.runtime}:${session.sessionId}`),
       );
@@ -196,20 +212,22 @@ export async function handleRequest(
       return sessionCatalogSchema.parse([...native, ...recent].slice(0, 500));
     }
     case 'session.compact':
-      return runtime().compact(request.payload?.instructions);
+      return mutate((runtime) => runtime.compact(request.payload?.instructions));
     case 'session.autoCompaction':
-      await runtime().setAutoCompaction(request.payload.enabled);
+      await mutate((runtime) => runtime.setAutoCompaction(request.payload.enabled));
       return null;
     case 'session.exportHtml': {
       const destination = await pickExportPath(context, 'html');
-      return destination ? runtime().exportHtml(destination) : null;
+      return destination ? read((runtime) => runtime.exportHtml(destination)) : null;
     }
     case 'session.exportJsonl': {
       while (true) {
         const destination = await pickExportPath(context, 'jsonl');
         if (!destination) return null;
         try {
-          return await runtime().exportJsonl(destination, request.payload?.sessionId);
+          return await read((runtime) =>
+            runtime.exportJsonl(destination, request.payload?.sessionId),
+          );
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
           await showExportCollision(context);
@@ -218,41 +236,59 @@ export async function handleRequest(
     }
 
     case 'shell.run':
-      return runtime().runShell(request.payload.command, request.payload.excludeFromContext);
+      return bashResultSchema.parse(
+        await mutate((runtime) =>
+          runtime.runShell(request.payload.command, request.payload.excludeFromContext),
+        ),
+      );
     case 'shell.abort':
-      await runtime().abortShell();
+      await mutate((runtime) => runtime.abortShell());
       return null;
 
     case 'commands.list':
-      return runtime().listCommands();
-    case 'resources.list': {
-      const active = runtime();
-      if (active.getResources) {
-        return resourceCatalogSchema.parse(await active.getResources());
-      }
-      // Deterministic legacy RPC tests do not embed Pi; retain their bounded
-      // metadata-only scanner until the test harness moves to injected sessions.
-      const snapshot = manager.snapshot();
-      if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
-        return { skills: [], prompts: [], diagnostics: [] };
-      }
-      const catalog = await discoverTauResources(snapshot.cwd, {
-        includeProject: manager.effectiveProjectTrust === 'approve-once',
+      return read((runtime) => runtime.listCommands());
+    case 'agent.inspectSystemPrompt':
+      return read(async (runtime) => {
+        if (!runtime.inspectSystemPrompt) {
+          throw new Error('System prompt inspection is unavailable');
+        }
+        return systemPromptInspectionSchema.parse(await runtime.inspectSystemPrompt());
       });
-      return resourceCatalogSchema.parse(catalog);
-    }
-    case 'context.list': {
-      const active = runtime();
-      if (active.getContextFiles) {
-        return contextFilesSchema.parse(await active.getContextFiles());
-      }
-      const snapshot = manager.snapshot();
-      if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
-      const files = await discoverContextFiles(snapshot.cwd, {
-        includeProject: manager.effectiveProjectTrust === 'approve-once',
+    case 'tools.list':
+      return read(async (runtime) => {
+        if (!runtime.listTools) throw new Error('Tool catalog inspection is unavailable');
+        return toolCatalogSchema.parse(await runtime.listTools());
       });
-      return contextFilesSchema.parse(files);
-    }
+    case 'resources.reload':
+      return resourceReloadResultSchema.parse(await manager.reloadResources(target));
+    case 'resources.list':
+      return read(async (runtime) => {
+        if (runtime.getResources) {
+          return resourceCatalogSchema.parse(await runtime.getResources());
+        }
+        // Deterministic legacy RPC tests do not embed Pi; retain their bounded
+        // metadata-only scanner until the test harness moves to injected sessions.
+        const snapshot = manager.snapshot();
+        if (snapshot.runtime !== 'tau' || !snapshot.cwd) {
+          return { skills: [], prompts: [], diagnostics: [] };
+        }
+        const catalog = await discoverTauResources(snapshot.cwd, {
+          includeProject: manager.effectiveProjectTrust === 'approve-once',
+        });
+        return resourceCatalogSchema.parse(catalog);
+      });
+    case 'context.list':
+      return read(async (runtime) => {
+        if (runtime.getContextFiles) {
+          return contextFilesSchema.parse(await runtime.getContextFiles());
+        }
+        const snapshot = manager.snapshot();
+        if (snapshot.runtime !== 'tau' || !snapshot.cwd) return [];
+        const files = await discoverContextFiles(snapshot.cwd, {
+          includeProject: manager.effectiveProjectTrust === 'approve-once',
+        });
+        return contextFilesSchema.parse(files);
+      });
 
     case 'fs.complete': {
       const cwd = manager.snapshot().cwd ?? settings.current.cwd ?? process.cwd();

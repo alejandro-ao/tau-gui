@@ -21,6 +21,11 @@ import type {
 import { THINKING_LEVELS } from '../../shared/domain.js';
 import { MAX_TREE_DEPTH, MAX_TREE_PREVIEW, MAX_TREE_ROWS } from '../../shared/ipc.js';
 import type { RuntimeAgentState } from './agent-runtime.js';
+import {
+  MAX_SESSION_IDENTIFIER_CHARACTERS,
+  MAX_SESSION_STRUCTURE_BYTES,
+} from '../../shared/session-structures.js';
+import { boundedRecord, boundedToolText } from './untrusted.js';
 
 type Wire = Record<string, unknown>;
 
@@ -42,6 +47,15 @@ const bool = (value: unknown, fallback = false): boolean =>
 const record = (value: unknown): Record<string, unknown> => (isWire(value) ? value : {});
 
 const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
+const boundedText = (value: unknown): string => boundedToolText(str(value));
+const MAX_MESSAGE_BLOCKS = 100;
+const MAX_ENTRY_NODES = 1_000;
+
+export { MAX_SESSION_STRUCTURE_BYTES };
+
+export function normalizeSessionIdentifier(value: unknown): string | null {
+  return typeof value === 'string' ? value.slice(0, MAX_SESSION_IDENTIFIER_CHARACTERS) : null;
+}
 
 export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
   const level = str(value, 'medium');
@@ -56,6 +70,7 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'text')
     .map((block) => str(block['text']))
@@ -64,9 +79,13 @@ function contentText(content: unknown): string {
 
 function contentImages(content: unknown): { mimeType: string; data: string }[] {
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'image')
-    .map((block) => ({ mimeType: str(block['mimeType']), data: str(block['data']) }));
+    .map((block) => ({
+      mimeType: boundedText(block['mimeType']),
+      data: boundedText(block['data']),
+    }));
 }
 
 function normalizeUsage(value: unknown): Usage | null {
@@ -96,12 +115,13 @@ function normalizeStopReason(value: unknown): StopReason | null {
 
 function normalizeToolCalls(content: unknown): ToolCall[] {
   return list(content)
+    .slice(0, MAX_MESSAGE_BLOCKS)
     .filter(isWire)
     .filter((block) => block['type'] === 'toolCall')
     .map((block) => ({
-      id: str(block['id']),
-      name: str(block['name']),
-      arguments: record(block['arguments']),
+      id: str(block['id']).slice(0, 256),
+      name: str(block['name']).slice(0, 128),
+      arguments: boundedRecord(block['arguments']),
     }));
 }
 
@@ -109,20 +129,27 @@ export function normalizeAssistantMessage(value: Wire): AssistantMessage {
   const content = list(value['content']).filter(isWire);
   return {
     role: 'assistant',
-    text: content
-      .filter((block) => block['type'] === 'text')
-      .map((block) => str(block['text']))
-      .join(''),
-    thinking: content
-      .filter((block) => block['type'] === 'thinking')
-      .map((block) => str(block['thinking']))
-      .join(''),
+    text: boundedToolText(
+      content
+        .slice(0, MAX_MESSAGE_BLOCKS)
+        .filter((block) => block['type'] === 'text')
+        .map((block) => str(block['text']))
+        .join(''),
+    ),
+    thinking: boundedToolText(
+      content
+        .slice(0, MAX_MESSAGE_BLOCKS)
+        .filter((block) => block['type'] === 'thinking')
+        .map((block) => str(block['thinking']))
+        .join(''),
+    ),
     toolCalls: normalizeToolCalls(value['content']),
     provider: str(value['provider']),
     model: str(value['model']),
     usage: normalizeUsage(value['usage']),
     stopReason: normalizeStopReason(value['stopReason']),
-    errorMessage: typeof value['errorMessage'] === 'string' ? value['errorMessage'] : null,
+    errorMessage:
+      typeof value['errorMessage'] === 'string' ? boundedToolText(value['errorMessage']) : null,
     timestamp: num(value['timestamp'], Date.now()),
   };
 }
@@ -135,7 +162,7 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'user':
       return {
         role: 'user',
-        text: contentText(value['content']),
+        text: boundedToolText(contentText(value['content'])),
         images: contentImages(value['content']),
         timestamp,
       };
@@ -144,18 +171,18 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'toolResult':
       return {
         role: 'toolResult',
-        toolCallId: str(value['toolCallId']),
-        toolName: str(value['toolName']),
-        text: contentText(value['content']),
-        details: record(value['details']),
+        toolCallId: str(value['toolCallId']).slice(0, 256),
+        toolName: str(value['toolName']).slice(0, 128),
+        text: boundedToolText(contentText(value['content'])),
+        details: boundedRecord(value['details']),
         isError: bool(value['isError']),
         timestamp,
       };
     case 'bashExecution':
       return {
         role: 'bashExecution',
-        command: str(value['command']),
-        output: str(value['output']),
+        command: boundedText(value['command']),
+        output: boundedToolText(str(value['output'])),
         exitCode: numOrNull(value['exitCode']),
         cancelled: bool(value['cancelled']),
         truncated: bool(value['truncated']),
@@ -165,23 +192,23 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
     case 'custom':
       return {
         role: 'custom',
-        customType: str(value['customType'], 'custom'),
-        text: contentText(value['content']),
+        customType: boundedText(value['customType']) || 'custom',
+        text: boundedToolText(contentText(value['content'])),
         display: bool(value['display'], true),
-        details: record(value['details']),
+        details: boundedRecord(value['details']),
         timestamp,
       };
     case 'branchSummary':
       return {
         role: 'branchSummary',
-        summary: str(value['summary']),
+        summary: boundedText(value['summary']),
         fromId: str(value['fromId']),
         timestamp,
       };
     case 'compactionSummary':
       return {
         role: 'compactionSummary',
-        summary: str(value['summary']),
+        summary: boundedText(value['summary']),
         tokensBefore: num(value['tokensBefore']),
         timestamp,
       };
@@ -233,26 +260,26 @@ export function normalizeEvent(record_: Wire): AgentEvent | null {
     case 'tool_execution_start':
       return {
         type: 'tool_start',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        args: record(record_['args']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        args: boundedRecord(record_['args']),
       };
     case 'tool_execution_update':
       return {
         type: 'tool_update',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        args: record(record_['args']),
-        partialText: contentText(record(record_['partialResult'])['content']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        args: boundedRecord(record_['args']),
+        partialText: boundedToolText(contentText(record(record_['partialResult'])['content'])),
       };
     case 'tool_execution_end': {
       const result = record(record_['result']);
       return {
         type: 'tool_end',
-        toolCallId: str(record_['toolCallId']),
-        toolName: str(record_['toolName']),
-        text: contentText(result['content']),
-        details: record(result['details']),
+        toolCallId: str(record_['toolCallId']).slice(0, 256),
+        toolName: str(record_['toolName']).slice(0, 128),
+        text: boundedToolText(contentText(result['content'])),
+        details: boundedRecord(result['details']),
         isError: bool(record_['isError']),
       };
     }
@@ -445,13 +472,23 @@ function entrySummary(
 }
 
 export function normalizeEntries(value: unknown): SessionEntry[] {
-  return list(value)
-    .map(normalizeEntry)
-    .filter((entry): entry is SessionEntry => entry !== null);
+  const output: SessionEntry[] = [];
+  let bytes = 1_024;
+  for (const value_ of list(value).slice(0, MAX_ENTRY_NODES)) {
+    const entry = normalizeEntry(value_);
+    if (!entry) continue;
+    const entryBytes = Buffer.byteLength(JSON.stringify(entry)) + (output.length ? 1 : 0);
+    if (bytes + entryBytes > MAX_SESSION_STRUCTURE_BYTES) break;
+    bytes += entryBytes;
+    output.push(entry);
+  }
+  return output;
 }
 
 export function normalizeTree(value: unknown): { rows: TreeRow[]; truncated: boolean } {
   const rows: TreeRow[] = [];
+  // Reserve room for the wrapper, leaf identifier, and serialization punctuation.
+  let bytes = 1_024;
   const stack = list(value)
     .slice()
     .reverse()
@@ -479,7 +516,7 @@ export function normalizeTree(value: unknown): { rows: TreeRow[]; truncated: boo
       : 'custom';
     const message = isWire(entry['message']) ? entry['message'] : null;
     const role = messageRole(message?.['role']);
-    rows.push({
+    const row: TreeRow = {
       id,
       parentId:
         typeof entry['parentId'] === 'string' ? entry['parentId'].slice(0, 128) : current.parentId,
@@ -489,7 +526,14 @@ export function normalizeTree(value: unknown): { rows: TreeRow[]; truncated: boo
       timestamp: str(entry['timestamp']).slice(0, 64),
       preview: treePreview(kind, entry, message).slice(0, MAX_TREE_PREVIEW),
       label: typeof current.node['label'] === 'string' ? current.node['label'].slice(0, 120) : null,
-    });
+    };
+    const rowBytes = Buffer.byteLength(JSON.stringify(row)) + (rows.length ? 1 : 0);
+    if (bytes + rowBytes > MAX_SESSION_STRUCTURE_BYTES) {
+      truncated = true;
+      break;
+    }
+    bytes += rowBytes;
+    rows.push(row);
     const children = list(current.node['children']);
     for (let index = children.length - 1; index >= 0; index -= 1) {
       stack.push({ node: children[index], depth: current.depth + 1, parentId: id });

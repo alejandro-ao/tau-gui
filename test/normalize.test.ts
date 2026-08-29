@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { MAX_TREE_DEPTH, MAX_TREE_PREVIEW, MAX_TREE_ROWS } from '../src/shared/ipc.js';
 import {
+  MAX_SESSION_STRUCTURE_BYTES,
+  normalizeEntries,
   normalizeEntry,
   normalizeEvent,
   normalizeMessage,
@@ -9,6 +11,8 @@ import {
   normalizeStats,
   normalizeTree,
 } from '../src/main/runtime/normalize.js';
+import { boundJson, MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
+import { INTROSPECTION_LIMITS, toolCatalogSchema } from '../src/shared/introspection.js';
 
 describe('normalizeMessage', () => {
   it('normalizes a string-content user message', () => {
@@ -146,6 +150,133 @@ describe('normalizeEvent', () => {
     });
   });
 
+  it('strictly bounds untrusted tool output and payloads', () => {
+    let getterCalled = false;
+    const args = Object.defineProperty({ safe: 'value' }, 'secret', {
+      enumerable: true,
+      get: () => {
+        getterCalled = true;
+        return process.env;
+      },
+    });
+    const event = normalizeEvent({
+      type: 'tool_execution_end',
+      toolCallId: 'c'.repeat(300),
+      toolName: 't'.repeat(200),
+      result: {
+        content: [{ type: 'text', text: 'x'.repeat(MAX_TOOL_OUTPUT_CHARACTERS + 100) }],
+        details: { args, huge: 'y'.repeat(10_000) },
+      },
+      isError: false,
+    });
+
+    expect(getterCalled).toBe(false);
+    expect(event?.type).toBe('tool_end');
+    if (event?.type !== 'tool_end') throw new Error('expected tool end');
+    expect(event.toolCallId).toHaveLength(256);
+    expect(event.toolName).toHaveLength(128);
+    expect(event.text).toContain('[tool output truncated by desktop security limit]');
+    expect(event.text.length).toBeLessThan(MAX_TOOL_OUTPUT_CHARACTERS + 100);
+    expect(JSON.stringify(event.details).length).toBeLessThan(10_000);
+  });
+
+  it('handles hostile descriptors, prototypes, collisions, cycles, and proxies fail closed', () => {
+    let arrayGetterCalled = false;
+    const array: unknown[] = [];
+    Object.defineProperty(array, '0', {
+      enumerable: true,
+      get: () => {
+        arrayGetterCalled = true;
+        return process.env;
+      },
+    });
+    Object.defineProperty(array, 'length', { value: 1 });
+    expect(boundJson(array)).toEqual({ value: ['[truncated]'], truncated: true });
+    expect(arrayGetterCalled).toBe(false);
+
+    const hostile = Object.create({ inherited: process.env }) as Record<string, unknown>;
+    Object.defineProperties(hostile, {
+      __proto__: { value: 'safe', enumerable: true },
+      constructor: { value: 'also safe', enumerable: true },
+      a: { value: 1, enumerable: true },
+      'a\u0000': { value: 2, enumerable: true },
+    });
+    hostile['cycle'] = hostile;
+    const bounded = boundJson(hostile);
+    expect(Object.getPrototypeOf(bounded.value)).toBeNull();
+    expect(bounded.value).toMatchObject({ __proto__: 'safe', constructor: 'also safe', a: 1 });
+    expect((bounded.value as Record<string, unknown>)['inherited']).toBeUndefined();
+    expect((bounded.value as Record<string, unknown>)['cycle']).toBe('[truncated]');
+    expect(bounded.truncated).toBe(true);
+
+    const proxy = new Proxy(
+      {},
+      {
+        ownKeys: () => {
+          throw new Error('trap');
+        },
+      },
+    );
+    expect(() => boundJson(proxy)).not.toThrow();
+    expect(boundJson(proxy)).toEqual({ value: '[truncated]', truncated: true });
+  });
+
+  it('enforces aggregate schema limits independently in the shared parser', () => {
+    const catalog = (parameters: unknown) => ({
+      tools: [
+        {
+          name: 'x',
+          description: '',
+          origin: 'test',
+          active: true,
+          parameters,
+          schemaTruncated: false,
+        },
+      ],
+      total: 1,
+      truncated: false,
+      diagnostics: [],
+    });
+    expect(
+      toolCatalogSchema.safeParse(
+        catalog(
+          Object.fromEntries(
+            Array.from({ length: INTROSPECTION_LIMITS.schemaObjectProperties + 1 }, (_, index) => [
+              `p${index}`,
+              index,
+            ]),
+          ),
+        ),
+      ).success,
+    ).toBe(false);
+    let deep: Record<string, unknown> = {};
+    for (let index = 0; index <= INTROSPECTION_LIMITS.schemaDepth; index += 1) deep = { deep };
+    expect(toolCatalogSchema.safeParse(catalog(deep)).success).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse(catalog(Array.from({ length: 20 }, () => 'é'.repeat(2_000))))
+        .success,
+    ).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse(
+        catalog(Array.from({ length: 21 }, () => Array.from({ length: 100 }, () => null))),
+      ).success,
+    ).toBe(false);
+    const cyclic: Record<string, unknown> = {};
+    cyclic['self'] = cyclic;
+    expect(toolCatalogSchema.safeParse(catalog(cyclic)).success).toBe(false);
+  });
+
+  it('keeps the truncation marker inside the documented character limit', () => {
+    const output = normalizeMessage({
+      role: 'toolResult',
+      content: 'x'.repeat(MAX_TOOL_OUTPUT_CHARACTERS + 1),
+    });
+    expect(output?.role).toBe('toolResult');
+    if (output?.role !== 'toolResult') throw new Error('expected tool result');
+    expect(output.text).toHaveLength(MAX_TOOL_OUTPUT_CHARACTERS);
+    expect(output.text).toContain('[tool output truncated by desktop security limit]');
+  });
+
   it('maps queue, compaction, retry, and error records', () => {
     expect(normalizeEvent({ type: 'queue_update', steering: ['a'], followUp: ['b'] })).toEqual({
       type: 'queue_update',
@@ -221,6 +352,7 @@ describe('entries and trees', () => {
       message: { role: 'user', content: 'do the thing', timestamp: 1 },
     });
     expect(entry).toMatchObject({ id: 'e1', kind: 'message', summary: 'do the thing' });
+    expect(entry).not.toHaveProperty('raw');
   });
 
   it('describes non-message entries', () => {
@@ -231,6 +363,43 @@ describe('entries and trees', () => {
     expect(normalizeEntry({ type: 'label', id: 'e3', label: 'checkpoint' })?.summary).toBe(
       'checkpoint',
     );
+  });
+
+  it('bounds complete restored entry and tree payloads without retaining raw SDK data', () => {
+    const huge = 's'.repeat(2 * 1024 * 1024);
+    const wire = {
+      type: 'message',
+      id: 'tool',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'call',
+        toolName: 'read',
+        content: huge,
+        details: { nested: { secret: huge } },
+      },
+    };
+    const entry = normalizeEntry(wire);
+    const entries = normalizeEntries(Array.from({ length: 100 }, () => wire));
+    const tree = normalizeTree(Array.from({ length: 100 }, () => ({ entry: wire, children: [] })));
+    const aggregateTree = normalizeTree(
+      Array.from({ length: MAX_TREE_ROWS }, (_, index) => ({
+        entry: {
+          type: 'message',
+          id: `wide-${index}`,
+          message: { role: 'user', content: 'é'.repeat(MAX_TREE_PREVIEW) },
+        },
+        children: [],
+      })),
+    );
+    expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThan(140 * 1024);
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
+    expect(Buffer.byteLength(JSON.stringify(aggregateTree))).toBeLessThan(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(aggregateTree.truncated).toBe(true);
+    expect(JSON.stringify(entry)).not.toContain(huge.slice(0, 100_000));
+    expect(entry).not.toHaveProperty('raw');
   });
 
   it('normalizes nested trees', () => {

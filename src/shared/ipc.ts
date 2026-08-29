@@ -5,7 +5,16 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import {
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  type ResourceReloadResult,
+  type SystemPromptInspection,
+  type ToolCatalog,
+} from './introspection.js';
 import { resourceCatalogSchema } from './resources.js';
+import { entrySnapshotSchema, MAX_SESSION_STRUCTURE_BYTES } from './session-structures.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -138,7 +147,18 @@ export const treeSnapshotSchema = z
     leafId: z.string().max(128).nullable(),
     truncated: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    let bytes = Number.POSITIVE_INFINITY;
+    try {
+      bytes = new TextEncoder().encode(JSON.stringify(value)).byteLength;
+    } catch {
+      // Cyclic/non-serializable values fail the complete response budget.
+    }
+    if (bytes > MAX_SESSION_STRUCTURE_BYTES) {
+      context.addIssue({ code: 'custom', message: 'session structure byte limit exceeded' });
+    }
+  });
 export const MAX_TREE_EDITOR_TEXT = 100_000;
 export const treeNavigateResultSchema = z
   .object({
@@ -157,6 +177,16 @@ export const sessionTargetSchema = z
   .strict();
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
+export const MAX_SHELL_TEXT_CHARACTERS = 64 * 1024;
+export const bashResultSchema = z
+  .object({
+    command: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    output: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    exitCode: z.number().int().nullable(),
+    cancelled: z.boolean(),
+    truncated: z.boolean(),
+  })
+  .strict();
 
 const finiteNumber = z.number().finite();
 const boundedText = (maximum: number) => z.string().max(maximum);
@@ -699,13 +729,19 @@ const requestUnion = z.discriminatedUnion('action', [
 
   z.strictObject({
     action: z.literal('shell.run'),
-    payload: z.strictObject({ command: z.string().min(1), excludeFromContext: z.boolean() }),
+    payload: z.strictObject({
+      command: z.string().min(1).max(MAX_SHELL_TEXT_CHARACTERS),
+      excludeFromContext: z.boolean(),
+    }),
   }),
   z.strictObject({ action: z.literal('shell.abort') }),
 
   z.strictObject({ action: z.literal('commands.list') }),
-  z.strictObject({ action: z.literal('resources.list') }).strict(),
-  z.strictObject({ action: z.literal('context.list') }).strict(),
+  z.strictObject({ action: z.literal('resources.list') }),
+  z.strictObject({ action: z.literal('resources.reload') }),
+  z.strictObject({ action: z.literal('agent.inspectSystemPrompt') }),
+  z.strictObject({ action: z.literal('tools.list') }),
+  z.strictObject({ action: z.literal('context.list') }),
 
   z.strictObject({
     action: z.literal('fs.complete'),
@@ -759,7 +795,13 @@ function strictTopLevel(allowed: ReadonlySet<string>): z.ZodType<unknown> {
 /** Reject unknown wire metadata while retaining payload compatibility per action. */
 export const requestSchema = strictTopLevel(new Set(['action', 'payload'])).pipe(requestUnion);
 
-export { resourceCatalogSchema };
+export {
+  resourceCatalogSchema,
+  entrySnapshotSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+};
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
@@ -873,6 +915,9 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'resources.reload': ResourceReloadResult;
+  'agent.inspectSystemPrompt': SystemPromptInspection;
+  'tools.list': ToolCatalog;
   'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;

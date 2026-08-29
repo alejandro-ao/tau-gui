@@ -1,18 +1,26 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bashResultSchema,
   bridgeEventSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
   MAX_SESSION_CATALOG_ENTRIES,
+  MAX_TREE_DEPTH,
+  MAX_TREE_PREVIEW,
   MAX_TREE_ROWS,
   parseSessionIpcResult,
   requestSchema,
   resourceCatalogSchema,
   sessionCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
   treeSnapshotSchema,
 } from '../src/shared/ipc.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
@@ -91,6 +99,143 @@ describe('IPC request validation', () => {
         payload: { kind: 'tau', binary: '/bin/sh' },
       }).success,
     ).toBe(false);
+  });
+
+  it('strictly bounds complete restored response wrappers', () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(
+      treeSnapshotSchema.safeParse({ rows: [], leafId: 'entry-1', truncated: false }).success,
+    ).toBe(true);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: huge }).success).toBe(false);
+    expect(treeSnapshotSchema.safeParse({ rows: [], leafId: huge, truncated: false }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects over-budget rows-based trees without unbounded work', () => {
+    const row = {
+      id: 'entry',
+      parentId: null,
+      depth: 0,
+      kind: 'message' as const,
+      role: 'user' as const,
+      timestamp: '2026-01-01T00:00:00Z',
+      preview: 'safe',
+      label: null,
+    };
+    const tooMany = {
+      rows: Array.from({ length: MAX_TREE_ROWS + 1 }, () => row),
+      leafId: null,
+      truncated: true,
+    };
+    const tooDeep = {
+      rows: [{ ...row, depth: MAX_TREE_DEPTH + 1 }],
+      leafId: null,
+      truncated: true,
+    };
+    const tooManyBytes = {
+      rows: Array.from({ length: MAX_TREE_ROWS }, (_, index) => ({
+        ...row,
+        id: `entry-${index}`,
+        preview: 'é'.repeat(MAX_TREE_PREVIEW),
+      })),
+      leafId: null,
+      truncated: true,
+    };
+
+    expect(() => treeSnapshotSchema.safeParse(tooMany)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooMany).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(tooDeep)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooDeep).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(tooManyBytes)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooManyBytes).success).toBe(false);
+  });
+
+  it('strictly bounds direct shell responses', () => {
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo ok',
+        output: 'ok',
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo huge',
+        output: 'x'.repeat(64 * 1024 + 1),
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only payload-free introspection and reload requests', () => {
+    for (const action of ['agent.inspectSystemPrompt', 'tools.list', 'resources.reload'] as const) {
+      expect(requestSchema.safeParse({ action }).success).toBe(true);
+      expect(requestSchema.safeParse({ action, payload: { prompt: 'leak it' } }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('strictly bounds local-only introspection results', () => {
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'local prompt',
+        totalCharacters: 12,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(true);
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'x'.repeat(INTROSPECTION_LIMITS.systemPromptCharacters + 1),
+        totalCharacters: INTROSPECTION_LIMITS.systemPromptCharacters + 1,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(false);
+
+    const catalog = {
+      tools: [
+        {
+          name: 'read',
+          description: 'Read a file',
+          origin: 'builtin',
+          active: true,
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+          schemaTruncated: false,
+        },
+      ],
+      total: 1,
+      truncated: false,
+      diagnostics: [],
+    };
+    expect(toolCatalogSchema.safeParse(catalog).success).toBe(true);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], secret: process.env }],
+      }).success,
+    ).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], parameters: { value: 'x'.repeat(5_000) } }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      resourceReloadResultSchema.safeParse({
+        before: { skills: 1, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        after: { skills: 2, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        diagnostics: [],
+      }).success,
+    ).toBe(true);
   });
 
   it('accepts only the payload-free resources.list request', () => {
