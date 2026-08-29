@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import type { ContextFile } from '../../shared/ipc.js';
 import type {
+  ResourceReloadResult,
+  SystemPromptInspection,
+  ToolCatalog,
+} from '../../shared/introspection.js';
+import type {
   AgentEvent,
   AgentMessage,
   AgentState,
@@ -27,6 +32,7 @@ import {
   normalizeEvent,
   normalizeMessages,
   normalizeModel,
+  normalizeSessionIdentifier,
   normalizeState,
   normalizeStats,
   normalizeThinkingLevel,
@@ -73,7 +79,35 @@ export interface AgentRuntime {
   /** Direct SDK runtimes can expose authoritative resource metadata. */
   getResources?(): Promise<ResourceCatalog>;
   getContextFiles?(): Promise<ContextFile[]>;
+  /** Local-only inspection; callers must never append this result to session messages. */
+  inspectSystemPrompt?(): Promise<SystemPromptInspection>;
+  listTools?(): Promise<ToolCatalog>;
+  reloadResources?(): Promise<ResourceReloadResult>;
 }
+
+/**
+ * Runtime operations required by each capability at the application-domain
+ * boundary. A null entry means the current AgentRuntime contract has no such
+ * operation, so no production adapter may advertise that capability yet.
+ * Renderer and IPC coverage remain additional requirements.
+ */
+export const CAPABILITY_RUNTIME_METHODS = {
+  textPrompt: ['prompt'],
+  imagePrompt: null,
+  steering: ['steer'],
+  followUps: ['followUp'],
+  directBash: ['runShell'],
+  abortBash: ['abortShell'],
+  retryControls: null,
+  sessionTree: ['getTree', 'fork'],
+  sessionClone: null,
+  sessionList: null,
+  extensionDialogs: null,
+  providerLogin: null,
+  resourceReload: ['reloadResources'],
+  systemPromptInspection: ['inspectSystemPrompt'],
+  toolCatalog: ['listTools'],
+} as const satisfies Record<keyof RuntimeCapabilities, readonly (keyof AgentRuntime)[] | null>;
 
 /** Extension status text may carry terminal colour codes meant for a TUI. */
 function stripAnsi(text: string): string {
@@ -370,7 +404,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     const data = asRecord(await this.rpc.request('get_entries', params));
     return {
       entries: normalizeEntries(data['entries']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      leafId: normalizeSessionIdentifier(data['leafId']),
     };
   }
 
@@ -378,7 +412,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     const data = asRecord(await this.rpc.request('get_tree'));
     return {
       tree: normalizeTree(data['tree']),
-      leafId: typeof data['leafId'] === 'string' ? data['leafId'] : null,
+      leafId: normalizeSessionIdentifier(data['leafId']),
     };
   }
 

@@ -12,6 +12,15 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { MAX_CONTEXT_FILES, type ContextFile } from '../../shared/ipc.js';
+import {
+  INTROSPECTION_LIMITS,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  type ResourceReloadResult,
+  type SystemPromptInspection,
+  type ToolCatalog,
+} from '../../shared/introspection.js';
 import { RESOURCE_LIMITS } from '../../shared/resources.js';
 import { estimateTextTokens } from '../../shared/token-estimate.js';
 import type {
@@ -38,17 +47,33 @@ import {
   normalizeEvent,
   normalizeMessages,
   normalizeModel,
+  normalizeSessionIdentifier,
   normalizeStats,
   normalizeThinkingLevel,
   normalizeTree,
 } from './normalize.js';
-import { CAPABILITIES } from './spec.js';
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
+import { boundJson, boundedToolText } from './untrusted.js';
 
-const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
-  ...CAPABILITIES.pi,
-  sessionList: true,
-  providerLogin: true,
+/**
+ * Features executable through the complete desktop application contract.
+ *
+ * Pi SDK support alone is not enough to enable a flag: the operation must also
+ * have an AgentRuntime method, validated IPC, and a usable renderer flow.
+ */
+export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
+  textPrompt: true,
+  imagePrompt: false,
+  steering: true,
+  followUps: true,
+  directBash: true,
+  abortBash: false,
+  retryControls: false,
+  sessionTree: true,
+  sessionClone: false,
+  sessionList: false,
+  extensionDialogs: false,
+  providerLogin: false,
   resourceReload: true,
   systemPromptInspection: true,
   toolCatalog: true,
@@ -239,14 +264,14 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     const start = cursor ? Math.max(0, entries.findIndex((entry) => entry.id === cursor) + 1) : 0;
     return Promise.resolve({
       entries: normalizeEntries(entries.slice(start)),
-      leafId: this.session.sessionManager.getLeafId(),
+      leafId: normalizeSessionIdentifier(this.session.sessionManager.getLeafId()),
     });
   }
 
   getTree(): Promise<TreeSnapshot> {
     return Promise.resolve({
       tree: normalizeTree(this.session.sessionManager.getTree()),
-      leafId: this.session.sessionManager.getLeafId(),
+      leafId: normalizeSessionIdentifier(this.session.sessionManager.getLeafId()),
     });
   }
 
@@ -312,12 +337,13 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async runShell(command: string, excludeFromContext: boolean): Promise<BashResult> {
     const result = await this.session.executeBash(command, undefined, { excludeFromContext });
+    const output = boundedToolText(result.output);
     return {
       command,
-      output: result.output,
+      output,
       exitCode: result.exitCode ?? null,
       cancelled: result.cancelled,
-      truncated: result.truncated,
+      truncated: result.truncated || output !== result.output,
     };
   }
 
@@ -378,6 +404,144 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     );
   }
 
+  inspectSystemPrompt(): Promise<SystemPromptInspection> {
+    const text = this.session.systemPrompt;
+    const limit = INTROSPECTION_LIMITS.systemPromptCharacters;
+    return Promise.resolve(
+      systemPromptInspectionSchema.parse({
+        text: text.slice(0, limit),
+        totalCharacters: text.length,
+        truncated: text.length > limit,
+        origin: 'active Pi session',
+      }),
+    );
+  }
+
+  listTools(): Promise<ToolCatalog> {
+    const diagnostics: string[] = [];
+    const diagnose = (message: string): void => {
+      if (diagnostics.length >= INTROSPECTION_LIMITS.diagnostics) return;
+      diagnostics.push(
+        boundedMetadata(message, INTROSPECTION_LIMITS.diagnosticCharacters) ||
+          'tool descriptor omitted',
+      );
+    };
+
+    let allValue: unknown = [];
+    let allReadFailed = false;
+    try {
+      allValue = this.session.getAllTools();
+    } catch {
+      allReadFailed = true;
+      diagnose('tool catalog could not be reflected; all tools omitted');
+    }
+    const all = reflectArrayData(allValue, INTROSPECTION_LIMITS.toolEntries, 'tool catalog');
+    for (const message of all.diagnostics) diagnose(message);
+
+    let activeValue: unknown = [];
+    try {
+      activeValue = this.session.getActiveToolNames();
+    } catch {
+      diagnose('active tool names could not be reflected; all tools marked inactive');
+    }
+    const activeData = reflectArrayData(
+      activeValue,
+      INTROSPECTION_LIMITS.toolEntries,
+      'active tool names',
+    );
+    for (const message of activeData.diagnostics) diagnose(message);
+    const active = new Set(
+      activeData.items
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => boundedMetadata(value, INTROSPECTION_LIMITS.toolNameCharacters))
+        .filter(Boolean),
+    );
+
+    const tools: ToolCatalog['tools'] = [];
+    const names = new Set<string>();
+    let omitted = all.truncated || allReadFailed;
+    for (const [index, value] of all.items.entries()) {
+      const reflected = reflectToolDescriptor(value);
+      if (!reflected.ok) {
+        omitted = true;
+        diagnose(`tool ${index + 1} omitted: ${reflected.reason}`);
+        continue;
+      }
+      const name = boundedMetadata(reflected.name, INTROSPECTION_LIMITS.toolNameCharacters);
+      if (!name) {
+        omitted = true;
+        diagnose(`tool ${index + 1} omitted: invalid name`);
+        continue;
+      }
+      if (names.has(name)) {
+        omitted = true;
+        diagnose(`${name}: duplicate normalized tool name omitted`);
+        continue;
+      }
+      names.add(name);
+
+      const bounded = boundJson(reflected.parameters);
+      if (bounded.truncated) diagnose(`${name}: parameter schema was truncated`);
+      let origin = 'unknown';
+      if (reflected.sourceInfo !== undefined) {
+        const source = reflectSource(reflected.sourceInfo);
+        if (source === null) diagnose(`${name}: malformed source metadata replaced with unknown`);
+        else origin = boundedMetadata(source, INTROSPECTION_LIMITS.originCharacters) || 'unknown';
+      }
+      tools.push({
+        name,
+        description: boundedMetadata(
+          reflected.description,
+          INTROSPECTION_LIMITS.toolDescriptionCharacters,
+        ),
+        origin,
+        active: active.has(name),
+        parameters: bounded.value,
+        schemaTruncated: bounded.truncated,
+      });
+    }
+    if (all.truncated) diagnose('tool catalog limit reached; remaining tools ignored');
+    return Promise.resolve(
+      toolCatalogSchema.parse({
+        tools,
+        total: all.total,
+        truncated: omitted || tools.length < all.total,
+        diagnostics,
+      }),
+    );
+  }
+
+  async reloadResources(): Promise<ResourceReloadResult> {
+    const session = this.session;
+    if (session.isStreaming || session.isCompacting) {
+      throw new Error('Cannot reload resources while agent work is active');
+    }
+    const before = resourceCounts(session);
+    await session.reload();
+    if (this.session !== session) throw new Error('Session changed while resources were reloading');
+    const after = resourceCounts(session);
+    const loader = session.resourceLoader;
+    const diagnostics = [
+      ...loader.getSkills().diagnostics,
+      ...loader.getPrompts().diagnostics,
+      ...loader.getThemes().diagnostics,
+    ]
+      .slice(0, INTROSPECTION_LIMITS.diagnostics)
+      .map((item) =>
+        boundedMetadata(`${item.type}: ${item.message}`, INTROSPECTION_LIMITS.diagnosticCharacters),
+      );
+    for (const error of loader.getExtensions().errors) {
+      if (diagnostics.length >= INTROSPECTION_LIMITS.diagnostics) break;
+      diagnostics.push(
+        boundedMetadata(
+          `extension: ${error.path}: ${error.error}`,
+          INTROSPECTION_LIMITS.diagnosticCharacters,
+        ),
+      );
+    }
+    return resourceReloadResultSchema.parse({ before, after, diagnostics });
+  }
+
   async getResources(): Promise<ResourceCatalog> {
     const loader = this.session.resourceLoader;
     const skillsResult = loader.getSkills();
@@ -409,6 +573,138 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 }
 
+interface ReflectedArrayData {
+  items: unknown[];
+  total: number;
+  truncated: boolean;
+  diagnostics: string[];
+}
+
+/** Reflects array data without ordinary index/length reads or accessor invocation. */
+function reflectArrayData(value: unknown, limit: number, label: string): ReflectedArrayData {
+  try {
+    if (typeof value !== 'object' || value === null || !Array.isArray(value)) {
+      return {
+        items: [],
+        total: 0,
+        truncated: true,
+        diagnostics: [`${label} is not a data array; values omitted`],
+      };
+    }
+    const descriptors = Object.getOwnPropertyDescriptors(value) as Record<
+      string,
+      PropertyDescriptor
+    >;
+    const length = descriptors['length'];
+    const rawLength: unknown = length && 'value' in length ? length.value : null;
+    if (typeof rawLength !== 'number' || !Number.isSafeInteger(rawLength) || rawLength < 0) {
+      return {
+        items: [],
+        total: 0,
+        truncated: true,
+        diagnostics: [`${label} has an invalid length; values omitted`],
+      };
+    }
+    const total = rawLength;
+    const count = Math.min(total, limit);
+    const items: unknown[] = [];
+    const diagnostics: string[] = [];
+    let truncated = total > count;
+    for (let index = 0; index < count; index += 1) {
+      const descriptor = descriptors[String(index)];
+      if (!descriptor || !('value' in descriptor)) {
+        truncated = true;
+        diagnostics.push(`${label} item ${index + 1} is missing or accessor-backed; omitted`);
+        continue;
+      }
+      items.push(descriptor.value);
+    }
+    return { items, total, truncated, diagnostics };
+  } catch {
+    return {
+      items: [],
+      total: 0,
+      truncated: true,
+      diagnostics: [`${label} reflection failed; values omitted`],
+    };
+  }
+}
+
+type ReflectedToolDescriptor =
+  | {
+      ok: true;
+      name: string;
+      description: string;
+      parameters: unknown;
+      sourceInfo: unknown;
+    }
+  | { ok: false; reason: string };
+
+/** Reflects only own data properties; Proxy/accessor failures omit the descriptor. */
+function reflectToolDescriptor(value: unknown): ReflectedToolDescriptor {
+  if (typeof value !== 'object' || value === null) {
+    return { ok: false, reason: 'descriptor is not an object' };
+  }
+  try {
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const name = descriptors['name'];
+    const description = descriptors['description'];
+    const parameters = descriptors['parameters'];
+    const sourceInfo = descriptors['sourceInfo'];
+    if (!name || !('value' in name) || typeof name.value !== 'string') {
+      return { ok: false, reason: 'name is missing, accessor-backed, or malformed' };
+    }
+    const descriptionValue: unknown =
+      description && 'value' in description ? description.value : '';
+    if (description && (!('value' in description) || typeof descriptionValue !== 'string')) {
+      return { ok: false, reason: 'description is accessor-backed or malformed' };
+    }
+    if (!parameters || !('value' in parameters)) {
+      return { ok: false, reason: 'parameters are missing or accessor-backed' };
+    }
+    if (sourceInfo && !('value' in sourceInfo)) {
+      return { ok: false, reason: 'source metadata is accessor-backed' };
+    }
+    const parametersValue: unknown = parameters.value;
+    const sourceInfoValue: unknown =
+      sourceInfo && 'value' in sourceInfo ? sourceInfo.value : undefined;
+    return {
+      ok: true,
+      name: name.value,
+      description: descriptionValue as string,
+      parameters: parametersValue,
+      sourceInfo: sourceInfoValue,
+    };
+  } catch {
+    return { ok: false, reason: 'descriptor reflection failed' };
+  }
+}
+
+/** Returns null for malformed/accessor-backed source metadata. */
+function reflectSource(value: unknown): string | null {
+  if (typeof value !== 'object' || value === null) return null;
+  try {
+    const descriptor = Object.getOwnPropertyDescriptors(value)['source'];
+    return descriptor && 'value' in descriptor && typeof descriptor.value === 'string'
+      ? descriptor.value
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function resourceCounts(session: AgentSession) {
+  const loader = session.resourceLoader;
+  return {
+    skills: loader.getSkills().skills.length,
+    prompts: loader.getPrompts().prompts.length,
+    themes: loader.getThemes().themes.length,
+    contextFiles: loader.getAgentsFiles().agentsFiles.length,
+    extensions: loader.getExtensions().extensions.length,
+    tools: session.getAllTools().length,
+  };
+}
+
 function resourceDescription(value: string): string | null {
   const description = boundedMetadata(value, RESOURCE_LIMITS.descriptionCharacters);
   return description || null;
@@ -416,7 +712,7 @@ function resourceDescription(value: string): string | null {
 
 /** Pi permits YAML-folded descriptions that retain a trailing newline. */
 function boundedMetadata(value: string, limit: number): string {
-  return [...value]
+  return [...value.slice(0, limit)]
     .map((character) => {
       const codePoint = character.codePointAt(0) ?? 0;
       return codePoint <= 0x1f || codePoint === 0x7f ? ' ' : character;

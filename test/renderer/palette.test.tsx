@@ -43,12 +43,16 @@ describe('command palette', () => {
     const rows = [...view.container.querySelectorAll('[role="option"]')];
     const tools = rows.find((row) => row.textContent?.startsWith('/tools'));
     expect(tools?.getAttribute('data-unavailable')).toBe('true');
-    expect(tools?.textContent).toContain('tool catalog inspection needs runtime RPC support');
+    expect(tools?.textContent).toContain(
+      'tool catalog inspection is not exposed by the desktop application contract',
+    );
     const hotkeys = rows.find((row) => row.textContent?.startsWith('/hotkeys'));
     expect(hotkeys?.textContent).toContain('frontend');
     const review = rows.find((row) => row.textContent?.startsWith('/review'));
     expect(review?.getAttribute('data-unavailable')).toBe('true');
-    expect(review?.textContent).toContain('does not expose command execution over RPC');
+    expect(review?.textContent).toContain(
+      'desktop application contract does not expose its execution',
+    );
   });
 
   it('refuses unavailable entries with the reason instead of failing silently', async () => {
@@ -58,7 +62,9 @@ describe('command palette', () => {
     await click(tools!);
     // The palette stays open and the reason is surfaced in the transcript.
     expect(view.container.querySelector('[data-modal-name="palette"]')).not.toBeNull();
-    expect(view.container.textContent).toContain('tool catalog inspection needs runtime RPC');
+    expect(view.container.textContent).toContain(
+      'tool catalog inspection is not exposed by the desktop application contract',
+    );
   });
 
   it('restores focus to the element that opened it', async () => {

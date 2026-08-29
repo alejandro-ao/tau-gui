@@ -5,7 +5,16 @@
  * on one channel. Every main → renderer push is a validated domain event.
  */
 import { z } from 'zod';
+import {
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  type ResourceReloadResult,
+  type SystemPromptInspection,
+  type ToolCatalog,
+} from './introspection.js';
 import { resourceCatalogSchema } from './resources.js';
+import { entrySnapshotSchema, treeSnapshotSchema } from './session-structures.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -82,6 +91,16 @@ export const sessionTargetSchema = z.object({
 });
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
+export const MAX_SHELL_TEXT_CHARACTERS = 64 * 1024;
+export const bashResultSchema = z
+  .object({
+    command: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    output: z.string().max(MAX_SHELL_TEXT_CHARACTERS),
+    exitCode: z.number().int().nullable(),
+    cancelled: z.boolean(),
+    truncated: z.boolean(),
+  })
+  .strict();
 
 const runtimeSettings = z.object({
   binary: z.string().min(1),
@@ -209,12 +228,18 @@ export const requestSchema = z.discriminatedUnion('action', [
 
   z.object({
     action: z.literal('shell.run'),
-    payload: z.object({ command: z.string().min(1), excludeFromContext: z.boolean() }),
+    payload: z.object({
+      command: z.string().min(1).max(MAX_SHELL_TEXT_CHARACTERS),
+      excludeFromContext: z.boolean(),
+    }),
   }),
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
   z.object({ action: z.literal('resources.list') }).strict(),
+  z.object({ action: z.literal('resources.reload') }).strict(),
+  z.object({ action: z.literal('agent.inspectSystemPrompt') }).strict(),
+  z.object({ action: z.literal('tools.list') }).strict(),
   z.object({ action: z.literal('context.list') }).strict(),
 
   z.object({
@@ -237,7 +262,14 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('diagnostics.list') }),
 ]);
 
-export { resourceCatalogSchema };
+export {
+  resourceCatalogSchema,
+  entrySnapshotSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  treeSnapshotSchema,
+};
 
 export type IpcRequest = z.infer<typeof requestSchema>;
 export type IpcAction = IpcRequest['action'];
@@ -336,6 +368,9 @@ export interface IpcResultMap {
   'shell.abort': null;
   'commands.list': CommandInfo[];
   'resources.list': ResourceCatalog;
+  'resources.reload': ResourceReloadResult;
+  'agent.inspectSystemPrompt': SystemPromptInspection;
+  'tools.list': ToolCatalog;
   'context.list': ContextFile[];
   'fs.complete': FileCompletion[];
   'fs.pickDirectory': string | null;

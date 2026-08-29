@@ -7,10 +7,16 @@ import type {
   SessionTarget,
 } from '../shared/ipc.js';
 import {
+  bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  treeSnapshotSchema,
 } from '../shared/ipc.js';
 
 /**
@@ -44,11 +50,29 @@ const bridge: TauBridge = {
       throw new Error('Malformed IPC response');
     }
     if (!response.ok) throw new Error(response.error);
+    if (action === 'agent.entries') {
+      return entrySnapshotSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'agent.tree') {
+      return treeSnapshotSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     if (action === 'resources.list') {
       return resourceCatalogSchema.parse(response.value) as IpcResult<typeof action>;
     }
     if (action === 'context.list') {
       return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'agent.inspectSystemPrompt') {
+      return systemPromptInspectionSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'tools.list') {
+      return toolCatalogSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'resources.reload') {
+      return resourceReloadResultSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'shell.run') {
+      return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
     return response.value as IpcResult<typeof action>;
   },

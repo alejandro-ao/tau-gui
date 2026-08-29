@@ -109,7 +109,6 @@ function entry(id: string, summary: string, role: 'user' | 'assistant'): Session
             timestamp: 0,
           },
     summary,
-    raw: {},
   };
 }
 
@@ -161,7 +160,7 @@ describe('session picker', () => {
     mounted = view;
     await runPaletteCommand(view, '/resume');
     const dialog = query(view.container, '[data-modal-name="session"]');
-    expect(dialog.textContent).toContain('needs runtime list_sessions support');
+    expect(dialog.textContent).toContain('full cross-session listing is not implemented yet');
     expect(options(dialog)).toHaveLength(2);
 
     await click(query(dialog, '[role="option"]:nth-child(2) button'));

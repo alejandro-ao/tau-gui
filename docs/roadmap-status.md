@@ -7,6 +7,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
 - Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- `/system`, `/tools`, and `/reload` now use bounded main-process SDK operations, validated preload results, and local desktop modals. Inspection never creates model/session messages; reload reports category counts and diagnostics.
 - The app injects a trusted `spawn_session` SDK tool that creates an independently
   running session in the current directory or another existing directory. The
   main-process runtime pool owns its queue, lifecycle, and sidebar activity.
@@ -14,7 +15,60 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining session listing/clone/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+- Remaining session listing/clone/import/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+
+## Active desktop contract audit
+
+A capability is `true` only when this version of the app can execute it through
+all required layers:
+
+```text
+Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer flow → tests
+```
+
+SDK support by itself is not a desktop capability. In particular, Pi can list
+sessions and supplies primitives for auth, resources, tools, system prompts,
+images, retries, cloning, and extensions, but those features remain disabled
+until the app exposes bounded domain operations and usable desktop flows.
+`CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
+minimum runtime operation for every capability; IPC, renderer, and test coverage
+are additional requirements.
+
+| Capability               | Runtime operation                  | IPC / renderer   | Advertised | Next action                                       |
+| ------------------------ | ---------------------------------- | ---------------- | ---------- | ------------------------------------------------- |
+| text prompts             | `prompt`                           | complete         | yes        | maintain contract tests                           |
+| steering / follow-ups    | `steer`, `followUp`                | complete         | yes        | maintain queue and E2E coverage                   |
+| direct bash              | `runShell`                         | complete         | yes        | maintain contract tests                           |
+| cancellable bash         | `abortShell`                       | no renderer flow | no         | add cancellation UX and E2E coverage              |
+| session tree / fork      | `getTree`, `fork`                  | complete         | yes        | add richer Pi branch/edit semantics               |
+| image prompts            | no image-bearing prompt operation  | missing          | no         | add bounded attachment DTOs and UI                |
+| retry controls           | retry events only                  | missing          | no         | add policy, progress, and cancellation operations |
+| session clone            | Pi SDK primitive only              | missing          | no         | add an application-domain clone flow              |
+| session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration          |
+| extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
+| provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
+| resource reload          | `reloadResources`                  | complete         | yes        | maintain lifecycle/count/diagnostic tests         |
+| system prompt inspection | `inspectSystemPrompt`              | complete         | yes        | keep output local-only and bounded                |
+| tool catalog             | `listTools`                        | complete         | yes        | keep schemas/origins bounded and plain-text       |
+
+The next implementation order is:
+
+1. replace app-owned-only recents with Pi-native session listing, then add clone
+   and complete import/export flows;
+2. add provider authentication and Pi-owned retry/settings controls;
+3. add images and extension interactions after their security boundaries are
+   defined;
+4. remove the compatibility runtime and JSONL test infrastructure, then finish
+   release hardening.
+
+## Roadmap reconciliation notes
+
+The embedded foundation already uses Pi's `AgentSessionRuntime`, session manager,
+model services, and default resource loader. Issue #17 checklist items describing
+those foundations should be treated as complete; their remaining desktop UI and
+IPC work is tracked separately in the audit above. Historical references below
+describe how the app reached its current architecture and are not active feature
+claims.
 
 ## Historical RPC roadmap
 
@@ -92,8 +146,8 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
   the catalog match, so the pill distinguishes runtime expansions from GUI commands
   before Enter is pressed. Slash completion entries use the same colours.
-- Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
-  `/logout`, `/clone`, and extension commands that RPC can list but not execute)
+- Commands with no GUI implementation (`/login`, `/logout`, `/clone`, and
+  extension commands that RPC can list but not execute)
   are listed as unavailable with the reason instead of being sent incorrectly to
   the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
   because the desktop app has no clone flow yet.
@@ -179,9 +233,9 @@ with conformance tests:
 | image prompts                    | `imagePrompt`            | Pi only; GUI drop previews deferred                             |
 | extension dialogs/status/widgets | `extensionDialogs`       | Pi subprotocol only; Tau routes extension UI to stderr          |
 | provider login/logout            | `providerLogin`          | neither                                                         |
-| resource reload                  | `resourceReload`         | neither                                                         |
-| system prompt inspection         | `systemPromptInspection` | neither                                                         |
-| tool catalog                     | `toolCatalog`            | neither                                                         |
+| resource reload                  | `resourceReload`         | embedded Pi                                                     |
+| system prompt inspection         | `systemPromptInspection` | embedded Pi                                                     |
+| tool catalog                     | `toolCatalog`            | embedded Pi                                                     |
 | interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline            |
 
 ## Phase 7 — packaging and release ⏳ partial

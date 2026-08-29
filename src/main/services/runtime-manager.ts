@@ -36,6 +36,8 @@ export interface RuntimeManagerOptions {
   runtimeFactory?: RuntimeFactory;
   /** The legacy test adapter needs executable discovery; embedded Pi does not. */
   probeExecutable?: boolean;
+  /** Pool-owned synchronous claim around non-lifecycle AgentSession mutations. */
+  claimSessionMutation?: () => () => void;
 }
 
 export class RuntimeManager {
@@ -59,6 +61,7 @@ export class RuntimeManager {
 
   private readonly runtimeFactory: RuntimeFactory;
   private readonly probeExecutable: boolean;
+  private readonly claimSessionMutation: () => () => void;
 
   constructor(
     private readonly settings: SettingsStore,
@@ -67,6 +70,7 @@ export class RuntimeManager {
   ) {
     this.runtimeFactory = options.runtimeFactory ?? legacyRpcRuntimeFactory;
     this.probeExecutable = options.probeExecutable ?? true;
+    this.claimSessionMutation = options.claimSessionMutation ?? (() => () => undefined);
   }
 
   get kind(): RuntimeKind {
@@ -226,24 +230,29 @@ export class RuntimeManager {
    */
   async nameSession(name: string): Promise<void> {
     if (!this.runtime || !this.state?.sessionId) throw new Error('Runtime is not started');
+    const release = this.claimSessionMutation();
     try {
-      await this.runtime.nameSession(name);
-    } catch (error) {
-      if (
-        this.kind !== 'tau' ||
-        this.state.messageCount > 0 ||
-        !/unknown session/i.test((error as Error).message)
-      ) {
-        throw error;
+      try {
+        await this.runtime.nameSession(name);
+      } catch (error) {
+        if (
+          this.kind !== 'tau' ||
+          this.state.messageCount > 0 ||
+          !/unknown session/i.test((error as Error).message)
+        ) {
+          throw error;
+        }
+        this.pendingSessionName = { sessionId: this.state.sessionId, name };
+        this.state = { ...this.state, sessionName: name };
+        this.rememberCurrentSession(false);
+        this.broadcast({ type: 'status', snapshot: this.snapshot() });
+        return;
       }
-      this.pendingSessionName = { sessionId: this.state.sessionId, name };
-      this.state = { ...this.state, sessionName: name };
-      this.rememberCurrentSession(false);
-      this.broadcast({ type: 'status', snapshot: this.snapshot() });
-      return;
+      this.pendingSessionName = null;
+      await this.refreshState();
+    } finally {
+      release();
     }
-    this.pendingSessionName = null;
-    await this.refreshState();
   }
 
   private handleEvent(event: AgentEvent): void {
@@ -308,11 +317,15 @@ export class RuntimeManager {
       await this.refreshState(true);
       return;
     }
+    let release: (() => void) | null = null;
     try {
+      release = this.claimSessionMutation();
       await this.runtime.nameSession(pending.name);
       if (this.pendingSessionName === pending) this.pendingSessionName = null;
     } catch (error) {
       this.addDiagnostic(`Failed to persist session name: ${(error as Error).message}`);
+    } finally {
+      release?.();
     }
     await this.refreshState(true);
   }

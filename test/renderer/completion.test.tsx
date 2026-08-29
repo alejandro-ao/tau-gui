@@ -93,7 +93,9 @@ describe('slash command completion', () => {
     const row = query(view.container, '.completion-option');
     expect(row.getAttribute('data-unavailable')).toBe('true');
     await press(input, 'Enter');
-    expect(view.container.textContent).toContain('tool catalog inspection needs runtime RPC');
+    expect(view.container.textContent).toContain(
+      'tool catalog inspection is not exposed by the desktop application contract',
+    );
     expect(actionsOf(bridge)).not.toContain('agent.prompt');
   });
 

@@ -1,15 +1,35 @@
 import { describe, expect, it } from 'vitest';
 import {
+  bashResultSchema,
   contextFilesSchema,
+  entrySnapshotSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
   requestSchema,
   resourceCatalogSchema,
+  resourceReloadResultSchema,
+  systemPromptInspectionSchema,
+  toolCatalogSchema,
+  treeSnapshotSchema,
 } from '../src/shared/ipc.js';
+import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
 const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
+
+function treeNode(children: unknown[] = []): Record<string, unknown> {
+  return {
+    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
+    children,
+  };
+}
+
+function deepTree(depth: number): { tree: unknown[]; leafId: null } {
+  let children: unknown[] = [];
+  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
+  return { tree: children, leafId: null };
+}
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -88,6 +108,110 @@ describe('IPC request validation', () => {
         kind: 'tau',
       },
     );
+  });
+
+  it('strictly bounds complete restored response wrappers', () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(entrySnapshotSchema.safeParse({ entries: [], leafId: huge }).success).toBe(false);
+    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: huge }).success).toBe(false);
+  });
+
+  it('rejects deeply and widely malformed trees without recursive overflow', () => {
+    const deep = deepTree(5_000);
+    const wide = { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null };
+
+    expect(() => treeSnapshotSchema.safeParse(deep)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(deep).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(wide)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(wide).success).toBe(false);
+  });
+
+  it('strictly bounds direct shell responses', () => {
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo ok',
+        output: 'ok',
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(true);
+    expect(
+      bashResultSchema.safeParse({
+        command: 'echo huge',
+        output: 'x'.repeat(64 * 1024 + 1),
+        exitCode: 0,
+        cancelled: false,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only payload-free introspection and reload requests', () => {
+    for (const action of ['agent.inspectSystemPrompt', 'tools.list', 'resources.reload'] as const) {
+      expect(requestSchema.safeParse({ action }).success).toBe(true);
+      expect(requestSchema.safeParse({ action, payload: { prompt: 'leak it' } }).success).toBe(
+        false,
+      );
+    }
+  });
+
+  it('strictly bounds local-only introspection results', () => {
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'local prompt',
+        totalCharacters: 12,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(true);
+    expect(
+      systemPromptInspectionSchema.safeParse({
+        text: 'x'.repeat(INTROSPECTION_LIMITS.systemPromptCharacters + 1),
+        totalCharacters: INTROSPECTION_LIMITS.systemPromptCharacters + 1,
+        truncated: false,
+        origin: 'active Pi session',
+      }).success,
+    ).toBe(false);
+
+    const catalog = {
+      tools: [
+        {
+          name: 'read',
+          description: 'Read a file',
+          origin: 'builtin',
+          active: true,
+          parameters: { type: 'object', properties: { path: { type: 'string' } } },
+          schemaTruncated: false,
+        },
+      ],
+      total: 1,
+      truncated: false,
+      diagnostics: [],
+    };
+    expect(toolCatalogSchema.safeParse(catalog).success).toBe(true);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], secret: process.env }],
+      }).success,
+    ).toBe(false);
+    expect(
+      toolCatalogSchema.safeParse({
+        ...catalog,
+        tools: [{ ...catalog.tools[0], parameters: { value: 'x'.repeat(5_000) } }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      resourceReloadResultSchema.safeParse({
+        before: { skills: 1, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        after: { skills: 2, prompts: 2, themes: 2, contextFiles: 1, extensions: 0, tools: 4 },
+        diagnostics: [],
+      }).success,
+    ).toBe(true);
   });
 
   it('accepts only the payload-free resources.list request', () => {

@@ -94,6 +94,21 @@ describe('command registry', () => {
     }
   });
 
+  it('routes enabled introspection commands to their local desktop actions', () => {
+    const { actions, calls } = stubActions();
+    const commands = buildCommands(
+      stateWith({ toolCatalog: true, systemPromptInspection: true, resourceReload: true }),
+      actions,
+    );
+
+    for (const id of ['runtime.tools', 'runtime.system', 'runtime.reload']) {
+      const command = commands.find((entry) => entry.id === id);
+      expect(command?.unavailable, id).toBeNull();
+      command?.run();
+    }
+    expect(calls).toEqual(['inspectTools:', 'inspectSystemPrompt:', 'reloadResources:']);
+  });
+
   it('passes TUI-style arguments to command actions', () => {
     const state: AppState = {
       ...stateWith({}),
@@ -145,7 +160,7 @@ describe('command registry', () => {
 
     expect(commands.filter((command) => command.slash === '/compact')).toHaveLength(1);
     expect(commands.find((command) => command.slash === '/review')?.unavailable).toContain(
-      'does not expose command execution over RPC',
+      'desktop application contract does not expose its execution',
     );
   });
 

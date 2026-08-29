@@ -7,8 +7,8 @@ import { Picker, type PickerItem } from './Picker.js';
  * App-owned recent-session picker.
  *
  * Runtime session files stay runtime-owned: these references come from GUI
- * settings only. Full cross-session listing needs a runtime `list_sessions`
- * command, which is why `capabilities.sessionList` is false.
+ * settings only. Pi can enumerate sessions, but that operation is not yet
+ * exposed through the desktop application contract.
  */
 export function SessionModal(): ReactNode {
   const { state, actions } = useStore();
@@ -28,9 +28,8 @@ export function SessionModal(): ReactNode {
     [sessions, activeId],
   );
 
-  const subtitle = state.snapshot.capabilities.sessionList
-    ? 'sessions reported by the runtime'
-    : 'recent sessions remembered by this app — full cross-session listing needs runtime list_sessions support';
+  const subtitle =
+    'recent sessions remembered by this app — full cross-session listing is not implemented yet';
 
   return (
     <Picker

@@ -2,9 +2,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { EmbeddedPiRuntime } from '../src/main/runtime/embedded-pi-runtime.js';
+import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
+import {
+  EMBEDDED_PI_CAPABILITIES,
+  EmbeddedPiRuntime,
+} from '../src/main/runtime/embedded-pi-runtime.js';
+import { MAX_TOOL_OUTPUT_CHARACTERS } from '../src/main/runtime/untrusted.js';
 import type { RuntimeStatus } from '../src/shared/domain.js';
+import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { resourceCatalogSchema } from '../src/shared/resources.js';
+import {
+  MAX_SESSION_IDENTIFIER_CHARACTERS,
+  MAX_SESSION_STRUCTURE_BYTES,
+} from '../src/shared/session-structures.js';
 import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
@@ -17,6 +27,216 @@ afterEach(async () => {
 });
 
 describe('EmbeddedPiRuntime', () => {
+  it('advertises only capabilities represented by executable runtime operations', () => {
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+
+    for (const [capability, enabled] of Object.entries(EMBEDDED_PI_CAPABILITIES)) {
+      if (!enabled) continue;
+      const methods =
+        CAPABILITY_RUNTIME_METHODS[capability as keyof typeof CAPABILITY_RUNTIME_METHODS];
+      expect(methods, `${capability} has no application-domain operation`).not.toBeNull();
+      for (const method of methods ?? []) {
+        expect(typeof runtime[method], `${capability} requires ${method}`).toBe('function');
+      }
+    }
+
+    expect(EMBEDDED_PI_CAPABILITIES).toMatchObject({
+      resourceReload: true,
+      systemPromptInspection: true,
+      toolCatalog: true,
+      imagePrompt: false,
+      abortBash: false,
+      retryControls: false,
+      sessionClone: false,
+      sessionList: false,
+      extensionDialogs: false,
+      providerLogin: false,
+    });
+  });
+
+  it('bounds live shell and restored entry/tree responses before IPC', async () => {
+    const huge = 'x'.repeat(2 * 1024 * 1024);
+    const entry = {
+      id: 'tool-entry',
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'call',
+        toolName: 'read',
+        content: huge,
+        details: { nested: huge },
+      },
+    };
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+    (runtime as unknown as { runtime: unknown }).runtime = {
+      session: {
+        executeBash: () =>
+          Promise.resolve({ output: huge, exitCode: 0, cancelled: false, truncated: false }),
+        sessionManager: {
+          getEntries: () => [entry],
+          getTree: () => [{ entry, children: [] }],
+          getLeafId: () => huge,
+        },
+      },
+    };
+
+    const shell = await runtime.runShell('printf huge', false);
+    expect(shell.output).toHaveLength(MAX_TOOL_OUTPUT_CHARACTERS);
+    expect(shell.truncated).toBe(true);
+    const entries = await runtime.getEntries();
+    const tree = await runtime.getTree();
+    expect(entries.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(tree.leafId).toHaveLength(MAX_SESSION_IDENTIFIER_CHARACTERS);
+    expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThanOrEqual(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(entries.entries[0]).not.toHaveProperty('raw');
+  });
+
+  it('sanitizes hostile tool arrays and descriptors without ordinary property reads', async () => {
+    let descriptorGets = 0;
+    let accessorGets = 0;
+    let sourceGets = 0;
+    let arrayGets = 0;
+    const valid = (name: string, sourceInfo: unknown = { source: 'test' }) => ({
+      name,
+      description: 'safe',
+      parameters: { type: 'object' },
+      sourceInfo,
+    });
+    const nonthrowing = new Proxy(valid('proxy-safe'), {
+      get(target, key, receiver): unknown {
+        descriptorGets += 1;
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    const throwingGet = new Proxy(valid('proxy-throwing-get'), {
+      get() {
+        descriptorGets += 1;
+        throw new Error('ordinary descriptor get must not run');
+      },
+    });
+    const throwingReflection = new Proxy(valid('reflection-failure'), {
+      ownKeys() {
+        throw new Error('reflection denied');
+      },
+    });
+    const accessorDescriptor = valid('accessor');
+    Object.defineProperty(accessorDescriptor, 'name', {
+      enumerable: true,
+      get: () => {
+        accessorGets += 1;
+        return 'getter-leak';
+      },
+    });
+    const accessorSource = {};
+    Object.defineProperty(accessorSource, 'source', {
+      enumerable: true,
+      get: () => {
+        sourceGets += 1;
+        return 'getter-origin';
+      },
+    });
+    const revoked = Proxy.revocable(valid('revoked'), {});
+    revoked.revoke();
+    const rawTools: unknown[] = [
+      valid('read'),
+      nonthrowing,
+      throwingGet,
+      accessorDescriptor,
+      throwingReflection,
+      revoked.proxy,
+      valid('source-fallback', accessorSource),
+      valid('dup\n'),
+      valid('dup '),
+      null,
+      42,
+      false,
+    ];
+    Object.defineProperty(rawTools, '11', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        accessorGets += 1;
+        return valid('array-getter');
+      },
+    });
+    const tools = new Proxy(rawTools, {
+      get(target, key, receiver): unknown {
+        arrayGets += 1;
+        return Reflect.get(target, key, receiver) as unknown;
+      },
+    });
+    const active = ['read', 'proxy-safe', 'proxy-throwing-get'];
+    Object.defineProperty(active, '2', {
+      configurable: true,
+      enumerable: true,
+      get: () => {
+        accessorGets += 1;
+        return 'proxy-throwing-get';
+      },
+    });
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+    (runtime as unknown as { runtime: unknown }).runtime = {
+      session: {
+        getAllTools: () => tools,
+        getActiveToolNames: () => active,
+      },
+    };
+
+    const catalog = await runtime.listTools();
+    expect(descriptorGets).toBe(0);
+    expect(arrayGets).toBe(0);
+    expect(accessorGets).toBe(0);
+    expect(sourceGets).toBe(0);
+    expect(catalog.tools.map((tool) => tool.name)).toEqual([
+      'read',
+      'proxy-safe',
+      'proxy-throwing-get',
+      'source-fallback',
+      'dup',
+    ]);
+    expect(catalog.tools.find((tool) => tool.name === 'source-fallback')?.origin).toBe('unknown');
+    expect(catalog.tools.filter((tool) => tool.name === 'dup')).toHaveLength(1);
+    expect(catalog.truncated).toBe(true);
+    expect(catalog.diagnostics.length).toBeLessThanOrEqual(INTROSPECTION_LIMITS.diagnostics);
+    expect(catalog.diagnostics.every((item) => item.length <= 512)).toBe(true);
+
+    const revokedArray = Proxy.revocable([valid('never')], {});
+    revokedArray.revoke();
+    (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
+      'getAllTools'
+    ] = () => revokedArray.proxy;
+    await expect(runtime.listTools()).resolves.toMatchObject({ tools: [], truncated: true });
+
+    (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
+      'getAllTools'
+    ] = () => {
+      throw new Error('catalog failure');
+    };
+    (runtime as unknown as { runtime: { session: Record<string, unknown> } }).runtime.session[
+      'getActiveToolNames'
+    ] = () => {
+      throw new Error('active failure');
+    };
+    await expect(runtime.listTools()).resolves.toMatchObject({ tools: [], truncated: true });
+  });
+
   it('starts without an external executable and exposes Pi-owned resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-embedded-pi-'));
     roots.push(root);
@@ -121,6 +341,35 @@ describe('EmbeddedPiRuntime', () => {
     );
     const review = resources.skills.find((skill) => skill.name === 'review');
     expect(review?.estimatedTokens).toBe(estimateTextTokens(skillText));
+
+    const messagesBeforeInspection = await runtime.getMessages();
+    const systemPrompt = await runtime.inspectSystemPrompt();
+    expect(systemPrompt.text).toContain('Global instructions');
+    expect(systemPrompt.origin).toBe('active Pi session');
+    expect(systemPrompt.truncated).toBe(false);
+
+    const tools = await runtime.listTools();
+    expect(tools.tools.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(['read', 'bash', 'edit', 'write', 'spawn_session']),
+    );
+    expect(tools.tools.find((tool) => tool.name === 'read')).toMatchObject({
+      active: true,
+      origin: 'builtin',
+      schemaTruncated: false,
+    });
+    expect(await runtime.getMessages()).toEqual(messagesBeforeInspection);
+
+    mkdirSync(join(customSkills, 'after-reload'), { recursive: true });
+    writeFileSync(
+      join(customSkills, 'after-reload', 'SKILL.md'),
+      '---\nname: after-reload\ndescription: Added later\n---\n# Later\n',
+    );
+    const reload = await runtime.reloadResources();
+    expect(reload.after.skills).toBe(reload.before.skills + 1);
+    expect((await runtime.getResources()).skills.map((skill) => skill.name)).toContain(
+      'after-reload',
+    );
+    expect(await runtime.getMessages()).toEqual(messagesBeforeInspection);
 
     const contextFiles = await runtime.getContextFiles();
     const labels = new Map(contextFiles.map((file) => [file.path, file.label]));

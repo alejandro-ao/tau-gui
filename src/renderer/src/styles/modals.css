@@ -192,6 +192,55 @@
   white-space: pre-wrap;
 }
 
+/* --------------------------------------------------------- introspection */
+
+.introspection-summary {
+  padding: 0 0 var(--space-2);
+}
+
+.introspection-output {
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--space-2);
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font: inherit;
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.tool-catalog {
+  display: grid;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tool-catalog > li {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: var(--space-3);
+}
+
+.tool-catalog-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.tool-catalog-heading strong {
+  color: var(--accent);
+}
+
+.tool-catalog p {
+  color: var(--text-dim);
+  margin: var(--space-1) 0 var(--space-2);
+  white-space: pre-wrap;
+}
+
 /* ---------------------------------------------------------------- settings */
 
 .modal-field,
