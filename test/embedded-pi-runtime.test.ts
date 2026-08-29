@@ -63,6 +63,86 @@ describe('EmbeddedPiRuntime', () => {
     });
   });
 
+  it('copies empty and legacy imports before Pi initializes or migrates them', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-import-'));
+    roots.push(root);
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    mkdirSync(cwd, { recursive: true });
+    let destination = 0;
+    const runtime = new EmbeddedPiRuntime(
+      { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
+      {
+        agentDir,
+        home: root,
+        importDestinationName: () => `legacy-${destination++}.jsonl`,
+      },
+    );
+    active = runtime;
+    await runtime.start({
+      kind: 'pi',
+      binary: '',
+      cwd,
+      extraArgs: [],
+      projectTrust: 'default',
+    });
+
+    const sources: string[] = [];
+    const empty = join(root, 'empty.jsonl');
+    writeFileSync(empty, '');
+    sources.push(empty);
+    for (const version of [1, 2]) {
+      const directory = join(root, `v${version}`);
+      mkdirSync(directory);
+      const manager = SessionManager.create(cwd, directory);
+      manager.appendMessage({ role: 'user', content: `legacy v${version}`, timestamp: Date.now() });
+      manager.appendMessage({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'ready' }],
+        api: 'test',
+        provider: 'test',
+        model: 'test',
+        usage: {
+          input: 1,
+          output: 1,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 2,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      });
+      const path = manager.getSessionFile();
+      if (!path) throw new Error('legacy fixture was not persisted');
+      const migratedFixture = readFileSync(path, 'utf8')
+        .trimEnd()
+        .split('\n')
+        .map((line, index) => {
+          const entry = JSON.parse(line) as Record<string, unknown>;
+          if (index === 0) entry['version'] = version;
+          if (version === 1 && index > 0) {
+            delete entry['id'];
+            delete entry['parentId'];
+          }
+          return JSON.stringify(entry);
+        })
+        .join('\n');
+      writeFileSync(path, `${migratedFixture}\n`);
+      sources.push(path);
+    }
+
+    for (const source of sources) {
+      const original = readFileSync(source);
+      await runtime.prepareImport(source);
+      await runtime.importJsonl(source);
+      expect(readFileSync(source)).toEqual(original);
+      const imported = readFileSync((await runtime.getState()).sessionFile!, 'utf8');
+      expect(imported).toContain('"version":3');
+    }
+    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
+  });
+
   it('starts without an external executable and exposes Pi-owned resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-embedded-pi-'));
     roots.push(root);
@@ -266,8 +346,10 @@ describe('EmbeddedPiRuntime', () => {
     );
     for (const path of poison) writeFileSync(path, '');
     await expect(runtime.prepareImport(portable)).rejects.toThrow('catalog is incomplete');
-    expect((await runtime.listSessions('all')).length).toBe(0);
+    expect((await runtime.listSessions('all')).length).toBe(1);
     for (const path of poison) rmSync(path);
+    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl'));
+    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl.retained'));
     expect(await runtime.listSessions('all')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ sessionId: originalId }),
@@ -279,6 +361,8 @@ describe('EmbeddedPiRuntime', () => {
     // original remains in this manager's recovered catalog must fail without
     // creating a duplicate that would make both records disappear.
     await expect(runtime.prepareImport(portable)).rejects.toThrow('portable re-import is refused');
+    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl'));
+    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl.retained'));
     const afterRejectedImport = await runtime.listSessions('all');
     const originalRecord = afterRejectedImport.find((session) => session.sessionId === originalId);
     expect(originalRecord).toBeDefined();
@@ -316,18 +400,19 @@ describe('EmbeddedPiRuntime', () => {
     });
     const externalPath = external.getSessionFile();
     if (!externalPath) throw new Error('external session was not persisted');
+    const externalBytes = readFileSync(externalPath);
     forcedImportDestination = 'caller-collision.jsonl';
     const collision = join(agentDir, 'imported-sessions', forcedImportDestination);
-    await runtime.prepareImport(externalPath);
     writeFileSync(collision, 'caller-owned collision');
-    await expect(runtime.importJsonl(externalPath)).rejects.toThrow();
+    await expect(runtime.prepareImport(externalPath)).rejects.toThrow();
     expect(readFileSync(collision, 'utf8')).toBe('caller-owned collision');
     expect((await runtime.getState()).sessionId).toBe(originalId);
-    // The app preserved it; this explicit test-user recovery happens while idle.
     rmSync(collision);
     forcedImportDestination = 'successful-import.jsonl';
+    await runtime.prepareImport(externalPath);
     await runtime.importJsonl(externalPath);
     expect((await runtime.getState()).sessionId).toBe(external.getSessionId());
+    expect(readFileSync(externalPath)).toEqual(externalBytes);
 
     // Successful final files are sessions, not retained recovery artifacts:
     // 32 further imports and import 33 all remain available.
@@ -402,8 +487,10 @@ describe('EmbeddedPiRuntime', () => {
     writeFileSync(malformed, '{not-jsonl}\n');
     const importedRoot = join(agentDir, 'imported-sessions');
     const retainedBeforeMalformed = readdirSync(importedRoot).length;
+    forcedImportDestination = 'malformed-import.jsonl';
     await expect(runtime.prepareImport(malformed)).rejects.toThrow();
-    expect(readdirSync(importedRoot)).toHaveLength(retainedBeforeMalformed);
-    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 0, capacity: 32 });
+    expect(readdirSync(importedRoot)).toHaveLength(retainedBeforeMalformed + 2);
+    expect(readFileSync(malformed, 'utf8')).toBe('{not-jsonl}\n');
+    expect(await runtime.importRecoveryHealth()).toEqual({ retained: 1, capacity: 32 });
   });
 });
