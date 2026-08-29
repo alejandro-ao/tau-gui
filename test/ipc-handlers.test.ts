@@ -169,7 +169,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     importRecovery: {
       health: () => Promise.resolve({ retained: 2, capacity: 32 }),
       reveal: () => Promise.resolve(),
-    } as Context['importRecovery'],
+    },
     manager: {
       active,
       runtimeFor: () => active,
@@ -504,9 +504,9 @@ describe('capability-gated and adapter-contract actions', () => {
 
   it('serves import recovery without resolving a selected runtime', async () => {
     const { context } = makeContext();
-    context.manager.runtimeFor = (() => {
+    context.manager.runtimeFor = () => {
       throw new Error('Session is no longer available: /private/failed-session');
-    }) as Context['manager']['runtimeFor'];
+    };
 
     await expect(handleRequest(context, { action: 'session.importHealth' })).resolves.toEqual({
       retained: 2,
@@ -534,9 +534,10 @@ describe('capability-gated and adapter-contract actions', () => {
     await expect(
       handleRequest(context, { action: 'session.exportJsonl', payload: {} }),
     ).resolves.toBe('/chosen/new.jsonl');
-    expect(electronMocks.showMessageBox).toHaveBeenCalledWith(
-      expect.objectContaining({ message: expect.stringContaining('creates new files only') }),
-    );
+    const collisionOptions = electronMocks.showMessageBox.mock.calls[0]?.at(-1) as unknown;
+    expect(collisionOptions).toMatchObject({
+      message: 'That file already exists. Portable export creates new files only.',
+    });
     expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(2);
   });
 
