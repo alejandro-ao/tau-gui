@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MAX_TREE_DEPTH, MAX_TREE_PREVIEW, MAX_TREE_ROWS } from '../src/shared/ipc.js';
 import {
   MAX_SESSION_STRUCTURE_BYTES,
   normalizeEntries,
@@ -380,9 +381,23 @@ describe('entries and trees', () => {
     const entry = normalizeEntry(wire);
     const entries = normalizeEntries(Array.from({ length: 100 }, () => wire));
     const tree = normalizeTree(Array.from({ length: 100 }, () => ({ entry: wire, children: [] })));
+    const aggregateTree = normalizeTree(
+      Array.from({ length: MAX_TREE_ROWS }, (_, index) => ({
+        entry: {
+          type: 'message',
+          id: `wide-${index}`,
+          message: { role: 'user', content: 'é'.repeat(MAX_TREE_PREVIEW) },
+        },
+        children: [],
+      })),
+    );
     expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThan(140 * 1024);
     expect(Buffer.byteLength(JSON.stringify(entries))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
     expect(Buffer.byteLength(JSON.stringify(tree))).toBeLessThan(MAX_SESSION_STRUCTURE_BYTES);
+    expect(Buffer.byteLength(JSON.stringify(aggregateTree))).toBeLessThan(
+      MAX_SESSION_STRUCTURE_BYTES,
+    );
+    expect(aggregateTree.truncated).toBe(true);
     expect(JSON.stringify(entry)).not.toContain(huge.slice(0, 100_000));
     expect(entry).not.toHaveProperty('raw');
   });
@@ -394,6 +409,55 @@ describe('entries and trees', () => {
         children: [{ entry: { type: 'label', id: 'b', label: 'l' }, children: [] }],
       },
     ]);
-    expect(tree[0]?.children[0]?.entry.id).toBe('b');
+    expect(tree.rows).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: 'b', depth: 1 })]),
+    );
+  });
+
+  it('iteratively bounds hostile tree depth and breadth', () => {
+    let node: Record<string, unknown> = {
+      entry: { type: 'message', id: 'deep-end', message: { role: 'user', content: 'x' } },
+      children: [],
+    };
+    for (let depth = 0; depth < 5_000; depth += 1) {
+      node = { entry: { type: 'custom', id: `d-${depth}` }, children: [node] };
+    }
+    const deep = normalizeTree([node]);
+    expect(deep.truncated).toBe(true);
+    expect(Math.max(...deep.rows.map((row) => row.depth))).toBe(MAX_TREE_DEPTH);
+
+    const broad = normalizeTree(
+      Array.from({ length: MAX_TREE_ROWS + 100 }, (_, index) => ({
+        entry: { type: 'custom', id: `b-${index}` },
+        children: [],
+      })),
+    );
+    expect(broad.rows).toHaveLength(MAX_TREE_ROWS);
+    expect(broad.truncated).toBe(true);
+  });
+
+  it('omits image bytes, tool arguments, and nested details from tree rows', () => {
+    const secret = 'must-not-cross';
+    const tree = normalizeTree([
+      {
+        entry: {
+          type: 'message',
+          id: 'hostile',
+          message: {
+            role: 'assistant',
+            content: [
+              { type: 'image', data: 'x'.repeat(1_000_000), mimeType: 'image/png' },
+              { type: 'text', text: 'p'.repeat(MAX_TREE_PREVIEW + 20) },
+              { type: 'toolCall', arguments: { secret } },
+            ],
+            details: { nested: { secret } },
+          },
+        },
+        children: [],
+      },
+    ]);
+    expect(tree.rows[0]?.preview).toHaveLength(MAX_TREE_PREVIEW);
+    expect(JSON.stringify(tree)).not.toContain(secret);
+    expect(JSON.stringify(tree)).not.toContain('image/png');
   });
 });

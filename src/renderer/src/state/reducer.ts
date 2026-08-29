@@ -30,6 +30,7 @@ export const INITIAL_STATE: AppState = {
   settings: DEFAULT_SETTINGS,
   agent: null,
   stats: null,
+  sessions: [],
   models: [],
   thinkingLevels: [],
   commands: [],
@@ -164,6 +165,8 @@ export function reducer(state: AppState, action: Action): AppState {
       return { ...state, diagnostics: action.messages.slice(-MAX_DIAGNOSTICS) };
     case 'stats':
       return { ...state, stats: action.stats };
+    case 'sessions':
+      return { ...state, sessions: action.sessions };
     case 'models':
       return { ...state, models: action.models };
     case 'thinkingLevels':

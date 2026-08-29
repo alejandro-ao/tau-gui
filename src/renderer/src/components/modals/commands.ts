@@ -6,6 +6,7 @@ import {
 } from '../../../../shared/domain.js';
 import type { Actions } from '../../state/store.js';
 import type { AppState } from '../../state/types.js';
+import { catalogSessions, sessionLabel } from '../../state/working-directories.js';
 
 export type CommandGroup =
   'session' | 'model' | 'thinking' | 'view' | 'theme' | 'runtime' | 'diagnostics';
@@ -44,30 +45,17 @@ function commandArgs(invocation: string | undefined): string {
 
 function parseExport(
   invocation: string | undefined,
-): { format: 'html'; destination?: string } | { error: string } {
-  const usage = 'Usage: /export [--format html] [destination]';
+): { format: 'html' | 'jsonl' } | { error: string } {
+  const usage = 'Usage: /export [--format html|jsonl]';
   const parts = commandArgs(invocation).split(/\s+/).filter(Boolean);
-  let destination: string | undefined;
-  for (let index = 0; index < parts.length; index += 1) {
-    const part = parts[index];
-    if (!part) continue;
-    if (part === '--format') {
-      const format = parts[++index];
-      if (!format) return { error: usage };
-      if (format !== 'html') {
-        return { error: 'JSONL export is not exposed by the desktop application contract.' };
-      }
-    } else if (part.startsWith('--format=')) {
-      if (part.slice('--format='.length) !== 'html') {
-        return { error: 'JSONL export is not exposed by the desktop application contract.' };
-      }
-    } else if (part.startsWith('-') || destination) {
-      return { error: usage };
-    } else {
-      destination = part;
-    }
-  }
-  return { format: 'html', destination };
+  if (parts.length === 0) return { format: 'html' };
+  const value =
+    parts[0] === '--format' && parts.length === 2
+      ? parts[1]
+      : parts.length === 1 && parts[0]?.startsWith('--format=')
+        ? parts[0].slice('--format='.length)
+        : null;
+  return value === 'html' || value === 'jsonl' ? { format: value } : { error: usage };
 }
 
 const THEMES: ThemeName[] = ['tau-dark', 'tau-light', 'high-contrast', 'pure-black'];
@@ -145,7 +133,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'session.resume',
     title: '/resume',
-    description: 'Recent sessions owned by this app',
+    description: 'Browse Pi-native saved sessions',
     group: 'session',
     origin: 'frontend',
     slash: '/resume',
@@ -156,8 +144,8 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
         actions.openModal('session');
         return;
       }
-      const session = state.settings.recentSessions.find(
-        (candidate) => candidate.id === sessionId || candidate.path === sessionId,
+      const session = catalogSessions(state.settings, state.sessions).find(
+        (candidate) => candidate.id === sessionId,
       );
       if (session) void actions.resumeSession(session);
       else void actions.switchSession(sessionId);
@@ -189,7 +177,7 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'session.export',
     title: '/export',
-    description: 'Export the session as HTML (may include system prompts)',
+    description: 'Export through a native save dialog as HTML or portable JSONL',
     group: 'session',
     origin: 'backend',
     slash: '/export',
@@ -197,7 +185,8 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     run: (invocation) => {
       const parsed = parseExport(invocation);
       if ('error' in parsed) actions.notice(parsed.error);
-      else void actions.exportHtml(parsed.destination);
+      else if (parsed.format === 'jsonl') void actions.exportJsonl();
+      else void actions.exportHtml();
     },
   });
   add({
@@ -207,10 +196,18 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     group: 'session',
     origin: 'backend',
     slash: '/clone',
-    // No GUI implementation exists yet, whatever the runtime supports.
-    unavailable: capabilities.sessionClone
-      ? 'clone is not implemented in the desktop app yet'
-      : 'this runtime cannot clone sessions',
+    unavailable: gate(capabilities.sessionClone, 'this runtime cannot clone sessions'),
+    run: () => void actions.cloneSession(),
+  });
+  add({
+    id: 'session.import',
+    title: '/import',
+    description: 'Import a Pi JSONL session through a native file picker',
+    group: 'session',
+    origin: 'backend',
+    slash: '/import',
+    unavailable: gate(capabilities.sessionClone, 'this runtime cannot replace sessions'),
+    run: () => void actions.importJsonl(),
   });
   add({
     id: 'app.quit',
@@ -543,11 +540,11 @@ export function buildPaletteExtras(state: AppState, actions: Actions): AppComman
     });
   }
 
-  for (const session of state.settings.recentSessions) {
+  for (const session of catalogSessions(state.settings, state.sessions)) {
     extras.push({
       id: `session.recent.${session.id}`,
-      title: `session: ${session.name ?? session.id}`,
-      description: `${session.runtime} · ${session.path ?? session.cwd ?? 'unknown location'}`,
+      title: `session: ${sessionLabel(session) ?? session.id}`,
+      description: session.cwd ?? 'unknown project',
       group: 'session',
       origin: 'backend',
       slash: null,

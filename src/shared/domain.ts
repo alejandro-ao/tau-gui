@@ -252,7 +252,8 @@ export interface AgentState {
   thinkingLevel: ThinkingLevel;
   isStreaming: boolean;
   isCompacting: boolean;
-  sessionFile: string | null;
+  /** Whether the runtime has durable backing; its private file path stays in main. */
+  persisted: boolean;
   sessionId: string;
   sessionName: string | null;
   autoCompactionEnabled: boolean;
@@ -261,7 +262,7 @@ export interface AgentState {
 }
 
 export interface SessionStats {
-  sessionFile: string | null;
+  persisted: boolean;
   sessionId: string;
   userMessages: number;
   assistantMessages: number;
@@ -300,8 +301,10 @@ export interface SessionEntry {
     | 'session_info';
   /** Present for message-bearing entries. */
   message?: AgentMessage;
-  /** Short human-readable label used by the tree browser. */
+  /** Short human-readable preview used by the tree browser. */
   summary: string;
+  /** Resolved Pi bookmark label, when present. */
+  label?: string;
 }
 
 export interface EntrySnapshot {
@@ -309,14 +312,38 @@ export interface EntrySnapshot {
   leafId: string | null;
 }
 
-export interface TreeNode {
-  entry: SessionEntry;
-  children: TreeNode[];
+/** Bounded, presentation-only tree row. Full messages and extension details never cross IPC. */
+export interface TreeRow {
+  id: string;
+  parentId: string | null;
+  depth: number;
+  kind: SessionEntry['kind'];
+  role: MessageRole | null;
+  timestamp: string;
+  preview: string;
+  label: string | null;
 }
 
 export interface TreeSnapshot {
-  tree: TreeNode[];
+  rows: TreeRow[];
   leafId: string | null;
+  truncated: boolean;
+}
+
+export type TreeSummaryMode = 'none' | 'default' | 'custom';
+
+export interface TreeNavigateOptions {
+  summary: TreeSummaryMode;
+  customInstructions?: string;
+  label?: string;
+}
+
+export interface TreeNavigateResult {
+  editorText: string | null;
+  /** True when a larger editable message was deterministically capped for IPC. */
+  editorTextTruncated: boolean;
+  cancelled: boolean;
+  aborted: boolean;
 }
 
 /* ----------------------------------------------------------------- actions */
@@ -379,6 +406,25 @@ export interface SessionRef {
   cwd: string | null;
   runtime: RuntimeKind;
   lastSeen: number;
+}
+
+/** Bounded Pi-native session metadata. Session file paths never cross IPC. */
+export interface SessionSummary {
+  /** Opaque main-owned catalog identity used for resume/export and React keys. */
+  id: string;
+  source: 'native' | 'recent';
+  runtime: RuntimeKind;
+  /** Runtime transcript identity, used only to correlate activity/current state. */
+  sessionId: string;
+  /** Only native records can be resolved for inactive portable export. */
+  exportable: boolean;
+  name: string | null;
+  firstMessage: string | null;
+  cwd: string | null;
+  createdAt: number;
+  modifiedAt: number;
+  messageCount: number;
+  parentSessionId: string | null;
 }
 
 /* ---------------------------------------------------------------- settings */

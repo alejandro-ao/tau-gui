@@ -7,6 +7,7 @@ import type {
   Model,
   ResourceCatalog,
   SessionStats,
+  SessionSummary,
   ThinkingLevel,
 } from '../../../shared/domain.js';
 import type {
@@ -138,6 +139,7 @@ export interface AppState {
   settings: AppSettings;
   agent: AgentState | null;
   stats: SessionStats | null;
+  sessions: SessionSummary[];
   models: Model[];
   thinkingLevels: ThinkingLevel[];
   commands: CommandInfo[];
@@ -195,6 +197,7 @@ export type Action =
   | { type: 'diagnostic'; message: string }
   | { type: 'diagnostics'; messages: string[] }
   | { type: 'stats'; stats: SessionStats }
+  | { type: 'sessions'; sessions: SessionSummary[] }
   | { type: 'models'; models: Model[] }
   | { type: 'thinkingLevels'; levels: ThinkingLevel[] }
   | { type: 'commands'; commands: CommandInfo[] }

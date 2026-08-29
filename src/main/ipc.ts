@@ -7,20 +7,26 @@ import {
   entrySnapshotSchema,
   resourceCatalogSchema,
   resourceReloadResultSchema,
+  sessionCatalogSchema,
+  sessionNameSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
+  treeNavigateResultSchema,
   treeSnapshotSchema,
 } from '../shared/ipc.js';
 import { discoverContextFiles } from './services/context-files.js';
 import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
+import type { ImportRecoveryAccess } from './services/import-recovery.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
+import { recentSummary, rendererSettings } from './services/session-identity.js';
 
 export interface HandlerContext {
   settings: SettingsStore;
   manager: RuntimePool;
+  importRecovery: ImportRecoveryAccess;
   window: () => BrowserWindow | null;
 }
 
@@ -43,31 +49,30 @@ export async function handleRequest(
 
   switch (request.action) {
     case 'settings.get':
-      return settings.current;
+      return rendererSettings(settings.current);
     case 'settings.update':
-      return settings.update(request.payload);
+      return rendererSettings(settings.update(request.payload));
     case 'settings.toggleScopedModel':
-      return settings.toggleScopedModel(request.payload.runtime, request.payload);
+      return rendererSettings(settings.toggleScopedModel(request.payload.runtime, request.payload));
     case 'settings.addResourceDirectory': {
       const kind = request.payload.kind;
       const path = await pickDirectory(
         context,
         kind === 'skills' ? 'Add skills directory' : 'Add prompt templates directory',
       );
-      return path ? settings.addResourceDirectory(kind, path) : null;
+      return path ? rendererSettings(settings.addResourceDirectory(kind, path)) : null;
     }
     case 'settings.removeResourceDirectory':
-      return settings.removeResourceDirectory(request.payload.kind, request.payload.path);
+      return rendererSettings(
+        settings.removeResourceDirectory(request.payload.kind, request.payload.path),
+      );
     case 'settings.rememberWorkingDirectory':
-      return settings.rememberWorkingDirectory(request.payload.cwd);
+      return rendererSettings(settings.rememberWorkingDirectory(request.payload.cwd));
     case 'settings.forgetSession':
-      return settings.forgetSession(request.payload.id);
+      return rendererSettings(settings.forgetSession(request.payload.id));
 
     case 'runtime.start':
-      return manager.start({
-        cwd: request.payload.cwd ?? null,
-        sessionRef: request.payload.sessionRef ?? null,
-      });
+      return manager.start({ cwd: request.payload.cwd ?? null });
     case 'runtime.openSession':
       return manager.openSession(request.payload.cwd);
     case 'runtime.stop':
@@ -101,8 +106,21 @@ export async function handleRequest(
     case 'agent.abort':
       await mutate((runtime) => runtime.abort());
       return null;
-    case 'agent.state':
-      return read((runtime) => runtime.getState());
+    case 'agent.state': {
+      const state = await read((runtime) => runtime.getState());
+      return {
+        model: state.model,
+        thinkingLevel: state.thinkingLevel,
+        isStreaming: state.isStreaming,
+        isCompacting: state.isCompacting,
+        persisted: state.persisted,
+        sessionId: state.sessionId,
+        sessionName: state.sessionName,
+        autoCompactionEnabled: state.autoCompactionEnabled,
+        messageCount: state.messageCount,
+        pendingMessageCount: state.pendingMessageCount,
+      };
+    }
     case 'agent.messages':
       return read((runtime) => runtime.getMessages());
     case 'agent.entries':
@@ -152,31 +170,69 @@ export async function handleRequest(
       await manager.activateSession(request.payload.ref);
       return null;
     case 'session.name':
-      await manager.nameSession(request.payload.name, target);
+      await manager.nameSession(sessionNameSchema.parse(request.payload.name), target);
       return null;
     case 'session.fork':
-      return mutate((runtime) => runtime.fork(request.payload.entryId));
+      return treeNavigateResultSchema.parse(
+        await mutate((runtime) => runtime.fork(request.payload.entryId, request.payload)),
+      );
+    case 'session.label':
+      await mutate((runtime) => runtime.setLabel(request.payload.entryId, request.payload.label));
+      return null;
+    case 'session.clone':
+      await manager.cloneSession(target);
+      return null;
+    case 'session.importJsonl': {
+      const input = await pickSessionFile(context);
+      if (!input) return null;
+      await manager.importSession(input, target);
+      return null;
+    }
+    case 'session.importHealth':
+      return context.importRecovery.health();
+    case 'session.revealImportRecovery':
+      await context.importRecovery.reveal();
+      return null;
+    case 'session.list': {
+      const snapshot = manager.snapshot();
+      const active = await read((runtime) => Promise.resolve(runtime.capabilities));
+      const native = active.sessionList
+        ? await read((runtime) => runtime.listSessions(request.payload.scope))
+        : [];
+      const nativeSessions = new Set(
+        native.map((session) => `${session.runtime}:${session.sessionId}`),
+      );
+      const recent = settings.current.recentSessions
+        .filter(
+          (session) =>
+            !nativeSessions.has(`${session.runtime}:${session.id}`) &&
+            (request.payload.scope === 'all' || session.cwd === snapshot.cwd),
+        )
+        .map(recentSummary);
+      return sessionCatalogSchema.parse([...native, ...recent].slice(0, 500));
+    }
     case 'session.compact':
       return mutate((runtime) => runtime.compact(request.payload?.instructions));
     case 'session.autoCompaction':
       await mutate((runtime) => runtime.setAutoCompaction(request.payload.enabled));
       return null;
     case 'session.exportHtml': {
-      const destination = request.payload?.destination;
-      if (destination) {
-        return read((runtime) => runtime.exportHtml(destination));
+      const destination = await pickExportPath(context, 'html');
+      return destination ? read((runtime) => runtime.exportHtml(destination)) : null;
+    }
+    case 'session.exportJsonl': {
+      while (true) {
+        const destination = await pickExportPath(context, 'jsonl');
+        if (!destination) return null;
+        try {
+          return await read((runtime) =>
+            runtime.exportJsonl(destination, request.payload?.sessionId),
+          );
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+          await showExportCollision(context);
+        }
       }
-      const window = context.window();
-      const options = {
-        title: 'Export session as HTML',
-        defaultPath: 'session.html',
-        filters: [{ name: 'HTML', extensions: ['html'] }],
-      };
-      const result = window
-        ? await dialog.showSaveDialog(window, options)
-        : await dialog.showSaveDialog(options);
-      if (result.canceled || !result.filePath) return null;
-      return read((runtime) => runtime.exportHtml(result.filePath));
     }
 
     case 'shell.run':
@@ -286,6 +342,48 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+async function pickSessionFile(context: HandlerContext): Promise<string | null> {
+  const options = {
+    title: 'Import Pi session',
+    properties: ['openFile' as const],
+    filters: [{ name: 'Pi session', extensions: ['jsonl'] }],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
+}
+
+async function pickExportPath(
+  context: HandlerContext,
+  extension: 'html' | 'jsonl',
+): Promise<string | null> {
+  const options = {
+    title: `Export session as ${extension.toUpperCase()}`,
+    defaultPath: `session.${extension}`,
+    filters: [{ name: extension === 'html' ? 'HTML' : 'Pi session', extensions: [extension] }],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showSaveDialog(window, options)
+    : await dialog.showSaveDialog(options);
+  return result.canceled ? null : (result.filePath ?? null);
+}
+
+async function showExportCollision(context: HandlerContext): Promise<void> {
+  const options = {
+    type: 'warning' as const,
+    title: 'Choose a new export file',
+    message: 'That file already exists. Portable export creates new files only.',
+    detail: 'Choose a different filename; the existing file was not changed.',
+    buttons: ['Choose another name'],
+  };
+  const window = context.window();
+  if (window) await dialog.showMessageBox(window, options);
+  else await dialog.showMessageBox(options);
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {

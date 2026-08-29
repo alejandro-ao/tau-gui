@@ -18,7 +18,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: false,
   isCompacting: false,
-  sessionFile: null,
+  persisted: false,
   sessionId: 's1',
   sessionName: 'refactor',
   autoCompactionEnabled: true,

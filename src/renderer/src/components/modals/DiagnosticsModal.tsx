@@ -1,4 +1,4 @@
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
 import { CopyButton } from '../CopyButton.js';
 import { Modal } from './Modal.js';
@@ -6,9 +6,13 @@ import { Modal } from './Modal.js';
 /** Bounded diagnostics list from the main process plus renderer notices. */
 export function DiagnosticsModal(): ReactNode {
   const { state, actions } = useStore();
+  const [importHealth, setImportHealth] = useState<{ retained: number; capacity: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     void actions.loadDiagnostics();
+    void actions.importRecoveryHealth().then(setImportHealth);
   }, [actions]);
 
   const diagnostics = [...state.diagnostics, ...state.resources.diagnostics];
@@ -20,8 +24,21 @@ export function DiagnosticsModal(): ReactNode {
       title="diagnostics"
       subtitle="bounded runtime and application diagnostics; credentials are never recorded"
       onClose={() => actions.openModal(null)}
-      footer={<CopyButton text={text} label="diagnostics" />}
+      footer={
+        <>
+          <CopyButton text={text} label="diagnostics" />
+          <button type="button" onClick={() => void actions.revealImportRecovery()}>
+            reveal import recovery
+          </button>
+        </>
+      }
     >
+      {importHealth ? (
+        <p>
+          import recovery: {importHealth.retained}/{importHealth.capacity} retained uncertain
+          artifacts
+        </p>
+      ) : null}
       {diagnostics.length === 0 ? (
         <p className="picker-empty">no diagnostics recorded</p>
       ) : (

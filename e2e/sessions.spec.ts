@@ -55,7 +55,7 @@ test('/new from the composer clears the transcript too', async () => {
   await expect(composer(page)).toHaveValue('');
 });
 
-test('the recent-session picker lists the session remembered by the app', async () => {
+test('the fallback session picker preserves app metadata in the deterministic harness', async () => {
   const { page } = handle;
   await composer(page).fill('/resume');
   await composer(page).press('Enter');
@@ -63,8 +63,8 @@ test('the recent-session picker lists the session remembered by the app', async 
   const picker = page.getByTestId('modal-session');
   await expect(picker).toBeVisible();
   await expect(picker.getByRole('option')).toHaveCount(1);
-  await expect(picker.getByRole('option').first()).toContainText('fake-session-1');
-  await expect(picker).toContainText('recent sessions remembered by this app');
+  await expect(picker.getByRole('option').first()).toContainText('recent-');
+  await expect(picker).toContainText('Pi-native session catalog');
 
   await page.keyboard.press('Escape');
   await expect(picker).toHaveCount(0);

@@ -1,5 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { ContextFile } from '../../shared/ipc.js';
+import { MAX_TREE_EDITOR_TEXT, type ContextFile } from '../../shared/ipc.js';
 import type {
   ResourceReloadResult,
   SystemPromptInspection,
@@ -23,6 +23,7 @@ import type {
   RuntimeStatus,
   ResourceCatalog,
   SessionStats,
+  SessionSummary,
   ThinkingLevel,
   TreeSnapshot,
 } from '../../shared/domain.js';
@@ -40,6 +41,11 @@ import {
 } from './normalize.js';
 import { CAPABILITIES, buildLaunchSpec } from './spec.js';
 
+export interface RuntimeAgentState extends AgentState {
+  /** Main-process-only durable identity; never copy into renderer DTOs. */
+  sessionFile: string | null;
+}
+
 export interface RuntimeSink {
   event(event: AgentEvent): void;
   status(status: RuntimeStatus, detail?: string | null): void;
@@ -55,7 +61,7 @@ export interface AgentRuntime {
   steer(input: PromptInput): Promise<void>;
   followUp(input: PromptInput): Promise<void>;
   abort(): Promise<void>;
-  getState(): Promise<AgentState>;
+  getState(): Promise<RuntimeAgentState>;
   getMessages(): Promise<AgentMessage[]>;
   getEntries(cursor?: string): Promise<EntrySnapshot>;
   getTree(): Promise<TreeSnapshot>;
@@ -73,8 +79,30 @@ export interface AgentRuntime {
   newSession(): Promise<void>;
   switchSession(ref: string): Promise<void>;
   nameSession(name: string): Promise<void>;
-  fork(entryId: string): Promise<string>;
+  fork(
+    entryId: string,
+    options: {
+      summary: 'none' | 'default' | 'custom';
+      customInstructions?: string;
+      label?: string;
+    },
+  ): Promise<{
+    editorText: string | null;
+    editorTextTruncated: boolean;
+    cancelled: boolean;
+    aborted: boolean;
+  }>;
+  setLabel(entryId: string, label: string | null): Promise<void>;
+  clone(): Promise<void>;
+  prepareImport?(path: string): Promise<{ sessionId: string; physicalKey: string }>;
+  importJsonl(
+    path: string,
+  ): Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>;
+  discardPreparedImport?(): Promise<void>;
+  describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
+  listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
+  exportJsonl(path: string, sessionId?: string): Promise<string>;
   listCommands(): Promise<CommandInfo[]>;
   /** Direct SDK runtimes can expose authoritative resource metadata. */
   getResources?(): Promise<ResourceCatalog>;
@@ -99,9 +127,9 @@ export const CAPABILITY_RUNTIME_METHODS = {
   directBash: ['runShell'],
   abortBash: ['abortShell'],
   retryControls: null,
-  sessionTree: ['getTree', 'fork'],
-  sessionClone: null,
-  sessionList: null,
+  sessionTree: ['getTree', 'fork', 'setLabel'],
+  sessionClone: ['clone'],
+  sessionList: ['listSessions'],
   extensionDialogs: null,
   providerLogin: null,
   resourceReload: ['reloadResources'],
@@ -390,7 +418,7 @@ export class JsonlAgentRuntime implements AgentRuntime {
     await this.rpc.request('abort');
   }
 
-  async getState(): Promise<AgentState> {
+  async getState(): Promise<RuntimeAgentState> {
     return normalizeState(await this.rpc.request('get_state', {}, 20_000));
   }
 
@@ -410,9 +438,11 @@ export class JsonlAgentRuntime implements AgentRuntime {
 
   async getTree(): Promise<TreeSnapshot> {
     const data = asRecord(await this.rpc.request('get_tree'));
+    const normalized = normalizeTree(data['tree']);
     return {
-      tree: normalizeTree(data['tree']),
-      leafId: normalizeSessionIdentifier(data['leafId']),
+      rows: normalized.rows,
+      leafId: typeof data['leafId'] === 'string' ? data['leafId'].slice(0, 128) : null,
+      truncated: normalized.truncated,
     };
   }
 
@@ -515,15 +545,53 @@ export class JsonlAgentRuntime implements AgentRuntime {
     await this.rpc.request('set_session_name', { name });
   }
 
-  async fork(entryId: string): Promise<string> {
+  async fork(
+    entryId: string,
+    _options: {
+      summary: 'none' | 'default' | 'custom';
+      customInstructions?: string;
+      label?: string;
+    },
+  ): Promise<{
+    editorText: string | null;
+    editorTextTruncated: boolean;
+    cancelled: boolean;
+    aborted: boolean;
+  }> {
     const data = asRecord(await this.rpc.request('fork', { entryId }));
-    return typeof data['text'] === 'string' ? data['text'] : '';
+    const editorText = typeof data['text'] === 'string' ? data['text'] : null;
+    return {
+      editorText: editorText?.slice(0, MAX_TREE_EDITOR_TEXT) ?? null,
+      editorTextTruncated: editorText !== null && editorText.length > MAX_TREE_EDITOR_TEXT,
+      cancelled: false,
+      aborted: false,
+    };
+  }
+
+  setLabel(): Promise<void> {
+    return Promise.reject(new Error('Session labels are unavailable in the test RPC runtime'));
+  }
+
+  clone(): Promise<void> {
+    return Promise.reject(new Error('Session cloning is unavailable in the test RPC runtime'));
+  }
+
+  importJsonl(): Promise<void> {
+    return Promise.reject(new Error('Session import is unavailable in the test RPC runtime'));
+  }
+
+  listSessions(): Promise<SessionSummary[]> {
+    return Promise.reject(new Error('Session listing is unavailable in the test RPC runtime'));
   }
 
   async exportHtml(path?: string): Promise<string> {
     const params = path ? { outputPath: path } : {};
     const data = asRecord(await this.rpc.request('export_html', params, 0));
     return typeof data['path'] === 'string' ? data['path'] : '';
+  }
+
+  exportJsonl(): Promise<string> {
+    return Promise.reject(new Error('JSONL export is unavailable in the test RPC runtime'));
   }
 
   async listCommands(): Promise<CommandInfo[]> {

@@ -1,9 +1,13 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent, PromptQueueItem, PromptQueueSnapshot } from '../src/shared/ipc.js';
 import { handleRequest } from '../src/main/ipc.js';
+import { inspectPhysicalFile } from '../src/main/runtime/session-files.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
 import type { RuntimeManager } from '../src/main/services/runtime-manager.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
@@ -81,6 +85,123 @@ describe('RuntimePool', () => {
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(2);
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
+  });
+
+  it('serializes session replacement so one owner never clones concurrently', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const runtime = pool.runtimeFor(target);
+    let activeClones = 0;
+    let maximum = 0;
+    runtime.clone = async () => {
+      activeClones += 1;
+      maximum = Math.max(maximum, activeClones);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeClones -= 1;
+    };
+
+    await Promise.all([pool.cloneSession(target), pool.cloneSession(target)]);
+
+    expect(maximum).toBe(1);
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
+  it('serializes and rejects simultaneous same-owner logical-ID imports', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    const runtime = pool.runtimeFor(target);
+    let activeImports = 0;
+    let maximum = 0;
+    runtime.prepareImport = async () => {
+      activeImports += 1;
+      maximum = Math.max(maximum, activeImports);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      activeImports -= 1;
+      return { sessionId: 'fake-session-1', physicalKey: 'prepared-file' };
+    };
+    runtime.importJsonl = () => Promise.resolve();
+
+    const results = await Promise.allSettled([
+      pool.importSession('/first', target),
+      pool.importSession('/second', target),
+    ]);
+    expect(results.every((result) => result.status === 'rejected')).toBe(true);
+    expect(maximum).toBe(1);
+    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
+  });
+
+  it('rejects a final import snapshot swapped away from its reserved identity', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tau-import-final-'));
+    try {
+      const reservedPath = join(root, 'reserved.jsonl');
+      const swappedPath = join(root, 'swapped.jsonl');
+      writeFileSync(reservedPath, 'reserved');
+      writeFileSync(swappedPath, 'swapped');
+      const reserved = await inspectPhysicalFile(reservedPath);
+
+      const settings = makeSettings();
+      pool = new RuntimePool(settings, () => undefined);
+      await pool.start();
+      const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+      const runtime = pool.runtimeFor(target);
+      const originalState = await runtime.getState();
+      runtime.prepareImport = () =>
+        Promise.resolve({ sessionId: 'imported-session', physicalKey: reserved.key });
+      runtime.importJsonl = () =>
+        Promise.resolve({
+          sessionId: 'imported-session',
+          physicalKey: reserved.key,
+          physicalPath: reserved.path,
+        });
+      runtime.getState = () =>
+        Promise.resolve({
+          ...originalState,
+          sessionId: 'imported-session',
+          sessionFile: swappedPath,
+          persisted: true,
+        });
+
+      await expect(pool.importSession('/portable', target)).rejects.toThrow(
+        'reserved physical identity',
+      );
+      expect(pool.snapshot()).toMatchObject({ status: 'failed', recoveryTarget: target });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reuses an owner found by prospective logical/physical identity', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const runtime = pool.active;
+    runtime.describeSession = () =>
+      Promise.resolve({ sessionId: 'fake-session-1', physicalKey: 'same-file' });
+
+    const snapshot = await pool.activateSession('opaque-catalog-id');
+    expect(snapshot.state?.sessionId).toBe('fake-session-1');
+    const internals = pool as unknown as { managers: Set<unknown> };
+    expect(internals.managers.size).toBe(1);
+  });
+
+  it('removes a destructively replaced runtime after recreation failure', async () => {
+    const settings = makeSettings();
+    const events: BridgeEvent[] = [];
+    pool = new RuntimePool(settings, (event) => events.push(event));
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    pool.runtimeFor(target).clone = () => Promise.reject(new Error('rebind failed'));
+
+    await expect(pool.cloneSession(target)).rejects.toThrow('rebind failed');
+    expect(pool.snapshot()).toMatchObject({ status: 'failed', recoveryTarget: target });
+    expect(() => pool?.runtimeFor(target)).toThrow('Session is no longer available');
+    expect(
+      events.some((event) => event.type === 'status' && event.snapshot.status === 'failed'),
+    ).toBe(true);
   });
 
   it('stops a subprocess whose session activation fails', async () => {
@@ -397,7 +518,15 @@ describe('RuntimePool', () => {
     pool = new RuntimePool(settings, () => undefined);
     await pool.start();
     const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    const context = { settings, manager: pool, window: () => null };
+    const context = {
+      settings,
+      manager: pool,
+      importRecovery: {
+        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        reveal: () => Promise.resolve(),
+      },
+      window: () => null,
+    };
 
     // Renderer refreshes create empty queue storage. That storage is state, not
     // authority to keep routing after an ordinary stop removes the live owner.
@@ -477,7 +606,15 @@ describe('RuntimePool', () => {
     // Exercise the renderer-facing IPC handlers while there is no manager.
     // Claims retain their stable identity, restores stay in this session, and
     // an accepted edit can be safely enqueued for the same recovery target.
-    const context = { settings, manager: pool, window: () => null };
+    const context = {
+      settings,
+      manager: pool,
+      importRecovery: {
+        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        reveal: () => Promise.resolve(),
+      },
+      window: () => null,
+    };
     await handleRequest(context, {
       action: 'agent.steer',
       payload: { text: 'steering after failed restart' },
@@ -1308,7 +1445,17 @@ describe('RuntimePool', () => {
       'nameSession',
       undefined,
     ],
-    ['session.fork', { action: 'session.fork', payload: { entryId: 'entry-1' } }, 'fork', 'text'],
+    [
+      'session.fork',
+      { action: 'session.fork', payload: { entryId: 'entry-1', summary: 'none' } },
+      'fork',
+      {
+        editorText: 'text',
+        editorTextTruncated: false,
+        cancelled: false,
+        aborted: false,
+      },
+    ],
     [
       'session.compact',
       { action: 'session.compact' },
@@ -1341,7 +1488,15 @@ describe('RuntimePool', () => {
       pool = new RuntimePool(settings, () => undefined);
       await pool.start();
       const target = { runtime: 'tau', sessionId: 'fake-session-1' } as const;
-      const context = { settings, manager: pool, window: () => null };
+      const context = {
+        settings,
+        manager: pool,
+        importRecovery: {
+          health: () => Promise.resolve({ retained: 0, capacity: 32 as const }),
+          reveal: () => Promise.resolve(),
+        },
+        window: () => null,
+      };
       const operationGate = deferred<void>();
       let operationEntered = false;
       const active = pool.active as unknown as Record<string, unknown>;

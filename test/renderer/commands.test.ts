@@ -37,11 +37,13 @@ function stateWith(capabilities: Partial<typeof DEFAULT_CAPABILITIES> = {}): App
 }
 
 describe('command registry', () => {
-  it('marks /clone unavailable even when the runtime supports cloning', () => {
-    const { actions } = stubActions();
+  it('executes /clone when the complete runtime slice is available', () => {
+    const { actions, calls } = stubActions();
     const commands = buildCommands(stateWith({ sessionClone: true }), actions);
     const clone = commands.find((command) => command.id === 'session.clone');
-    expect(clone?.unavailable).toBe('clone is not implemented in the desktop app yet');
+    expect(clone?.unavailable).toBeNull();
+    clone?.run();
+    expect(calls).toContain('cloneSession:');
   });
 
   it('keeps the runtime capability reason when the runtime cannot clone', () => {
@@ -74,7 +76,6 @@ describe('command registry', () => {
   it('reports the reason when an unimplemented command is run anyway', () => {
     const state = stateWith({});
     const unimplemented = [
-      'session.clone',
       'runtime.tools',
       'runtime.system',
       'runtime.reload',

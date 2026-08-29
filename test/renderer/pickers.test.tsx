@@ -2,13 +2,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { query, texts, type Mounted } from './harness.js';
 import { click, composer, options, press, renderApp, selectedOption, type } from './ui.js';
-import type {
-  AgentState,
-  Model,
-  SessionEntry,
-  SessionRef,
-  TreeSnapshot,
-} from '../../src/shared/domain.js';
+import type { AgentState, Model, SessionRef, TreeSnapshot } from '../../src/shared/domain.js';
 
 let mounted: Mounted | null = null;
 
@@ -60,7 +54,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: false,
   isCompacting: false,
-  sessionFile: '/work/project/.tau/sessions/current.jsonl',
+  persisted: true,
   sessionId: 'session-1',
   sessionName: 'refactor transport',
   autoCompactionEnabled: true,
@@ -87,42 +81,41 @@ const RECENTS: SessionRef[] = [
   },
 ];
 
-function entry(id: string, summary: string, role: 'user' | 'assistant'): SessionEntry {
-  return {
-    id,
-    parentId: null,
-    timestamp: '2026-01-02T03:04:05.000Z',
-    kind: 'message',
-    message:
-      role === 'user'
-        ? { role: 'user', text: summary, images: [], timestamp: 0 }
-        : {
-            role: 'assistant',
-            text: summary,
-            thinking: '',
-            toolCalls: [],
-            provider: 'openai',
-            model: 'gpt-5',
-            usage: null,
-            stopReason: 'stop',
-            errorMessage: null,
-            timestamp: 0,
-          },
-    summary,
-  };
-}
-
 const TREE: TreeSnapshot = {
-  tree: [
+  rows: [
     {
-      entry: entry('e1', 'add jsonl framing tests', 'user'),
-      children: [
-        { entry: entry('e2', 'sure, adding them now', 'assistant'), children: [] },
-        { entry: entry('e3', 'second branch reply', 'assistant'), children: [] },
-      ],
+      id: 'e1',
+      parentId: null,
+      depth: 0,
+      kind: 'message',
+      role: 'user',
+      timestamp: '2026-01-02T03:04:05.000Z',
+      preview: 'add jsonl framing tests',
+      label: null,
+    },
+    {
+      id: 'e2',
+      parentId: 'e1',
+      depth: 1,
+      kind: 'message',
+      role: 'assistant',
+      timestamp: '2026-01-02T03:04:05.000Z',
+      preview: 'sure, adding them now',
+      label: null,
+    },
+    {
+      id: 'e3',
+      parentId: 'e1',
+      depth: 1,
+      kind: 'message',
+      role: 'assistant',
+      timestamp: '2026-01-02T03:04:05.000Z',
+      preview: 'second branch reply',
+      label: null,
     },
   ],
   leafId: 'e3',
+  truncated: false,
 };
 
 describe('model picker', () => {
@@ -152,20 +145,33 @@ describe('model picker', () => {
 });
 
 describe('session picker', () => {
-  it('switches to an app-owned recent session and can forget one', async () => {
+  it('switches from the Pi-native picker and exports without exposing a path', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
-      settings: { recentSessions: RECENTS },
+      runtime: 'pi',
+      capabilities: { sessionList: true },
+      settings: { recentSessions: [] },
+      results: {
+        'session.list': RECENTS.map((session) => ({
+          id: session.id,
+          name: session.name,
+          firstMessage: session.id,
+          cwd: session.cwd,
+          createdAt: session.lastSeen,
+          modifiedAt: session.lastSeen,
+          messageCount: 1,
+          parentSessionId: null,
+        })),
+      },
     });
     mounted = view;
     await runPaletteCommand(view, '/resume');
     const dialog = query(view.container, '[data-modal-name="session"]');
-    expect(dialog.textContent).toContain('full cross-session listing is not implemented yet');
+    expect(dialog.textContent).toContain('Pi-native session catalog');
     expect(options(dialog)).toHaveLength(2);
 
     await click(query(dialog, '[role="option"]:nth-child(2) button'));
-    expect(bridge.payloads('settings.forgetSession')).toEqual([{ id: 'session-2' }]);
-    // Forgetting must not switch sessions.
+    expect(bridge.payloads('session.exportJsonl')).toEqual([{ sessionId: 'session-2' }]);
     expect(bridge.payloads('session.switch')).toEqual([]);
 
     const rows = [...dialog.querySelectorAll('[role="option"]')];
@@ -179,7 +185,15 @@ describe('tree modal', () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
       capabilities: { sessionTree: true },
-      results: { 'agent.tree': TREE, 'session.fork': 'add jsonl framing tests' },
+      results: {
+        'agent.tree': TREE,
+        'session.fork': {
+          editorText: 'add jsonl framing tests',
+          editorTextTruncated: false,
+          cancelled: false,
+          aborted: false,
+        },
+      },
     });
     mounted = view;
     await runComposerCommand(view, '/tree');
@@ -198,7 +212,7 @@ describe('tree modal', () => {
 
     await click(rows[0]!);
     await view.flush();
-    expect(bridge.payloads('session.fork')).toEqual([{ entryId: 'e1' }]);
+    expect(bridge.payloads('session.fork')).toEqual([{ entryId: 'e1', summary: 'none' }]);
     expect(composer(view).value).toBe('add jsonl framing tests');
 
     await press(composer(view), 'z', { ctrlKey: true });

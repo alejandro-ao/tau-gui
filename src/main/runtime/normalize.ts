@@ -12,14 +12,15 @@ import type {
   Model,
   SessionEntry,
   SessionStats,
-  AgentState,
   StopReason,
   ThinkingLevel,
   ToolCall,
-  TreeNode,
+  TreeRow,
   Usage,
 } from '../../shared/domain.js';
 import { THINKING_LEVELS } from '../../shared/domain.js';
+import { MAX_TREE_DEPTH, MAX_TREE_PREVIEW, MAX_TREE_ROWS } from '../../shared/ipc.js';
+import type { RuntimeAgentState } from './agent-runtime.js';
 import {
   MAX_SESSION_IDENTIFIER_CHARACTERS,
   MAX_SESSION_STRUCTURE_BYTES,
@@ -49,8 +50,6 @@ const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
 const boundedText = (value: unknown): string => boundedToolText(str(value));
 const MAX_MESSAGE_BLOCKS = 100;
 const MAX_ENTRY_NODES = 1_000;
-const MAX_TREE_DEPTH = 50;
-const TREE_NODE_SERIALIZATION_OVERHEAD = 32;
 
 export { MAX_SESSION_STRUCTURE_BYTES };
 
@@ -354,13 +353,14 @@ export function normalizeModel(value: unknown): Model | null {
   };
 }
 
-export function normalizeState(value: unknown): AgentState {
+export function normalizeState(value: unknown): RuntimeAgentState {
   const wire = record(value);
   return {
     model: normalizeModel(wire['model']),
     thinkingLevel: normalizeThinkingLevel(wire['thinkingLevel']),
     isStreaming: bool(wire['isStreaming']),
     isCompacting: bool(wire['isCompacting']),
+    persisted: typeof wire['sessionFile'] === 'string',
     sessionFile: typeof wire['sessionFile'] === 'string' ? wire['sessionFile'] : null,
     sessionId: str(wire['sessionId']),
     sessionName: typeof wire['sessionName'] === 'string' ? wire['sessionName'] : null,
@@ -375,7 +375,7 @@ export function normalizeStats(value: unknown): SessionStats {
   const tokens = record(wire['tokens']);
   const usage = record(wire['contextUsage']);
   return {
-    sessionFile: typeof wire['sessionFile'] === 'string' ? wire['sessionFile'] : null,
+    persisted: typeof wire['sessionFile'] === 'string',
     sessionId: str(wire['sessionId']),
     userMessages: num(wire['userMessages']),
     assistantMessages: num(wire['assistantMessages']),
@@ -419,11 +419,11 @@ export function normalizeEntry(value: unknown): SessionEntry | null {
     : 'custom';
   const message = normalizeMessage(value['message']) ?? undefined;
   const entry: SessionEntry = {
-    id: str(value['id']).slice(0, 256),
-    parentId: typeof value['parentId'] === 'string' ? value['parentId'].slice(0, 256) : null,
-    timestamp: str(value['timestamp']).slice(0, 128),
+    id: str(value['id']).slice(0, 128),
+    parentId: typeof value['parentId'] === 'string' ? value['parentId'].slice(0, 128) : null,
+    timestamp: str(value['timestamp']).slice(0, 64),
     kind,
-    summary: boundedToolText(entrySummary(kind, value, message)),
+    summary: entrySummary(kind, value, message).slice(0, 2_000),
   };
   if (message) entry.message = message;
   return entry;
@@ -485,25 +485,100 @@ export function normalizeEntries(value: unknown): SessionEntry[] {
   return output;
 }
 
-export function normalizeTree(value: unknown): TreeNode[] {
-  let nodes = 0;
+export function normalizeTree(value: unknown): { rows: TreeRow[]; truncated: boolean } {
+  const rows: TreeRow[] = [];
+  // Reserve room for the wrapper, leaf identifier, and serialization punctuation.
   let bytes = 1_024;
-  const visit = (input: unknown, depth: number): TreeNode[] => {
-    if (depth > MAX_TREE_DEPTH || nodes >= MAX_ENTRY_NODES) return [];
-    const output: TreeNode[] = [];
-    for (const node of list(input)) {
-      if (nodes >= MAX_ENTRY_NODES) break;
-      if (!isWire(node)) continue;
-      const entry = normalizeEntry(node['entry']);
-      if (!entry) continue;
-      const entryBytes =
-        Buffer.byteLength(JSON.stringify(entry)) + TREE_NODE_SERIALIZATION_OVERHEAD;
-      if (bytes + entryBytes > MAX_SESSION_STRUCTURE_BYTES) break;
-      bytes += entryBytes;
-      nodes += 1;
-      output.push({ entry, children: visit(node['children'], depth + 1) });
+  const stack = list(value)
+    .slice()
+    .reverse()
+    .map((node) => ({ node, depth: 0, parentId: null as string | null }));
+  let truncated = false;
+
+  while (stack.length > 0) {
+    if (rows.length >= MAX_TREE_ROWS) {
+      truncated = true;
+      break;
     }
-    return output;
-  };
-  return visit(value, 0);
+    const current = stack.pop();
+    if (!current || !isWire(current.node)) continue;
+    if (current.depth > MAX_TREE_DEPTH) {
+      truncated = true;
+      continue;
+    }
+    const entry = current.node['entry'];
+    if (!isWire(entry)) continue;
+    const id = str(entry['id']).slice(0, 128);
+    if (!id) continue;
+    const rawKind = str(entry['type']);
+    const kind = (ENTRY_KINDS as readonly string[]).includes(rawKind)
+      ? (rawKind as SessionEntry['kind'])
+      : 'custom';
+    const message = isWire(entry['message']) ? entry['message'] : null;
+    const role = messageRole(message?.['role']);
+    const row: TreeRow = {
+      id,
+      parentId:
+        typeof entry['parentId'] === 'string' ? entry['parentId'].slice(0, 128) : current.parentId,
+      depth: current.depth,
+      kind,
+      role,
+      timestamp: str(entry['timestamp']).slice(0, 64),
+      preview: treePreview(kind, entry, message).slice(0, MAX_TREE_PREVIEW),
+      label: typeof current.node['label'] === 'string' ? current.node['label'].slice(0, 120) : null,
+    };
+    const rowBytes = Buffer.byteLength(JSON.stringify(row)) + (rows.length ? 1 : 0);
+    if (bytes + rowBytes > MAX_SESSION_STRUCTURE_BYTES) {
+      truncated = true;
+      break;
+    }
+    bytes += rowBytes;
+    rows.push(row);
+    const children = list(current.node['children']);
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      stack.push({ node: children[index], depth: current.depth + 1, parentId: id });
+    }
+  }
+  return { rows, truncated };
+}
+
+function messageRole(value: unknown): TreeRow['role'] {
+  return [
+    'user',
+    'assistant',
+    'toolResult',
+    'bashExecution',
+    'custom',
+    'branchSummary',
+    'compactionSummary',
+  ].includes(String(value))
+    ? (value as TreeRow['role'])
+    : null;
+}
+
+function boundedContent(value: unknown): string {
+  if (typeof value === 'string') return value.slice(0, MAX_TREE_PREVIEW);
+  if (!Array.isArray(value)) return '';
+  let text = '';
+  for (const part of value) {
+    if (!isWire(part) || part['type'] !== 'text' || typeof part['text'] !== 'string') continue;
+    text += part['text'].slice(0, MAX_TREE_PREVIEW - text.length);
+    if (text.length >= MAX_TREE_PREVIEW) break;
+  }
+  return text;
+}
+
+function treePreview(kind: SessionEntry['kind'], entry: Wire, message: Wire | null): string {
+  if (message) {
+    const role = messageRole(message['role']);
+    if (role === 'user' || role === 'assistant' || role === 'toolResult' || role === 'custom') {
+      const content = boundedContent(message['content']);
+      if (content) return content;
+    }
+    if (role === 'bashExecution')
+      return `$ ${str(message['command']).slice(0, MAX_TREE_PREVIEW - 2)}`;
+    if (role === 'branchSummary' || role === 'compactionSummary') return str(message['summary']);
+    if (role === 'toolResult') return str(message['toolName'], 'tool result');
+  }
+  return entrySummary(kind, entry, undefined);
 }

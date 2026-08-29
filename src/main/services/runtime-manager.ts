@@ -12,11 +12,13 @@ import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
 import {
   JsonlAgentRuntime,
   type AgentRuntime,
+  type RuntimeAgentState,
   type RuntimeSink,
 } from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
 import type { SettingsStore } from './settings.js';
+import { rendererSettings } from './session-identity.js';
 
 const execFileAsync = promisify(execFile);
 const MAX_DIAGNOSTICS = 500;
@@ -46,7 +48,7 @@ export class RuntimeManager {
   private detail: string | null = null;
   private cwd: string | null = null;
   private gitBranch: string | null = null;
-  private state: AgentState | null = null;
+  private state: RuntimeAgentState | null = null;
   private runtimeVersion: string | null = null;
   private runtimeKind: RuntimeKind | null = null;
   private launchProjectTrust: ProjectTrust | null = null;
@@ -93,7 +95,12 @@ export class RuntimeManager {
     return this.runtime ? this.launchProjectTrust : null;
   }
 
+  get internalState(): RuntimeAgentState | null {
+    return this.state;
+  }
+
   snapshot(): RuntimeSnapshot {
+    const state = this.state;
     return {
       runtime: this.kind,
       status: this.status,
@@ -102,7 +109,20 @@ export class RuntimeManager {
       capabilities: this.runtime?.capabilities ?? CAPABILITIES[this.kind],
       cwd: this.cwd,
       gitBranch: this.gitBranch,
-      state: this.state,
+      state: state
+        ? {
+            model: state.model,
+            thinkingLevel: state.thinkingLevel,
+            isStreaming: state.isStreaming,
+            isCompacting: state.isCompacting,
+            persisted: state.persisted,
+            sessionId: state.sessionId,
+            sessionName: state.sessionName,
+            autoCompactionEnabled: state.autoCompactionEnabled,
+            messageCount: state.messageCount,
+            pendingMessageCount: state.pendingMessageCount,
+          }
+        : null,
     };
   }
 
@@ -383,7 +403,7 @@ export class RuntimeManager {
       },
       touch,
     );
-    this.broadcast({ type: 'settings', settings: this.settings.current });
+    this.broadcast({ type: 'settings', settings: rendererSettings(this.settings.current) });
   }
 
   private setStatus(status: RuntimeStatus, detail: string | null = null): void {

@@ -1,13 +1,21 @@
+import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { app, BrowserWindow, ipcMain, shell, session as electronSession } from 'electron';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildCsp } from '../shared/csp.js';
 import type { BridgeEvent, IpcResponse } from '../shared/ipc.js';
-import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared/ipc.js';
+import {
+  bridgeEventSchema,
+  envelopeSchema,
+  IPC_EVENT_CHANNEL,
+  IPC_INVOKE_CHANNEL,
+  parseSessionIpcResult,
+} from '../shared/ipc.js';
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { ImportRecoveryService } from './services/import-recovery.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -38,10 +46,13 @@ const CSP = buildCsp(isDev);
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
+let importRecovery: ImportRecoveryService;
 
 function broadcast(event: BridgeEvent): void {
+  const parsed = bridgeEventSchema.safeParse(event);
+  if (!parsed.success) return;
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC_EVENT_CHANNEL, event);
+    mainWindow.webContents.send(IPC_EVENT_CHANNEL, parsed.data);
   }
 }
 
@@ -121,6 +132,7 @@ void app.whenReady().then(() => {
   );
 
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
+  importRecovery = new ImportRecoveryService(getAgentDir(), (path) => shell.openPath(path));
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -135,16 +147,24 @@ void app.whenReady().then(() => {
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
     const parsed = envelopeSchema.safeParse(raw);
     if (!parsed.success) {
-      return { ok: false, error: `Invalid IPC request: ${parsed.error.issues[0]?.message ?? ''}` };
+      const issue = parsed.error.issues[0]?.message ?? '';
+      return { ok: false, error: `Invalid IPC request: ${issue}`.slice(0, 1_000) };
     }
     try {
       const value = await handleRequest(
-        { settings, manager, window: () => mainWindow },
+        { settings, manager, importRecovery, window: () => mainWindow },
         parsed.data,
       );
-      return { ok: true, value };
+      return {
+        ok: true,
+        value: parseSessionIpcResult(parsed.data.action, value) as typeof value,
+      };
     } catch (error) {
-      return { ok: false, error: (error as Error).message };
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ok: false,
+        error: message.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ').slice(0, 1_000),
+      };
     }
   });
 

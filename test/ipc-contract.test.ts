@@ -1,35 +1,30 @@
 import { describe, expect, it } from 'vitest';
 import {
   bashResultSchema,
+  bridgeEventSchema,
   contextFilesSchema,
   entrySnapshotSchema,
   envelopeSchema,
   MAX_CONTEXT_FILES,
+  MAX_SESSION_CATALOG_ENTRIES,
+  MAX_TREE_DEPTH,
+  MAX_TREE_PREVIEW,
+  MAX_TREE_ROWS,
+  parseSessionIpcResult,
   requestSchema,
   resourceCatalogSchema,
+  sessionCatalogSchema,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
   treeSnapshotSchema,
 } from '../src/shared/ipc.js';
+import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import { INTROSPECTION_LIMITS } from '../src/shared/introspection.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
 const key = (provider: string, modelId: string): string => modelKey({ provider, modelId });
-
-function treeNode(children: unknown[] = []): Record<string, unknown> {
-  return {
-    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
-    children,
-  };
-}
-
-function deepTree(depth: number): { tree: unknown[]; leafId: null } {
-  let children: unknown[] = [];
-  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
-  return { tree: children, leafId: null };
-}
 
 describe('IPC request validation', () => {
   it('accepts well-formed requests', () => {
@@ -96,36 +91,65 @@ describe('IPC request validation', () => {
       requestSchema.safeParse({ action: 'runtime.probe', payload: { kind: 'sh' } }).success,
     ).toBe(false);
 
-    // A renderer-supplied binary is stripped by validation and never reaches
-    // the handler.
-    const parsed = requestSchema.safeParse({
-      action: 'runtime.probe',
-      payload: { kind: 'tau', binary: '/bin/sh' },
-    });
-    expect(parsed.success).toBe(true);
-    expect(parsed.success && parsed.data.action === 'runtime.probe' && parsed.data.payload).toEqual(
-      {
-        kind: 'tau',
-      },
-    );
+    // Compatibility is explicit: supported optional fields remain accepted,
+    // while a renderer-supplied binary is rejected rather than silently stripped.
+    expect(
+      requestSchema.safeParse({
+        action: 'runtime.probe',
+        payload: { kind: 'tau', binary: '/bin/sh' },
+      }).success,
+    ).toBe(false);
   });
 
   it('strictly bounds complete restored response wrappers', () => {
     const huge = 'x'.repeat(2 * 1024 * 1024);
     expect(entrySnapshotSchema.safeParse({ entries: [], leafId: 'entry-1' }).success).toBe(true);
-    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: 'entry-1' }).success).toBe(true);
+    expect(
+      treeSnapshotSchema.safeParse({ rows: [], leafId: 'entry-1', truncated: false }).success,
+    ).toBe(true);
     expect(entrySnapshotSchema.safeParse({ entries: [], leafId: huge }).success).toBe(false);
-    expect(treeSnapshotSchema.safeParse({ tree: [], leafId: huge }).success).toBe(false);
+    expect(treeSnapshotSchema.safeParse({ rows: [], leafId: huge, truncated: false }).success).toBe(
+      false,
+    );
   });
 
-  it('rejects deeply and widely malformed trees without recursive overflow', () => {
-    const deep = deepTree(5_000);
-    const wide = { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null };
+  it('rejects over-budget rows-based trees without unbounded work', () => {
+    const row = {
+      id: 'entry',
+      parentId: null,
+      depth: 0,
+      kind: 'message' as const,
+      role: 'user' as const,
+      timestamp: '2026-01-01T00:00:00Z',
+      preview: 'safe',
+      label: null,
+    };
+    const tooMany = {
+      rows: Array.from({ length: MAX_TREE_ROWS + 1 }, () => row),
+      leafId: null,
+      truncated: true,
+    };
+    const tooDeep = {
+      rows: [{ ...row, depth: MAX_TREE_DEPTH + 1 }],
+      leafId: null,
+      truncated: true,
+    };
+    const tooManyBytes = {
+      rows: Array.from({ length: MAX_TREE_ROWS }, (_, index) => ({
+        ...row,
+        id: `entry-${index}`,
+        preview: 'é'.repeat(MAX_TREE_PREVIEW),
+      })),
+      leafId: null,
+      truncated: true,
+    };
 
-    expect(() => treeSnapshotSchema.safeParse(deep)).not.toThrow();
-    expect(treeSnapshotSchema.safeParse(deep).success).toBe(false);
-    expect(() => treeSnapshotSchema.safeParse(wide)).not.toThrow();
-    expect(treeSnapshotSchema.safeParse(wide).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(tooMany)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooMany).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(tooDeep)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooDeep).success).toBe(false);
+    expect(() => treeSnapshotSchema.safeParse(tooManyBytes)).not.toThrow();
+    expect(treeSnapshotSchema.safeParse(tooManyBytes).success).toBe(false);
   });
 
   it('strictly bounds direct shell responses', () => {
@@ -291,6 +315,223 @@ describe('IPC request validation', () => {
     ).toBe(false);
   });
 
+  it('strictly validates session lifecycle requests and bounded metadata', () => {
+    for (const request of [
+      { action: 'session.clone' },
+      { action: 'session.importJsonl' },
+      { action: 'session.importHealth' },
+      { action: 'session.revealImportRecovery' },
+      { action: 'session.list', payload: { scope: 'all' } },
+      { action: 'session.exportHtml' },
+      { action: 'session.exportJsonl', payload: {} },
+      { action: 'session.label', payload: { entryId: 'entry-1', label: 'bookmark' } },
+    ]) {
+      expect(requestSchema.safeParse(request).success, request.action).toBe(true);
+    }
+    expect(
+      requestSchema.safeParse({
+        action: 'session.exportHtml',
+        payload: { destination: '/renderer/chosen' },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'session.importJsonl',
+        payload: { path: '/renderer/chosen' },
+      }).success,
+    ).toBe(false);
+    expect(
+      sessionCatalogSchema.safeParse([
+        {
+          id: `pi-${'a'.repeat(32)}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: 'session-1',
+          exportable: true,
+          name: 'Task',
+          firstMessage: 'Do work',
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 2,
+          parentSessionId: null,
+        },
+      ]).success,
+    ).toBe(true);
+    expect(
+      sessionCatalogSchema.safeParse(
+        Array.from({ length: MAX_SESSION_CATALOG_ENTRIES + 1 }, (_, index) => ({
+          id: `pi-${index.toString(16).padStart(32, '0')}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: `session-${index}`,
+          exportable: true,
+          name: null,
+          firstMessage: null,
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 0,
+          parentSessionId: null,
+        })),
+      ).success,
+    ).toBe(false);
+    expect(
+      sessionCatalogSchema.safeParse([
+        {
+          id: `pi-${'b'.repeat(32)}`,
+          source: 'native',
+          runtime: 'pi',
+          sessionId: 'session-1',
+          exportable: true,
+          name: null,
+          firstMessage: null,
+          cwd: '/work/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 0,
+          parentSessionId: null,
+          path: '/must/not/cross-ipc.jsonl',
+        },
+      ]).success,
+    ).toBe(false);
+  });
+
+  it('strictly bounds tree and export responses at both IPC boundaries', () => {
+    const row = {
+      id: 'entry',
+      parentId: null,
+      depth: 0,
+      kind: 'message' as const,
+      role: 'user' as const,
+      timestamp: '2026-01-01T00:00:00Z',
+      preview: 'safe',
+      label: null,
+    };
+    expect(
+      treeSnapshotSchema.safeParse({ rows: [row], leafId: 'entry', truncated: false }).success,
+    ).toBe(true);
+    expect(
+      treeSnapshotSchema.safeParse({
+        rows: Array.from({ length: MAX_TREE_ROWS + 1 }, () => row),
+        leafId: null,
+        truncated: true,
+      }).success,
+    ).toBe(false);
+    expect(
+      treeSnapshotSchema.safeParse({
+        rows: [{ ...row, message: { images: ['forbidden'] } }],
+        leafId: null,
+        truncated: false,
+      }).success,
+    ).toBe(false);
+    expect(() => parseSessionIpcResult('session.exportJsonl', '/x'.repeat(5_000))).toThrow();
+    expect(() =>
+      parseSessionIpcResult('session.fork', {
+        editorText: null,
+        editorTextTruncated: false,
+        cancelled: false,
+        aborted: false,
+        extra: true,
+      }),
+    ).toThrow();
+    expect(() => parseSessionIpcResult('session.new', {})).toThrow();
+    expect(() => parseSessionIpcResult('session.switch', undefined)).toThrow();
+    expect(() => parseSessionIpcResult('session.name', undefined)).toThrow();
+    expect(parseSessionIpcResult('session.new', null)).toBeNull();
+    expect(parseSessionIpcResult('session.name', null)).toBeNull();
+  });
+
+  it('bounds, sanitizes, and strictly validates session names', () => {
+    const parsed = requestSchema.safeParse({
+      action: 'session.name',
+      payload: { name: '  release\u202E\nprep  ' },
+    });
+    expect(parsed.success).toBe(true);
+    expect(
+      parsed.success && parsed.data.action === 'session.name' && parsed.data.payload.name,
+    ).toBe('release  prep');
+    expect(
+      requestSchema.safeParse({
+        action: 'session.name',
+        payload: { name: 'x'.repeat(501) },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'session.name',
+        payload: { name: 'safe', extra: true },
+      }).success,
+    ).toBe(false);
+  });
+
+  it('strictly validates complete bridge events and renderer state', () => {
+    const snapshot = {
+      runtime: 'pi' as const,
+      status: 'idle' as const,
+      detail: null,
+      runtimeVersion: null,
+      capabilities: DEFAULT_CAPABILITIES,
+      cwd: '/work',
+      gitBranch: null,
+      state: null,
+    };
+    expect(bridgeEventSchema.safeParse({ type: 'status', snapshot }).success).toBe(true);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'status',
+        snapshot: { ...snapshot, state: { sessionFile: '/private/session.jsonl' } },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'settings',
+        settings: { ...DEFAULT_SETTINGS, recentSessions: [{ path: '/private' }] },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: { type: 'message_end' },
+      }).success,
+    ).toBe(false);
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: {
+          type: 'tool_end',
+          toolCallId: 'tool-1',
+          toolName: 'read',
+          text: 'ok',
+          details: { nested: { forged: true, extra: { value: 1 } } },
+          isError: false,
+          forged: true,
+        },
+      }).success,
+    ).toBe(false);
+    let nested: Record<string, unknown> = { value: true };
+    for (let depth = 0; depth < 10; depth += 1) nested = { nested };
+    expect(
+      bridgeEventSchema.safeParse({
+        type: 'agent',
+        sessionId: 'session-1',
+        runtime: 'pi',
+        event: {
+          type: 'tool_end',
+          toolCallId: 'tool-1',
+          toolName: 'read',
+          text: 'ok',
+          details: nested,
+          isError: false,
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects unknown actions', () => {
     expect(requestSchema.safeParse({ action: 'agent.selfDestruct' }).success).toBe(false);
   });
@@ -372,6 +613,10 @@ describe('IPC request validation', () => {
     expect(parsed.success && parsed.data.session).toEqual({ runtime: 'tau', sessionId: 'abc' });
 
     expect(envelopeSchema.safeParse({ action: 'agent.abort' }).success).toBe(true);
+    expect(envelopeSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(
+      false,
+    );
+    expect(requestSchema.safeParse({ action: 'agent.abort', extra: 'forged' }).success).toBe(false);
     expect(
       envelopeSchema.safeParse({
         action: 'agent.abort',
@@ -382,6 +627,18 @@ describe('IPC request validation', () => {
       envelopeSchema.safeParse({
         action: 'agent.abort',
         session: { runtime: 'tau', sessionId: '' },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: 'x'.repeat(129) },
+      }).success,
+    ).toBe(false);
+    expect(
+      envelopeSchema.safeParse({
+        action: 'agent.abort',
+        session: { runtime: 'tau', sessionId: 'abc', extra: true },
       }).success,
     ).toBe(false);
   });

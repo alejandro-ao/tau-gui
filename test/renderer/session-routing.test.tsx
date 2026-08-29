@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, StrictMode, type ReactNode } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { AgentMessage, AgentState, SessionRef } from '../../src/shared/domain.js';
+import type { AgentMessage, AgentState, SessionSummary } from '../../src/shared/domain.js';
 import type { Actions } from '../../src/renderer/src/state/store.js';
 import { installFakeBridge, mount, type Mounted } from './harness.js';
 
@@ -18,12 +18,29 @@ function agent(sessionId: string): AgentState {
     thinkingLevel: 'medium',
     isStreaming: false,
     isCompacting: false,
-    sessionFile: null,
+    persisted: false,
     sessionId,
     sessionName: sessionId,
     autoCompactionEnabled: true,
     messageCount: 1,
     pendingMessageCount: 0,
+  };
+}
+
+function recent(state: AgentState): SessionSummary {
+  return {
+    id: state.sessionId,
+    source: 'recent',
+    runtime: 'tau',
+    sessionId: state.sessionId,
+    exportable: false,
+    name: state.sessionName,
+    firstMessage: null,
+    cwd: '/work/project',
+    createdAt: Date.now(),
+    modifiedAt: Date.now(),
+    messageCount: 1,
+    parentSessionId: null,
   };
 }
 
@@ -118,15 +135,7 @@ describe('session hydration routing', () => {
       state: second,
     });
     bridge.setResult('agent.messages', [assistant('second session answer')]);
-    const ref: SessionRef = {
-      id: second.sessionId,
-      name: second.sessionName,
-      messageCount: 1,
-      path: null,
-      cwd: '/work/project',
-      runtime: 'tau',
-      lastSeen: Date.now(),
-    };
+    const ref = recent(second);
 
     let navigation: Promise<void> = Promise.resolve();
     await act(async () => {
@@ -214,15 +223,7 @@ describe('session hydration routing', () => {
     const secondSnapshot = { ...bridge.snapshot, state: second };
     bridge.setResult('runtime.snapshot', secondSnapshot);
     bridge.setResult('agent.messages', [assistant('second session answer')]);
-    const ref: SessionRef = {
-      id: second.sessionId,
-      name: second.sessionName,
-      messageCount: 1,
-      path: null,
-      cwd: '/work/project',
-      runtime: 'tau',
-      lastSeen: Date.now(),
-    };
+    const ref = recent(second);
     await act(async () => {
       await storeActions.resumeSession(ref);
     });
@@ -315,15 +316,7 @@ describe('session hydration routing', () => {
       }),
     );
     bridge.setResult('runtime.snapshot', { ...bridge.snapshot, state: second });
-    const ref: SessionRef = {
-      id: second.sessionId,
-      name: second.sessionName,
-      messageCount: 1,
-      path: null,
-      cwd: '/work/project',
-      runtime: 'tau',
-      lastSeen: Date.now(),
-    };
+    const ref = recent(second);
 
     const storeActions = actions as Actions | null;
     if (!storeActions) throw new Error('store actions were not captured');
@@ -428,15 +421,7 @@ describe('session hydration routing', () => {
     // The runtime refuses the switch and keeps streaming the first session.
     bridge.setResult('session.switch', Promise.reject(new Error('Unknown session')));
     bridge.setResult('agent.messages', [assistant('first session answer')]);
-    const ref: SessionRef = {
-      id: second.sessionId,
-      name: second.sessionName,
-      messageCount: 1,
-      path: null,
-      cwd: '/work/project',
-      runtime: 'tau',
-      lastSeen: Date.now(),
-    };
+    const ref = recent(second);
 
     const storeActions = actions as Actions | null;
     if (!storeActions) throw new Error('store actions were not captured');

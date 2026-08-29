@@ -1,4 +1,5 @@
 import { realpath, stat } from 'node:fs/promises';
+import { inspectPhysicalFile } from '../runtime/session-files.js';
 import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { AgentRuntime } from '../runtime/agent-runtime.js';
@@ -6,6 +7,7 @@ import type { SpawnSessionRequest, SpawnSessionResult } from '../runtime/spawn-s
 import type { SettingsStore } from './settings.js';
 import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
 import { RuntimeManager, type RuntimeManagerOptions } from './runtime-manager.js';
+import { recentCatalogId } from './session-identity.js';
 
 const MAX_SPAWNED_SESSIONS = 8;
 
@@ -19,6 +21,8 @@ export class RuntimePool {
   private readonly sessions = new Map<string, RuntimeManager>();
   /** Stable ownership assigned at activation; never inferred from transient startup state. */
   private readonly owners = new Map<string, RuntimeManager>();
+  /** Canonical device/inode ownership prevents aliases becoming two live writers. */
+  private readonly physicalOwners = new Map<string, RuntimeManager>();
   /** Queue scheduling state is independent of RuntimeManager's presentation status. */
   private readonly runLifecycles = new Map<RuntimeManager, RunLifecycle>();
   /** AgentSession mutations claimed before reload reservation are counted per manager. */
@@ -185,6 +189,8 @@ export class RuntimePool {
     return {
       ...snapshot,
       runtime: this.failedRestart.runtime,
+      status: 'failed',
+      detail: this.failedRestart.detail ?? 'Session replacement failed; restart is required',
       cwd: this.failedRestart.cwd,
       recoveryTarget: this.failedRestart.target,
     };
@@ -230,7 +236,7 @@ export class RuntimePool {
     try {
       const snapshot = await manager.start(options);
       this.index(manager);
-      this.claimSnapshot(manager);
+      await this.claimSnapshot(manager);
       this.requestSchedule(manager);
       return snapshot;
     } catch (error) {
@@ -252,7 +258,7 @@ export class RuntimePool {
   /** Restarts the viewed transcript and lets its retained queue resume draining. */
   async restart(): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
-      const identity = this.current ? restartIdentity(this.current.snapshot()) : this.failedRestart;
+      const identity = this.current ? restartIdentity(this.current) : this.failedRestart;
       try {
         const snapshot = await this.startFresh({
           cwd: identity?.cwd ?? null,
@@ -311,7 +317,7 @@ export class RuntimePool {
         await manager.start({ cwd, runtime: 'pi' });
         throwIfSpawnAborted(signal);
         this.index(manager);
-        this.claimSnapshot(manager);
+        await this.claimSnapshot(manager);
         this.spawned.add(manager);
         if (request.name) await manager.nameSession(request.name);
         throwIfSpawnAborted(signal);
@@ -319,12 +325,7 @@ export class RuntimePool {
         const target = targetFor(manager);
         this.queues.enqueue(target, 'follow-up', request.prompt);
         this.requestSchedule(manager);
-        const state = manager.snapshot().state;
-        return {
-          sessionId: target.sessionId,
-          sessionFile: state?.sessionFile ?? null,
-          cwd,
-        };
+        return { sessionId: target.sessionId, cwd };
       } catch (error) {
         await this.remove(manager);
         throw error;
@@ -353,7 +354,7 @@ export class RuntimePool {
         await manager.refreshState();
         this.removeOwnership(manager);
         this.index(manager);
-        this.claimSnapshot(manager);
+        await this.claimSnapshot(manager);
         return manager.snapshot();
       }
       // A busy runtime keeps both its transcript and its process; a stopped or
@@ -368,8 +369,14 @@ export class RuntimePool {
   private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     const kind = this.settings.current.agentRuntime;
     const recent = this.settings.current.recentSessions.find(
-      (session) => session.runtime === kind && (session.id === ref || session.path === ref),
+      (session) =>
+        session.runtime === kind && (recentCatalogId(session) === ref || session.id === ref),
     );
+    const runtimeRef = recent
+      ? recent.runtime === 'pi'
+        ? (recent.path ?? recent.id)
+        : recent.id
+      : ref;
     const keys = [
       sessionKey(kind, recent?.id ?? ref),
       recent?.path && sessionKey(kind, recent.path),
@@ -381,7 +388,9 @@ export class RuntimePool {
       const state = manager.snapshot().state;
       return (
         state?.sessionId === (recent?.id ?? ref) ||
-        (recent?.path !== null && recent?.path !== undefined && state?.sessionFile === recent.path)
+        (recent?.path !== null &&
+          recent?.path !== undefined &&
+          manager.internalState?.sessionFile === recent.path)
       );
     });
     // Prefer a background candidate when returning from another process. A
@@ -389,8 +398,20 @@ export class RuntimePool {
     // runtime's default session id, which may equal the requested background
     // id even though that process does not own its transcript.
     const discovered = candidates.find((manager) => manager !== this.current) ?? candidates[0];
-    const existing = owned ?? indexed ?? discovered;
-    if (existing) {
+    let existing = owned ?? indexed ?? discovered;
+    let prospective: { sessionId: string; physicalKey: string } | null = null;
+    if (!existing) {
+      const resolver = [...this.managers]
+        .map((manager) => manager.active)
+        .find((runtime) => typeof runtime.describeSession === 'function');
+      if (resolver?.describeSession) {
+        prospective = await resolver.describeSession(ref);
+        existing =
+          this.owners.get(sessionKey(kind, prospective.sessionId)) ??
+          this.physicalOwners.get(prospective.physicalKey);
+      }
+    }
+    if (existing?.isStarted) {
       this.current = existing;
       const snapshot = existing.snapshot();
       this.broadcast({ type: 'status', snapshot });
@@ -401,18 +422,25 @@ export class RuntimePool {
     const previous = this.current;
     const manager = this.createManager();
     this.current = manager;
-    for (const key of keys) this.owners.set(key, manager);
+    if (prospective) {
+      this.assertIdentityAvailable(manager, prospective.sessionId, prospective.physicalKey);
+      this.owners.set(sessionKey(kind, prospective.sessionId), manager);
+      this.physicalOwners.set(prospective.physicalKey, manager);
+    }
     try {
-      let snapshot = await manager.start({ cwd: cwd ?? recent?.cwd ?? null, sessionRef: ref });
+      let snapshot = await manager.start({
+        cwd: cwd ?? recent?.cwd ?? null,
+        sessionRef: runtimeRef,
+      });
       // Tau normally resumes from its launch argument. This fallback also
       // supports compatible runtimes that accept the argument but ignore it.
       if (kind === 'tau' && recent && snapshot.state?.sessionId !== recent.id) {
-        await manager.active.switchSession(ref);
+        await manager.active.switchSession(runtimeRef);
         await manager.refreshState();
         snapshot = manager.snapshot();
       }
       this.index(manager);
-      this.claimSnapshot(manager);
+      await this.claimSnapshot(manager);
       this.requestSchedule(manager);
       return snapshot;
     } catch (error) {
@@ -449,6 +477,7 @@ export class RuntimePool {
       this.current = null;
       this.sessions.clear();
       this.owners.clear();
+      this.physicalOwners.clear();
       this.managers.clear();
       this.runLifecycles.clear();
       this.activeMutations.clear();
@@ -498,6 +527,73 @@ export class RuntimePool {
     await this.managerFor(target).nameSession(name);
   }
 
+  async cloneSession(target?: SessionTarget | null): Promise<RuntimeSnapshot> {
+    return this.replaceSession(target, (runtime) => runtime.clone());
+  }
+
+  async importSession(path: string, target?: SessionTarget | null): Promise<RuntimeSnapshot> {
+    return this.replaceSession(target, async (runtime, manager) => {
+      if (!runtime.prepareImport) throw new Error('This runtime cannot safely prepare imports');
+      let prospective: { sessionId: string; physicalKey: string };
+      try {
+        prospective = await runtime.prepareImport(path);
+        this.assertIdentityAvailable(manager, prospective.sessionId, prospective.physicalKey, true);
+      } catch (error) {
+        await runtime.discardPreparedImport?.();
+        throw new PreparedReplacementError(error);
+      }
+      const imported = await runtime.importJsonl(path);
+      if (!imported) throw new Error('Runtime did not report the activated import identity');
+      if (imported.sessionId !== prospective.sessionId) {
+        throw new Error('Activated import does not match its reserved logical identity');
+      }
+      return imported;
+    });
+  }
+
+  private async replaceSession(
+    target: SessionTarget | null | undefined,
+    replace: (
+      runtime: AgentRuntime,
+      manager: RuntimeManager,
+    ) => Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>,
+  ): Promise<RuntimeSnapshot> {
+    return this.enqueueTransition(async () => {
+      const manager = this.managerFor(target);
+      if (manager !== this.current) throw new Error('Select the session before replacing it');
+      if (isBusy(manager)) throw new Error('Wait for the current session to finish');
+      const restart = restartIdentity(manager);
+      try {
+        const expected = await replace(manager.active, manager);
+        await manager.refreshState();
+        if (expected) {
+          const finalState = manager.internalState;
+          const finalPhysical = finalState?.sessionFile
+            ? await inspectPhysicalFile(finalState.sessionFile).catch(() => null)
+            : null;
+          if (
+            finalState?.sessionId !== expected.sessionId ||
+            !finalPhysical ||
+            finalPhysical.key !== expected.physicalKey ||
+            finalPhysical.path !== expected.physicalPath
+          ) {
+            throw new Error('Activated import does not match its reserved physical identity');
+          }
+        }
+        this.removeOwnership(manager);
+        this.index(manager);
+        await this.claimSnapshot(manager);
+        return manager.snapshot();
+      } catch (error) {
+        if (error instanceof PreparedReplacementError) throw error.originalError;
+        await this.remove(manager);
+        this.failedRestart = { ...restart, detail: boundedError(error) };
+        this.broadcast({ type: 'status', snapshot: this.snapshot() });
+        throw error;
+      }
+    });
+  }
+
   async refreshState(touch = false, target?: SessionTarget | null): Promise<AgentState | null> {
     const manager = target ? this.ownerOf(target) : this.current;
     if (!manager) return null;
@@ -505,7 +601,7 @@ export class RuntimePool {
     if (manager !== this.current) return state;
     this.removeOwnership(manager);
     this.index(manager);
-    this.claimSnapshot(manager);
+    await this.claimSnapshot(manager);
     return state;
   }
 
@@ -789,7 +885,7 @@ export class RuntimePool {
    */
   private index(manager: RuntimeManager): void {
     const snapshot = manager.snapshot();
-    const state = snapshot.state;
+    const state = manager.internalState;
     if (!state?.sessionId) return;
     this.removeIndexes(manager);
     this.setIndex(sessionKey(snapshot.runtime, state.sessionId), manager);
@@ -805,16 +901,42 @@ export class RuntimePool {
     }
   }
 
-  private claimSnapshot(manager: RuntimeManager): void {
+  private async claimSnapshot(manager: RuntimeManager): Promise<void> {
     const snapshot = manager.snapshot();
-    const state = snapshot.state;
+    const state = manager.internalState;
     if (!state?.sessionId) return;
+    const physical = state.sessionFile
+      ? await inspectPhysicalFile(state.sessionFile).catch(() => null)
+      : null;
+    this.assertIdentityAvailable(manager, state.sessionId, physical?.key ?? null);
     this.claimKey(sessionKey(snapshot.runtime, state.sessionId), manager);
-    if (state.sessionFile) this.claimKey(sessionKey(snapshot.runtime, state.sessionFile), manager);
+    if (physical) {
+      this.claimKey(sessionKey(snapshot.runtime, state.sessionFile as string), manager);
+      this.physicalOwners.set(physical.key, manager);
+    }
+  }
+
+  private assertIdentityAvailable(
+    manager: RuntimeManager,
+    sessionId: string,
+    physicalKey: string | null,
+    rejectCurrentOwner = false,
+  ): void {
+    const logical = this.owners.get(sessionKey(manager.kind, sessionId));
+    if (logical?.isStarted && (logical !== manager || rejectCurrentOwner)) {
+      throw new Error('That persisted session already has a live owner');
+    }
+    const physical = physicalKey ? this.physicalOwners.get(physicalKey) : null;
+    if (physical && physical !== manager && physical.isStarted) {
+      throw new Error('That persisted session file already has a live owner');
+    }
   }
 
   private claimKey(key: string, manager: RuntimeManager): void {
-    if (!this.owners.has(key) || this.owners.get(key) === manager) this.owners.set(key, manager);
+    const owner = this.owners.get(key);
+    if (owner && owner !== manager && owner.isStarted)
+      throw new Error('Session ownership conflict');
+    this.owners.set(key, manager);
   }
 
   private removeIndexes(manager: RuntimeManager): void {
@@ -823,6 +945,9 @@ export class RuntimePool {
 
   private removeOwnership(manager: RuntimeManager): void {
     for (const [key, value] of this.owners) if (value === manager) this.owners.delete(key);
+    for (const [key, value] of this.physicalOwners) {
+      if (value === manager) this.physicalOwners.delete(key);
+    }
   }
 
   private async remove(manager: RuntimeManager): Promise<void> {
@@ -838,6 +963,12 @@ export class RuntimePool {
   }
 }
 
+class PreparedReplacementError extends Error {
+  constructor(readonly originalError: unknown) {
+    super('Session replacement was rejected before mutation');
+  }
+}
+
 interface QueueRoute {
   target: SessionTarget;
   manager: RuntimeManager | null;
@@ -848,6 +979,7 @@ interface RestartIdentity {
   cwd: string | null;
   sessionRef: string | null;
   target: SessionTarget | null;
+  detail?: string;
 }
 
 interface RunLifecycle {
@@ -866,8 +998,9 @@ function freshLifecycle(sessionId: string | null): RunLifecycle {
   return { sessionId, phase: 'ready', turnOpen: false, turnEnded: false };
 }
 
-function restartIdentity(snapshot: RuntimeSnapshot): RestartIdentity {
-  const state = snapshot.state;
+function restartIdentity(manager: RuntimeManager): RestartIdentity {
+  const snapshot = manager.snapshot();
+  const state = manager.internalState;
   const sessionId = state?.sessionId ?? null;
   return {
     runtime: snapshot.runtime,
@@ -901,6 +1034,11 @@ function isBusy(manager: RuntimeManager): boolean {
 function matches(manager: RuntimeManager, target: SessionTarget): boolean {
   const snapshot = manager.snapshot();
   return snapshot.runtime === target.runtime && snapshot.state?.sessionId === target.sessionId;
+}
+
+function boundedError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/[\p{Cc}\p{Cf}\p{Cs}]/gu, ' ').slice(0, 500);
 }
 
 function sameTarget(left: SessionTarget, right: SessionTarget): boolean {

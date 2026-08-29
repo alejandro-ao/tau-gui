@@ -48,16 +48,40 @@
   runtime `kind`; the binary always comes from persisted settings, and the
   reported version is reduced to the first line, stripped of control
   characters, and truncated to 80 characters before it leaves the main process.
-- Inbound events are shape-checked in the preload before reaching React.
-- Introspection and reload responses are independently parsed in both main and preload. Requests accept no renderer payload beyond the existing session address, so the renderer cannot supply a path, prompt, schema, or loader option.
+- Renderer-visible runtime/settings state and the complete bounded `BridgeEvent`
+  union are strictly parsed in main before send and again in preload before React.
+  Every agent-event variant, nested message, tool payload, queue, activity,
+  diagnostic, settings record, and null lifecycle result is checked; malformed,
+  extra-field, deeply nested, or oversized payloads are rejected. Session-target
+  IDs are capped at 128 characters with no extra fields. Session names are capped
+  at 500 characters before mutation, normalized, stripped of control/formatting/
+  surrogate characters, trimmed, and paired with a strictly parsed null result.
+- Introspection and reload responses are independently parsed in both main and
+  preload. Their requests accept no renderer payload beyond the existing session
+  address, so the renderer cannot supply a path, prompt, schema, or loader option.
 
 ## Embedded agent safety
 
 - Production imports a pinned Pi SDK in Electron's main process; no user-selected
   runtime executable or shell-built launch command exists.
-- Pi events and objects are normalized before IPC. SDK sessions, credentials,
-  provider headers, environment values, resource contents, and extension
-  implementations never enter renderer state.
+- The local trust boundary treats the sandboxed renderer, model content, and
+  extension payloads as untrusted, while the signed-in OS account and Pi session
+  directories owned by Electron main are trusted. A separate process already
+  running as the same user and replacing a checked session pathname during a Pi
+  SDK call is outside the product threat model; such a process can already alter
+  the user's Pi configuration, credentials, and application files. Main still
+  applies no-follow, containment, link-count, generation, size, and ownership
+  checks to catch malformed data and ordinary stale-file races.
+- Pi events and objects are normalized before IPC. Session catalogs contain at
+  most 500 bounded metadata records and omit session-file paths. Native and
+  remembered records are tagged; native resume/export uses a bounded opaque ID
+  hashing a canonical encoding of the complete observed physical generation
+  (path, device/inode key, size, mtime, and ctime), while legacy paths remain only in main-owned settings (renderer
+  settings redact them). Runtime snapshots, status events, agent state, and
+  details expose only a persisted/ephemeral flag, never the backing session path.
+  Conflicting logical IDs or physical files are omitted.
+  SDK sessions, credentials, provider headers, environment values, resource
+  contents, and extension implementations never enter renderer state.
 - Third-party Pi extensions are disabled by the embedded resource loader until a
   desktop trust decision and bounded UI contract exist. Extensions execute
   arbitrary Node.js and are not a sandbox.
@@ -111,4 +135,57 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- Session JSONL files are never read by the GUI; all session data comes from RPC.
+- The GUI never parses Pi session JSONL. Public `SessionManager` APIs perform
+  validation/listing/tree work. Import validates the selected source's no-follow,
+  singly-linked, bounded physical identity, copies from that handle directly to one
+  exclusive random final file under `<agent-dir>/imported-sessions`, and only then
+  lets `SessionManager.open()` validate or migrate the app-owned final. Pi never
+  opens or mutates the external chooser source. The app rejects owned logical IDs
+  before switching through the public runtime API. Successful imports create no
+  disposable staging copy and never consume recovery capacity. Existing files are
+  never overwritten. Node does not expose handle-relative unlink, so the app never
+  path-deletes session artifacts after a separate ownership check. Malformed,
+  duplicate, migration, replacement, and uncertain-copy failures retain and mark
+  any created final; same-user replacements deliberately survive. Retained markers
+  are capped at 32. Diagnostics → **reveal import recovery** uses an application
+  service keyed by the configured Pi agent directory, so health/reveal remain
+  available with no selected owner and while runtimes are stopped, failed, or
+  restarting. Neither the directory nor a platform reveal error crosses renderer
+  IPC. The default is `~/.pi/agent/imported-sessions`; a configured Pi agent
+  directory replaces `~/.pi/agent`. Quit the app before manual recovery. Delete
+  only a `*.retained` marker and its matching JSONL after inspecting them; ordinary
+  unmarked JSONL files are real imported sessions. Every marker suffix consumes
+  one of 32 slots even if replaced by a symlink or unknown entry. Restarting
+  preserves files, markers, and capacity; the app never performs automatic or
+  path-based cleanup.
+- Catalog discovery uses iterative directory handles and directory/file/byte/time
+  metadata budgets. Roots, children, and files are lstat/realpath checked for
+  containment, symlinks and hardlinks are rejected, SDK calls are sequential,
+  and malformed SDK records are isolated. Catalog results carry an explicit
+  completeness bit: skipped directories, omitted/malformed/duplicate records,
+  identity conflicts, or budget truncation make identity-sensitive import and
+  reservation operations fail closed until a later complete scan recovers. Pi
+  0.84.2's public `list/listAll` API
+  has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
+  mutation between the final metadata recheck and Pi's read cannot be eliminated
+  portably. Every approved file is rechecked immediately before each SDK listing
+  call; mutation after that recheck remains possible because the API cannot
+  consume pre-opened handles. The app fails closed before calls when metadata budgets are exceeded;
+  a truly cancellable hard deadline requires an upstream bounded listing API.
+- Tree IPC is a flat, iterative, presentation-only row list (2,000 rows, depth
+  128, 500-character previews). It never carries images, full messages, tool
+  arguments/results, or extension/custom details. Editable navigation text is
+  capped at 100,000 characters after Pi mutates the branch and carries an explicit
+  truncation flag, so successful mutation is never reported as schema failure.
+  Portable export resolves inactive selections through a fresh complete catalog.
+  Active export instead binds the runtime's main-only live path, authoritative
+  session ID, and physical identity, which also supports main-owned legacy paths
+  outside catalog roots. It opens the source no-follow, copies through that handle,
+  checks source timestamps/identity/size for stability, and exclusively creates the
+  native-dialog destination in a revalidated physical parent. It never overwrites:
+  a collision explains the create-new-only rule and reopens the save dialog.
+  Renderer requests cannot supply paths. HTML export's weaker boundary is the
+  destination path: Pi's public root SDK exposes only `exportToHtml(path)`, not a
+  handle-based destination API. Active HTML renders from the live session; it does
+  not reopen a source path. The selected export destination is the sole intentional
+  session-related path returned to the renderer after the user chose it.

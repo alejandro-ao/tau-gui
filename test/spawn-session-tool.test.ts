@@ -6,7 +6,6 @@ describe('spawn_session tool', () => {
   it('resolves a relative target from the owning session and returns sidebar identity', async () => {
     const spawn = vi.fn().mockResolvedValue({
       sessionId: 'child-session',
-      sessionFile: '/sessions/child.jsonl',
       cwd: '/project/worktree',
     });
     const tool = createSpawnSessionTool('/project/main', spawn);
@@ -30,7 +29,6 @@ describe('spawn_session tool', () => {
     );
     expect(result.details).toEqual({
       sessionId: 'child-session',
-      sessionFile: '/sessions/child.jsonl',
       cwd: '/project/worktree',
     });
     expect(result.content).toEqual([
@@ -44,7 +42,6 @@ describe('spawn_session tool', () => {
   it('defaults to the owning session directory and rejects whitespace prompts', async () => {
     const spawn = vi.fn().mockResolvedValue({
       sessionId: 'child-session',
-      sessionFile: null,
       cwd: '/project/main',
     });
     const tool = createSpawnSessionTool('/project/main', spawn);

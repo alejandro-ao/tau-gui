@@ -1,113 +1,181 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import type { SessionEntry, TreeNode, TreeSnapshot } from '../../../../shared/domain.js';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import type { TreeRow, TreeSnapshot, TreeSummaryMode } from '../../../../shared/domain.js';
 import { useStore } from '../../state/store.js';
 import { firstLine } from '../format.js';
 import { Picker, type PickerItem } from './Picker.js';
 
-interface Row {
-  entry: SessionEntry;
-  depth: number;
-}
-
-/**
- * Session tree browser.
- *
- * User turns stay prominent, assistant/tool nodes are compact, the active leaf
- * is marked, and accepting a row forks the session at that entry. The forked
- * prompt text is returned by the runtime and prefilled into the composer.
- */
+/** Bounded session-tree browser. Rows contain previews only, never full messages/details. */
 export function TreeModal(): ReactNode {
   const { state, actions } = useStore();
   const [snapshot, setSnapshot] = useState<TreeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [mode, setMode] = useState<TreeSummaryMode>('none');
+  const [instructions, setInstructions] = useState('');
+  const [summaryLabel, setSummaryLabel] = useState('');
+  const [navigating, setNavigating] = useState(false);
+  const loadGeneration = useRef(0);
   const supported = state.snapshot.capabilities.sessionTree;
 
-  useEffect(() => {
-    if (!supported) return;
-    let cancelled = false;
+  const load = (): void => {
+    const generation = ++loadGeneration.current;
+    setError(null);
     void actions.loadTree().then((loaded) => {
-      if (cancelled) return;
+      if (generation !== loadGeneration.current) return;
       if (loaded) setSnapshot(loaded);
       else setError('The runtime did not return a session tree.');
     });
+  };
+
+  useEffect(() => {
+    if (!supported) return;
+    load();
     return () => {
-      cancelled = true;
+      loadGeneration.current += 1;
     };
-  }, [actions, supported]);
+    // actions is stable for the mounted provider.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supported]);
 
-  const rows = useMemo<Row[]>(() => flatten(snapshot?.tree ?? [], 0), [snapshot]);
+  const rows = useMemo(() => snapshot?.rows ?? [], [snapshot]);
   const leafId = snapshot?.leafId ?? null;
-
   const items = useMemo<PickerItem[]>(
     () =>
       rows.map((row) => ({
-        id: row.entry.id,
-        label: label(row.entry),
+        id: row.id,
+        label: rowLabel(row),
         depth: row.depth,
-        tone: prominence(row.entry),
-        hint: timestamp(row.entry.timestamp),
-        detail: `${row.entry.kind} · ${row.entry.id}`,
-        current: row.entry.id === leafId,
-        keywords: `${row.entry.kind} ${row.entry.summary}`,
+        tone: prominence(row),
+        hint: timestamp(row.timestamp),
+        detail: `${row.kind} · ${row.id}${row.label ? ` · ${row.label}` : ''}`,
+        current: row.id === leafId,
+        keywords: `${row.kind} ${row.preview}`,
+        reason: navigating ? 'navigation is already in progress' : null,
       })),
-    [rows, leafId],
+    [rows, leafId, navigating],
   );
 
-  const subtitle = supported
-    ? 'Enter forks the session at the selected entry; existing branches are preserved'
-    : 'this runtime does not expose session tree inspection';
+  const subtitle = error
+    ? error
+    : snapshot?.truncated
+      ? 'Tree limit reached; refine the session before navigating omitted rows.'
+      : supported
+        ? 'Navigate in place; choose whether to summarize the branch being left.'
+        : 'this runtime does not expose session tree inspection';
 
   return (
     <Picker
       name="tree"
       title="session tree"
-      subtitle={error ?? subtitle}
-      placeholder="search entries…"
+      subtitle={subtitle}
+      placeholder="search bounded previews…"
       items={items}
       emptyLabel={supported ? 'no entries yet' : 'unavailable for this runtime'}
       onClose={() => actions.openModal(null)}
+      footer={
+        <div className="tree-summary-controls">
+          <label>
+            branch summary
+            <select
+              aria-label="branch summary mode"
+              value={mode}
+              disabled={navigating}
+              onChange={(event) => setMode(event.target.value as TreeSummaryMode)}
+            >
+              <option value="none">none</option>
+              <option value="default">default</option>
+              <option value="custom">custom focus</option>
+            </select>
+          </label>
+          {mode === 'custom' ? (
+            <input
+              aria-label="branch summary focus"
+              maxLength={2_000}
+              value={instructions}
+              disabled={navigating}
+              onChange={(event) => setInstructions(event.target.value)}
+              placeholder="what should the summary focus on?"
+            />
+          ) : null}
+          {mode !== 'none' ? (
+            <input
+              aria-label="branch summary label"
+              maxLength={120}
+              value={summaryLabel}
+              disabled={navigating}
+              onChange={(event) => setSummaryLabel(event.target.value)}
+              placeholder="optional summary label"
+            />
+          ) : null}
+          {error ? (
+            <button type="button" disabled={navigating} onClick={load}>
+              retry
+            </button>
+          ) : null}
+        </div>
+      }
+      rowActions={(item) => {
+        const row = rows.find((candidate) => candidate.id === item.id);
+        if (!row) return null;
+        return (
+          <button
+            type="button"
+            className="ghost-button"
+            title={row.label ? 'Clear bookmark' : 'Bookmark entry'}
+            disabled={navigating}
+            onClick={(event) => {
+              event.stopPropagation();
+              void actions
+                .setLabel(item.id, row.label ? null : 'bookmark')
+                .then(() => actions.loadTree())
+                .then((loaded) => {
+                  if (loaded) setSnapshot(loaded);
+                });
+            }}
+          >
+            {row.label ? 'unlabel' : 'label'}
+          </button>
+        );
+      }}
       onAccept={(item) => {
-        if (!supported) {
-          actions.notice('This runtime does not support session forking.');
+        if (!supported || navigating) return;
+        const customInstructions = instructions.trim();
+        if (mode === 'custom' && !customInstructions) {
+          setError('Enter summary focus instructions before navigating.');
           return;
         }
-        actions.openModal(null);
-        void actions.fork(item.id).then((text) => {
-          if (text) actions.setDraft(text);
-        });
+        setNavigating(true);
+        setError(null);
+        void actions
+          .fork(item.id, {
+            summary: mode,
+            ...(mode === 'custom' ? { customInstructions } : {}),
+            ...(mode !== 'none' && summaryLabel.trim() ? { label: summaryLabel.trim() } : {}),
+          })
+          .then((text) => {
+            if (text === null) {
+              setError('Tree navigation was cancelled, aborted, or failed. You can retry.');
+              return;
+            }
+            if (text) actions.setDraft(text);
+            actions.openModal(null);
+          })
+          .catch(() => setError('Tree navigation failed. You can retry or cancel.'))
+          .finally(() => setNavigating(false));
       }}
     />
   );
 }
 
-function flatten(nodes: TreeNode[], depth: number): Row[] {
-  const rows: Row[] = [];
-  for (const node of nodes) {
-    rows.push({ entry: node.entry, depth });
-    rows.push(...flatten(node.children, depth + 1));
-  }
-  return rows;
+function prominence(row: TreeRow): 'primary' | 'muted' {
+  return row.role === 'user' || row.kind === 'compaction' || row.kind === 'branch_summary'
+    ? 'primary'
+    : 'muted';
 }
 
-function prominence(entry: SessionEntry): 'primary' | 'muted' {
-  const role = entry.message?.role;
-  if (role === 'user') return 'primary';
-  if (entry.kind === 'compaction' || entry.kind === 'branch_summary') return 'primary';
-  return 'muted';
-}
-
-function label(entry: SessionEntry): string {
-  const role = entry.message?.role;
-  const prefix =
-    role === 'user'
-      ? 'user'
-      : role === 'assistant'
-        ? 'assistant'
-        : role === 'toolResult'
-          ? 'tool'
-          : entry.kind.replaceAll('_', ' ');
-  const preview = firstLine(entry.summary) || entry.summary;
-  return `${prefix} · ${truncate(preview, 90)}`;
+function rowLabel(row: TreeRow): string {
+  const prefix = row.role ?? row.kind.replaceAll('_', ' ');
+  const preview = firstLine(row.preview) || row.preview;
+  return `${row.label ? `[${row.label}] ` : ''}${prefix} · ${truncate(preview, 90)}`;
 }
 
 function truncate(text: string, limit: number): string {

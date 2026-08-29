@@ -2,15 +2,25 @@ import { chmodSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
+import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AppSettings, EntrySnapshot } from '../src/shared/domain.js';
+import { bridgeEventSchema, parseSessionIpcResult } from '../src/shared/ipc.js';
 import type { RuntimeProbe } from '../src/shared/ipc.js';
 
-const electronMocks = vi.hoisted(() => ({ writeText: vi.fn(), showOpenDialog: vi.fn() }));
+const electronMocks = vi.hoisted(() => ({
+  writeText: vi.fn(),
+  showOpenDialog: vi.fn(),
+  showSaveDialog: vi.fn(),
+  showMessageBox: vi.fn(() => Promise.resolve({ response: 0 })),
+}));
 
 vi.mock('electron', () => ({
   clipboard: { writeText: electronMocks.writeText },
-  dialog: { showSaveDialog: vi.fn(), showOpenDialog: electronMocks.showOpenDialog },
+  dialog: {
+    showSaveDialog: electronMocks.showSaveDialog,
+    showOpenDialog: electronMocks.showOpenDialog,
+    showMessageBox: electronMocks.showMessageBox,
+  },
   Notification: { isSupported: () => false },
   shell: { openExternal: vi.fn() },
 }));
@@ -41,19 +51,6 @@ beforeAll(() => {
   chmodSync(script, 0o755);
 });
 
-function treeNode(children: unknown[] = []): Record<string, unknown> {
-  return {
-    entry: { id: 'entry', parentId: null, timestamp: '', kind: 'message', summary: '' },
-    children,
-  };
-}
-
-function deepTree(depth: number): { tree: unknown[]; leafId: null } {
-  let children: unknown[] = [];
-  for (let index = 0; index < depth; index += 1) children = [treeNode(children)];
-  return { tree: children, leafId: null };
-}
-
 interface Calls {
   abortShell: number;
   entries: (string | undefined)[];
@@ -63,6 +60,11 @@ interface Calls {
   openedDirectories: string[];
   prompts: { text: string; target: unknown }[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
+  labels: { entryId: string; label: string | null }[];
+  clones: unknown[];
+  imports: string[];
+  jsonlExports: { path: string; sessionId?: string }[];
+  names: string[];
   refreshed: number;
 }
 
@@ -85,11 +87,31 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     openedDirectories: [],
     prompts: [],
     resourceDirectories: [],
+    labels: [],
+    clones: [],
+    imports: [],
+    jsonlExports: [],
+    names: [],
     refreshed: 0,
   };
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
+    capabilities: { ...DEFAULT_CAPABILITIES, sessionList: true },
+    getState: () =>
+      Promise.resolve({
+        model: null,
+        thinkingLevel: 'off' as const,
+        isStreaming: false,
+        isCompacting: false,
+        persisted: true,
+        sessionFile: '/private/session.jsonl',
+        sessionId: 'session-1',
+        sessionName: null,
+        autoCompactionEnabled: true,
+        messageCount: 1,
+        pendingMessageCount: 0,
+      }),
     abortShell: (): Promise<void> => {
       calls.abortShell += 1;
       return Promise.resolve();
@@ -98,7 +120,32 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       calls.entries.push(cursor);
       return Promise.resolve(snapshot);
     },
-    getTree: () => Promise.resolve({ tree: [], leafId: snapshot.leafId }),
+    setLabel: (entryId: string, label: string | null) => {
+      calls.labels.push({ entryId, label });
+      return Promise.resolve();
+    },
+    listSessions: () =>
+      Promise.resolve([
+        {
+          id: `pi-${'a'.repeat(32)}`,
+          source: 'native' as const,
+          runtime: 'pi' as const,
+          sessionId: 'session-1',
+          exportable: true,
+          name: null,
+          firstMessage: 'Task',
+          cwd: '/project',
+          createdAt: 1,
+          modifiedAt: 2,
+          messageCount: 1,
+          parentSessionId: null,
+        },
+      ]),
+    exportJsonl: (path: string, sessionId?: string) => {
+      calls.jsonlExports.push({ path, ...(sessionId ? { sessionId } : {}) });
+      return Promise.resolve(path);
+    },
+    getTree: () => Promise.resolve({ rows: [], leafId: snapshot.leafId, truncated: false }),
     inspectSystemPrompt: () =>
       Promise.resolve({
         text: 'private system prompt',
@@ -162,6 +209,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         return appSettings;
       },
     } as Context['settings'],
+    importRecovery: {
+      health: () => Promise.resolve({ retained: 2, capacity: 32 }),
+      reveal: () => Promise.resolve(),
+    },
     manager: {
       active,
       runtimeFor: () => active,
@@ -192,6 +243,18 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       openSession: (cwd: string) => {
         calls.openedDirectories.push(cwd);
         return Promise.resolve({ runtime: 'tau', cwd });
+      },
+      cloneSession: (target: unknown) => {
+        calls.clones.push(target);
+        return Promise.resolve({ runtime: 'pi' });
+      },
+      importSession: (path: string) => {
+        calls.imports.push(path);
+        return Promise.resolve({ runtime: 'pi' });
+      },
+      nameSession: (name: string) => {
+        calls.names.push(name);
+        return Promise.resolve();
       },
       snapshot: () => ({ runtime: 'tau', cwd: '/project' }),
       effectiveProjectTrust: launchProjectTrust,
@@ -474,20 +537,61 @@ describe('capability-gated and adapter-contract actions', () => {
     expect(calls.resolved).toEqual([{ id: 'prompt-1', outcome: 'restore', target: session }]);
   });
 
+  it('redacts runtime-owned session paths from agent state', async () => {
+    const { context } = makeContext();
+    const state = await handleRequest(context, { action: 'agent.state' });
+    expect(state).toMatchObject({ persisted: true, sessionId: 'session-1' });
+    expect(state).not.toHaveProperty('sessionFile');
+  });
+
   it('rejects oversized restored response identifiers at the main boundary', async () => {
     const { context } = makeContext();
     const active = context.manager.runtimeFor();
     const huge = 'x'.repeat(2 * 1024 * 1024);
     active.getEntries = () => Promise.resolve({ entries: [], leafId: huge });
-    active.getTree = () => Promise.resolve({ tree: [], leafId: huge });
+    active.getTree = () => Promise.resolve({ rows: [], leafId: huge, truncated: false });
 
     await expect(handleRequest(context, { action: 'agent.entries' })).rejects.toThrow();
     await expect(handleRequest(context, { action: 'agent.tree' })).rejects.toThrow();
   });
 
   it.each([
-    ['deep', deepTree(5_000)],
-    ['wide', { tree: Array.from({ length: 1_001 }, () => treeNode()), leafId: null }],
+    [
+      'over-budget rows',
+      {
+        rows: Array.from({ length: 2_001 }, () => ({
+          id: 'entry',
+          parentId: null,
+          depth: 0,
+          kind: 'message',
+          role: 'user',
+          timestamp: '2026-01-01T00:00:00Z',
+          preview: 'safe',
+          label: null,
+        })),
+        leafId: null,
+        truncated: true,
+      },
+    ],
+    [
+      'over-depth rows',
+      {
+        rows: [
+          {
+            id: 'entry',
+            parentId: null,
+            depth: 129,
+            kind: 'message',
+            role: 'user',
+            timestamp: '2026-01-01T00:00:00Z',
+            preview: 'safe',
+            label: null,
+          },
+        ],
+        leafId: null,
+        truncated: true,
+      },
+    ],
   ] as const)('rejects a %s malformed adapter tree without stack overflow', async (_kind, tree) => {
     const { context } = makeContext();
     context.manager.runtimeFor().getTree = () => Promise.resolve(tree as never);
@@ -504,5 +608,133 @@ describe('capability-gated and adapter-contract actions', () => {
     });
     await handleRequest(context, { action: 'agent.entries', payload: { cursor: 'entry-1' } });
     expect(calls.entries).toEqual([undefined, 'entry-1']);
+  });
+
+  it('routes bounded session catalog, labels, and clone through main ownership', async () => {
+    const { context, calls } = makeContext();
+    const target = { runtime: 'pi' as const, sessionId: 'session-1' };
+    await expect(
+      handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+        session: target,
+      }),
+    ).resolves.toEqual([expect.objectContaining({ sessionId: 'session-1' })]);
+    await handleRequest(context, {
+      action: 'session.label',
+      payload: { entryId: 'entry-1', label: 'bookmark' },
+      session: target,
+    });
+    await handleRequest(context, { action: 'session.clone', session: target });
+    expect(calls.labels).toEqual([{ entryId: 'entry-1', label: 'bookmark' }]);
+    expect(calls.clones).toEqual([target]);
+  });
+
+  it('rejects a 501-character session name before mutation and preserves bounded outputs', async () => {
+    const { context, calls } = makeContext();
+    const event = { type: 'diagnostic', message: 'stable' } as const;
+    const before = {
+      settings: await handleRequest(context, { action: 'settings.get' }),
+      state: await handleRequest(context, { action: 'agent.state' }),
+      catalog: await handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+      }),
+      event,
+    };
+
+    await expect(
+      handleRequest(context, {
+        action: 'session.name',
+        payload: { name: 'x'.repeat(501) },
+      }),
+    ).rejects.toThrow();
+
+    expect(calls.names).toEqual([]);
+    const after = {
+      settings: await handleRequest(context, { action: 'settings.get' }),
+      state: await handleRequest(context, { action: 'agent.state' }),
+      catalog: await handleRequest(context, {
+        action: 'session.list',
+        payload: { scope: 'all' },
+      }),
+      event,
+    };
+    expect(after).toEqual(before);
+    expect(() => parseSessionIpcResult('settings.get', after.settings)).not.toThrow();
+    expect(() => parseSessionIpcResult('agent.state', after.state)).not.toThrow();
+    expect(() => parseSessionIpcResult('session.list', after.catalog)).not.toThrow();
+    expect(bridgeEventSchema.safeParse(after.event).success).toBe(true);
+
+    await handleRequest(context, {
+      action: 'session.name',
+      payload: { name: '  release\u202E\nprep  ' },
+    });
+    expect(calls.names).toEqual(['release  prep']);
+  });
+
+  it('serves import recovery without resolving a selected runtime', async () => {
+    const { context } = makeContext();
+    context.manager.runtimeFor = () => {
+      throw new Error('Session is no longer available: /private/failed-session');
+    };
+
+    await expect(handleRequest(context, { action: 'session.importHealth' })).resolves.toEqual({
+      retained: 2,
+      capacity: 32,
+    });
+    await expect(
+      handleRequest(context, { action: 'session.revealImportRecovery' }),
+    ).resolves.toBeNull();
+  });
+
+  it('explains create-new-only collisions and reopens the export dialog', async () => {
+    electronMocks.showSaveDialog
+      .mockResolvedValueOnce({ canceled: false, filePath: '/chosen/existing.jsonl' })
+      .mockResolvedValueOnce({ canceled: false, filePath: '/chosen/new.jsonl' });
+    const { context } = makeContext();
+    const active = context.manager.runtimeFor(null);
+    const originalExport = active.exportJsonl.bind(active);
+    active.exportJsonl = vi.fn((path: string, sessionId?: string) => {
+      if (path.endsWith('existing.jsonl')) {
+        return Promise.reject(Object.assign(new Error('exists'), { code: 'EEXIST' }));
+      }
+      return originalExport(path, sessionId);
+    });
+
+    await expect(
+      handleRequest(context, { action: 'session.exportJsonl', payload: {} }),
+    ).resolves.toBe('/chosen/new.jsonl');
+    const collisionOptions = electronMocks.showMessageBox.mock.calls[0]?.at(-1) as unknown;
+    expect(collisionOptions).toMatchObject({
+      message: 'That file already exists. Portable export creates new files only.',
+    });
+    expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(2);
+  });
+
+  it('gets import and export paths only from native dialogs', async () => {
+    electronMocks.showOpenDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePaths: ['/chosen/import.jsonl'],
+    });
+    electronMocks.showSaveDialog.mockResolvedValueOnce({
+      canceled: false,
+      filePath: '/chosen/export.jsonl',
+    });
+    const { context, calls } = makeContext();
+    const target = { runtime: 'pi' as const, sessionId: 'session-1' };
+
+    await handleRequest(context, { action: 'session.importJsonl', session: target });
+    await handleRequest(context, {
+      action: 'session.exportJsonl',
+      payload: { sessionId: 'session-1' },
+      session: target,
+    });
+
+    expect(calls.imports).toEqual(['/chosen/import.jsonl']);
+    expect(calls.jsonlExports).toEqual([{ path: '/chosen/export.jsonl', sessionId: 'session-1' }]);
+    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
+      expect.objectContaining({ properties: ['openFile'] }),
+    );
   });
 });

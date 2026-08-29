@@ -17,7 +17,7 @@ const AGENT: AgentState = {
   thinkingLevel: 'medium',
   isStreaming: false,
   isCompacting: false,
-  sessionFile: null,
+  persisted: false,
   sessionId: 'session-a',
   sessionName: null,
   autoCompactionEnabled: true,

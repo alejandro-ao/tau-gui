@@ -8,11 +8,13 @@ import type {
 } from '../shared/ipc.js';
 import {
   bashResultSchema,
+  bridgeEventSchema,
   contextFilesSchema,
   entrySnapshotSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
   resourceCatalogSchema,
+  parseSessionIpcResult,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
@@ -49,7 +51,12 @@ const bridge: TauBridge = {
     if (!response || typeof response !== 'object' || !('ok' in response)) {
       throw new Error('Malformed IPC response');
     }
-    if (!response.ok) throw new Error(response.error);
+    if (!response.ok) {
+      if (typeof response.error !== 'string' || response.error.length > 1_000) {
+        throw new Error('Malformed IPC error');
+      }
+      throw new Error(response.error);
+    }
     if (action === 'agent.entries') {
       return entrySnapshotSchema.parse(response.value) as IpcResult<typeof action>;
     }
@@ -74,11 +81,12 @@ const bridge: TauBridge = {
     if (action === 'shell.run') {
       return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
-    return response.value as IpcResult<typeof action>;
+    return parseSessionIpcResult(action, response.value) as IpcResult<typeof action>;
   },
   subscribe(listener) {
     const handler = (_event: unknown, payload: unknown): void => {
-      if (isBridgeEvent(payload)) listener(payload);
+      const parsed = bridgeEventSchema.safeParse(payload);
+      if (parsed.success) listener(parsed.data);
     };
     ipcRenderer.on(IPC_EVENT_CHANNEL, handler);
     return () => {
@@ -94,49 +102,5 @@ const bridge: TauBridge = {
   },
   platform: process.platform,
 };
-
-function isBridgeEvent(value: unknown): value is BridgeEvent {
-  if (typeof value !== 'object' || value === null) return false;
-  const record = value as {
-    type?: unknown;
-    sessionId?: unknown;
-    runtime?: unknown;
-    snapshot?: unknown;
-  };
-  const type = record.type;
-  return (
-    (type === 'agent' &&
-      typeof record.sessionId === 'string' &&
-      (record.runtime === 'tau' || record.runtime === 'pi')) ||
-    (type === 'queue' && isQueueSnapshot(record.snapshot)) ||
-    type === 'status' ||
-    type === 'diagnostic' ||
-    type === 'settings' ||
-    type === 'sessionActivity' ||
-    type === 'focus'
-  );
-}
-
-function isQueueSnapshot(value: unknown): boolean {
-  if (typeof value !== 'object' || value === null) return false;
-  const snapshot = value as Record<string, unknown>;
-  const validItems = (items: unknown): boolean =>
-    Array.isArray(items) &&
-    items.every(
-      (item) =>
-        typeof item === 'object' &&
-        item !== null &&
-        typeof (item as Record<string, unknown>)['id'] === 'string' &&
-        typeof (item as Record<string, unknown>)['text'] === 'string' &&
-        ((item as Record<string, unknown>)['kind'] === 'steering' ||
-          (item as Record<string, unknown>)['kind'] === 'follow-up'),
-    );
-  return (
-    (snapshot['runtime'] === 'tau' || snapshot['runtime'] === 'pi') &&
-    typeof snapshot['sessionId'] === 'string' &&
-    validItems(snapshot['steering']) &&
-    validItems(snapshot['followUp'])
-  );
-}
 
 contextBridge.exposeInMainWorld('tau', bridge);

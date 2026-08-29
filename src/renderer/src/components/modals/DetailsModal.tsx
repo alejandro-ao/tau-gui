@@ -12,7 +12,7 @@ export function DetailsModal(): ReactNode {
 
   const rows: { label: string; value: string | null }[] = [
     { label: 'id', value: agent?.sessionId ?? null },
-    { label: 'file', value: agent?.sessionFile ?? null },
+    { label: 'storage', value: agent ? (agent.persisted ? 'persisted' : 'ephemeral') : null },
     { label: 'runtime', value: snapshot.runtime },
     {
       label: 'model',

@@ -245,7 +245,7 @@ describe.each<RuntimeKind>(['tau', 'pi'])('%s adapter contract', (kind) => {
     expect(snapshot.entries.length).toBeGreaterThan(0);
     expect(snapshot.leafId).not.toBeNull();
     const tree = await active.runtime.getTree();
-    expect(tree.tree).toHaveLength(1);
+    expect(tree.rows.length).toBeGreaterThan(0);
   });
 
   it('sends exactly one session reference field on switch_session', async () => {
