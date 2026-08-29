@@ -1,4 +1,5 @@
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -23,6 +24,27 @@ import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
 let active: EmbeddedPiRuntime | null = null;
+
+function appendConversation(manager: SessionManager, text: string): void {
+  manager.appendMessage({ role: 'user', content: text, timestamp: Date.now() });
+  manager.appendMessage({
+    role: 'assistant',
+    content: [{ type: 'text', text: 'safe reply' }],
+    api: 'test',
+    provider: 'test',
+    model: 'test',
+    usage: {
+      input: 1,
+      output: 1,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 2,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    },
+    stopReason: 'stop',
+    timestamp: Date.now(),
+  });
+}
 
 afterEach(async () => {
   await active?.stop();
@@ -62,6 +84,79 @@ describe('EmbeddedPiRuntime', () => {
       toolCatalog: false,
     });
   });
+
+  it.each(['regular replacement', 'symlink replacement', 'hardlink replacement', 'same inode'])(
+    'clones the live manager without reading or mutating an externally changed source: %s',
+    async (mutation) => {
+      const root = mkdtempSync(join(tmpdir(), 'tau-gui-clone-race-'));
+      roots.push(root);
+      const cwd = join(root, 'project');
+      const agentDir = join(root, 'agent');
+      mkdirSync(cwd, { recursive: true });
+
+      const runtime = new EmbeddedPiRuntime(
+        { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
+        { agentDir, home: root },
+      );
+      active = runtime;
+      await runtime.start({
+        kind: 'pi',
+        binary: '',
+        cwd,
+        extraArgs: [],
+        projectTrust: 'default',
+      });
+
+      const manager = (
+        runtime as unknown as { runtime: { session: { sessionManager: SessionManager } } }
+      ).runtime.session.sessionManager;
+      appendConversation(manager, `live manager ${mutation}`);
+      const source = manager.getSessionFile();
+      if (!source) throw new Error('clone fixture was not persisted');
+      const sourceId = manager.getSessionId();
+      const displaced = `${source}.displaced`;
+      const external = join(root, 'external.jsonl');
+      const externalBytes = Buffer.from(`EXTERNAL-${mutation}`);
+      const createBranchedSession = manager.createBranchedSession.bind(manager);
+      let createCalls = 0;
+
+      manager.createBranchedSession = (leafId: string) => {
+        createCalls += 1;
+        if (mutation === 'same inode') {
+          writeFileSync(source, externalBytes);
+        } else {
+          renameSync(source, displaced);
+          if (mutation === 'regular replacement') {
+            writeFileSync(source, externalBytes);
+          } else {
+            writeFileSync(external, externalBytes);
+            if (mutation === 'symlink replacement') symlinkSync(external, source);
+            else linkSync(external, source);
+          }
+        }
+
+        const destination = createBranchedSession(leafId);
+        const probe =
+          mutation === 'regular replacement' || mutation === 'same inode' ? source : external;
+        expect(readFileSync(probe)).toEqual(externalBytes);
+        return destination;
+      };
+
+      await runtime.clone();
+
+      expect(createCalls).toBe(1);
+      expect((await runtime.getState()).sessionId).not.toBe(sourceId);
+      expect(await runtime.getMessages()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ role: 'user', text: `live manager ${mutation}` }),
+          expect.objectContaining({ role: 'assistant', text: 'safe reply' }),
+        ]),
+      );
+      const probe =
+        mutation === 'regular replacement' || mutation === 'same inode' ? source : external;
+      expect(readFileSync(probe)).toEqual(externalBytes);
+    },
+  );
 
   it.each([
     {

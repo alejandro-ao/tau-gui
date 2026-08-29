@@ -412,12 +412,25 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (catalog.records.length >= MAX_SESSION_CATALOG_ENTRIES) {
       throw new Error('Session catalog capacity reached; clone refused');
     }
-    const leafId = this.session.sessionManager.getLeafId();
-    const source = this.session.sessionFile;
-    if (!leafId || !source) throw new Error('Send a message before cloning this session');
-    const sessionDir = await ensureCheckedDirectory(this.session.sessionManager.getSessionDir());
-    const manager = SessionManager.open(source, sessionDir);
-    const destination = manager.createBranchedSession(leafId);
+    const session = this.session;
+    if (session.isStreaming) throw new Error('Wait for the current response before cloning');
+    const manager = session.sessionManager;
+    const leafId = manager.getLeafId();
+    if (!leafId || !session.sessionFile) {
+      throw new Error('Send a message before cloning this session');
+    }
+    const sessionDir = await ensureCheckedDirectory(manager.getSessionDir());
+    if (
+      this.session !== session ||
+      this.session.sessionManager !== manager ||
+      session.isStreaming
+    ) {
+      throw new Error('Active session changed before clone creation');
+    }
+    // Pi documents this instance operation as extracting the selected path from
+    // the manager's live tree. Never reopen the active path: a same-user swap
+    // could substitute different bytes and opening can migrate or initialize it.
+    const destination = this.session.sessionManager.createBranchedSession(leafId);
     if (!destination) throw new Error('Failed to create cloned session');
     const artifact = await inspectPhysicalFile(destination, sessionDir);
     try {
