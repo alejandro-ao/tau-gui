@@ -1,4 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
@@ -8,6 +17,8 @@ import { composer, launchApp, type AppHandle } from './helpers.js';
 let handle: AppHandle;
 let root: string;
 let seededId: string;
+let agentDir: string;
+let backingPath: string;
 
 function sessionDirectory(cwd: string, agentDir: string): string {
   const safePath = `--${resolve(cwd)
@@ -25,7 +36,7 @@ test.beforeEach(async () => {
   root = mkdtempSync(join(tmpdir(), 'tau-gui-native-sessions-'));
   const userDataDir = join(root, 'user-data');
   const projectDir = join(root, 'project');
-  const agentDir = join(userDataDir, 'pi-agent');
+  agentDir = join(userDataDir, 'pi-agent');
   mkdirSync(projectDir, { recursive: true });
 
   // Public SessionManager APIs seed a deterministic persisted Pi session. The
@@ -52,12 +63,79 @@ test.beforeEach(async () => {
     timestamp: Date.now(),
   });
 
+  backingPath = manager.getSessionFile() ?? '';
+  if (!backingPath) throw new Error('seeded session was not persisted');
+
   handle = await launchApp({ userDataDir, projectDir, embeddedPi: true });
 });
 
 test.afterEach(async () => {
   await handle.close();
   rmSync(root, { recursive: true, force: true });
+});
+
+test('keeps catalog/export filesystem failures path-free across main IPC and preload', async () => {
+  const { app, page } = handle;
+  const privateName = backingPath.slice(backingPath.lastIndexOf('/') + 1);
+  const catalog = await page.evaluate<Array<{ id: string; sessionId: string }>>(
+    `window.tau.invoke('session.list', { scope: 'all' })`,
+  );
+  const selected = catalog.find((session) => session.sessionId === seededId);
+  if (!selected) throw new Error('seeded catalog session was not listed');
+
+  rmSync(backingPath);
+  await app.evaluate(
+    ({ dialog }, destination) => {
+      dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: destination });
+    },
+    join(root, 'missing-source-export.jsonl'),
+  );
+  const missingError = await page.evaluate(
+    `window.tau.invoke('session.exportJsonl', { sessionId: ${JSON.stringify(selected.id)} }).then(() => 'resolved', (error) => String(error.message))`,
+  );
+  expect(missingError).toContain('fresh native catalog record');
+  expect(missingError).not.toContain(agentDir);
+  expect(missingError).not.toContain(privateName);
+
+  // A no-follow source rejection is surfaced only as fixed diagnostics/status.
+  writeFileSync(join(root, 'private-source-target.jsonl'), '{}\n');
+  symlinkSync(join(root, 'private-source-target.jsonl'), backingPath);
+  const diagnostics = await page.evaluate(`(() => {
+    const messages = [];
+    const unsubscribe = window.tau.subscribe((event) => {
+      if (event.type === 'diagnostic') messages.push(event.message);
+    });
+    return window.tau.invoke('session.list', { scope: 'all' }).then(() => {
+      unsubscribe();
+      return messages;
+    });
+  })()`);
+  expect(JSON.stringify(diagnostics)).toContain('Unsafe or unknown session-directory child');
+  expect(JSON.stringify(diagnostics)).not.toContain(agentDir);
+  expect(JSON.stringify(diagnostics)).not.toContain(privateName);
+  expect(JSON.stringify(diagnostics)).not.toContain('private-source-target.jsonl');
+
+  rmSync(backingPath);
+  const sessionsRoot = join(agentDir, 'sessions');
+  const displacedRoot = join(agentDir, 'private-displaced-sessions');
+  renameSync(sessionsRoot, displacedRoot);
+  writeFileSync(sessionsRoot, 'invalid root');
+  const rootDiagnostics = await page.evaluate(`(() => {
+    const messages = [];
+    const unsubscribe = window.tau.subscribe((event) => {
+      if (event.type === 'diagnostic') messages.push(event.message);
+    });
+    return window.tau.invoke('session.list', { scope: 'all' }).then((sessions) => {
+      unsubscribe();
+      return { messages, sessions };
+    });
+  })()`);
+  expect(JSON.stringify(rootDiagnostics)).toContain(
+    'Session catalog roots are unavailable or unsafe',
+  );
+  expect(JSON.stringify(rootDiagnostics)).not.toContain(agentDir);
+  expect(JSON.stringify(rootDiagnostics)).not.toContain(privateName);
+  expect(JSON.stringify(rootDiagnostics)).not.toContain('private-displaced-sessions');
 });
 
 test('fails import closed while preserving native list, resume, clone, and export', async () => {

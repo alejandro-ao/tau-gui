@@ -61,27 +61,52 @@ function within(root: string, candidate: string): boolean {
   return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
 }
 
+class SessionFilesystemError extends Error {}
+
+function sessionFilesystemError(message: string, code?: string): SessionFilesystemError {
+  const error = new SessionFilesystemError(message) as SessionFilesystemError & { code?: string };
+  if (code) error.code = code;
+  return error;
+}
+
+function safeFilesystemError(error: unknown, fallback: string): Error {
+  return error instanceof SessionFilesystemError ? error : sessionFilesystemError(fallback);
+}
+
+function safeFilesystemMessage(error: unknown, fallback: string): string {
+  return safeFilesystemError(error, fallback).message;
+}
+
 function deadline(started: number): void {
   if (Date.now() - started > SESSION_IO_LIMITS.milliseconds) {
-    throw new Error('Session catalog metadata budget exceeded');
+    throw sessionFilesystemError('Session catalog metadata budget exceeded');
   }
 }
 
 export async function ensureCheckedDirectory(path: string, rootReal?: string): Promise<string> {
-  await mkdir(path, { recursive: true, mode: 0o700 });
-  return checkedDirectory(path, rootReal);
+  try {
+    await mkdir(path, { recursive: true, mode: 0o700 });
+    return await checkedDirectory(path, rootReal);
+  } catch (error) {
+    throw safeFilesystemError(error, 'Session directory is unavailable or unsafe');
+  }
 }
 
 /** Validate an existing directory without creating any user-selected path. */
 export async function checkedExistingDirectory(path: string): Promise<string> {
-  return checkedDirectory(path);
+  try {
+    return await checkedDirectory(path);
+  } catch (error) {
+    throw safeFilesystemError(error, 'Session directory is unavailable or unsafe');
+  }
 }
 
 export async function retainedArtifactCount(directory: string): Promise<number> {
-  const checked = await checkedDirectory(directory);
-  const handle = await opendir(checked);
-  let retained = 0;
+  let handle;
   try {
+    const checked = await checkedDirectory(directory);
+    handle = await opendir(checked);
+    let retained = 0;
     for await (const entry of handle) {
       if (entry.name.endsWith('.retained')) {
         // Unknown/symlink markers still consume capacity: an attacker cannot
@@ -90,21 +115,24 @@ export async function retainedArtifactCount(directory: string): Promise<number> 
         if (retained >= SESSION_IO_LIMITS.retainedArtifacts) break;
       }
     }
+    return retained;
+  } catch (error) {
+    throw safeFilesystemError(error, 'Session recovery directory is unavailable or unsafe');
   } finally {
-    await handle.close().catch(() => undefined);
+    await handle?.close().catch(() => undefined);
   }
-  return retained;
 }
 
 async function checkedDirectory(path: string, rootReal?: string): Promise<string> {
   const before = await lstat(path);
-  if (!before.isDirectory() || before.isSymbolicLink()) throw new Error('Unsafe session directory');
+  if (!before.isDirectory() || before.isSymbolicLink())
+    throw sessionFilesystemError('Unsafe session directory');
   const physical = await realpath(path);
   if (rootReal && !within(rootReal, physical))
-    throw new Error('Session directory escapes its root');
+    throw sessionFilesystemError('Session directory escapes its root');
   const after = await lstat(path);
   if (after.dev !== before.dev || after.ino !== before.ino || after.isSymbolicLink()) {
-    throw new Error('Session directory changed during validation');
+    throw sessionFilesystemError('Session directory changed during validation');
   }
   return physical;
 }
@@ -124,30 +152,31 @@ async function inspectDirectory(
       deadline(started);
       entries += 1;
       if (entries > SESSION_IO_LIMITS.entriesPerDirectory) {
-        throw new Error('Session directory entry budget exceeded');
+        throw sessionFilesystemError('Session directory entry budget exceeded');
       }
       if (entry.isSymbolicLink() || (!entry.isFile() && !entry.isDirectory())) {
-        throw new Error('Unsafe or unknown session-directory child');
+        throw sessionFilesystemError('Unsafe or unknown session-directory child');
       }
       if (!entry.name.endsWith('.jsonl')) continue;
       const path = resolve(directoryReal, entry.name);
       if (!within(directoryReal, path) || !entry.isFile()) {
-        throw new Error('Unsafe session file');
+        throw sessionFilesystemError('Unsafe session file');
       }
       const before = await lstat(path, { bigint: true });
       if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
-        throw new Error('Session file must be a singly-linked regular file');
+        throw sessionFilesystemError('Session file must be a singly-linked regular file');
       }
       const physical = await realpath(path);
-      if (!within(directoryReal, physical)) throw new Error('Session file escapes its directory');
+      if (!within(directoryReal, physical))
+        throw sessionFilesystemError('Session file escapes its directory');
       if (before.size > BigInt(SESSION_IO_LIMITS.fileBytes)) {
-        throw new Error('Session file is too large');
+        throw sessionFilesystemError('Session file is too large');
       }
       const size = Number(before.size);
       budget.files += 1;
       budget.bytes += size;
       if (budget.files > SESSION_IO_LIMITS.files || budget.bytes > SESSION_IO_LIMITS.totalBytes) {
-        throw new Error('Session catalog file budget exceeded');
+        throw sessionFilesystemError('Session catalog file budget exceeded');
       }
       files.set(path, {
         path,
@@ -178,10 +207,10 @@ export async function boundedSessionList(root: string): Promise<{
   let rootReal: string;
   try {
     rootReal = await checkedDirectory(resolve(root));
-  } catch (error) {
+  } catch {
     return {
       sessions: [],
-      diagnostics: [`Session root rejected: ${(error as Error).message}`],
+      diagnostics: ['Session root is unavailable or unsafe'],
       complete: false,
     };
   }
@@ -196,7 +225,7 @@ export async function boundedSessionList(root: string): Promise<{
         deadline(started);
         entries += 1;
         if (entries > SESSION_IO_LIMITS.entriesPerDirectory) {
-          throw new Error('Session root entry budget exceeded');
+          throw sessionFilesystemError('Session root entry budget exceeded');
         }
         if (entry.isSymbolicLink() || (!entry.isDirectory() && !entry.isFile())) {
           completeRootScan = false;
@@ -208,14 +237,18 @@ export async function boundedSessionList(root: string): Promise<{
         if (!entry.isDirectory()) continue;
         directoryPaths.push(resolve(rootReal, entry.name));
         if (directoryPaths.length > SESSION_IO_LIMITS.directories) {
-          throw new Error('Session directory budget exceeded');
+          throw sessionFilesystemError('Session directory budget exceeded');
         }
       }
     } finally {
       await handle.close().catch(() => undefined);
     }
   } catch (error) {
-    return { sessions: [], diagnostics: [(error as Error).message], complete: false };
+    return {
+      sessions: [],
+      diagnostics: [safeFilesystemMessage(error, 'Session root enumeration failed safely')],
+      complete: false,
+    };
   }
 
   const budget = { files: 0, bytes: 0 };
@@ -226,7 +259,9 @@ export async function boundedSessionList(root: string): Promise<{
       approved.push(await inspectDirectory(directory, rootReal, budget, started));
     } catch (error) {
       complete = false;
-      diagnostics.push(`Skipped session directory: ${(error as Error).message}`);
+      diagnostics.push(
+        `Skipped session directory: ${safeFilesystemMessage(error, 'metadata validation failed safely')}`,
+      );
     }
   }
 
@@ -241,7 +276,7 @@ export async function boundedSessionList(root: string): Promise<{
       for (const approvedFile of directory.files.values()) {
         const checked = await inspectPhysicalFile(approvedFile.path, directory.path);
         if (!samePhysicalGeneration(checked, approvedFile)) {
-          throw new Error('Session file changed before listing');
+          throw sessionFilesystemError('Session file changed before listing');
         }
       }
       // Public SDK owns JSONL parsing. Its API has no abort/file/byte budget, so calls
@@ -250,27 +285,32 @@ export async function boundedSessionList(root: string): Promise<{
       deadline(started);
     } catch (error) {
       complete = false;
-      diagnostics.push(`Skipped malformed session directory: ${(error as Error).message}`);
+      diagnostics.push(
+        `Skipped malformed session directory: ${safeFilesystemMessage(error, 'listing or recheck failed safely')}`,
+      );
       continue;
     }
     const represented = new Set<string>();
     for (const info of listed) {
       try {
         deadline(started);
-        if (!info || typeof info.path !== 'string') throw new Error('Malformed SDK record');
+        if (!info || typeof info.path !== 'string')
+          throw sessionFilesystemError('Malformed SDK record');
         const path = resolve(info.path);
         const physical = directory.files.get(path);
-        if (!physical) throw new Error('SDK returned an unapproved path');
-        if (represented.has(path)) throw new Error('SDK returned a duplicate path');
+        if (!physical) throw sessionFilesystemError('SDK returned an unapproved path');
+        if (represented.has(path)) throw sessionFilesystemError('SDK returned a duplicate path');
         represented.add(path);
         const checked = await inspectPhysicalFile(path, directory.path);
         if (!samePhysicalGeneration(checked, physical)) {
-          throw new Error('Session file changed during listing');
+          throw sessionFilesystemError('Session file changed during listing');
         }
         sessions.push({ info, physical });
       } catch (error) {
         complete = false;
-        diagnostics.push(`Dropped session record: ${(error as Error).message}`);
+        diagnostics.push(
+          `Dropped session record: ${safeFilesystemMessage(error, 'validation failed safely')}`,
+        );
       }
     }
     if (represented.size !== directory.files.size) {
@@ -285,35 +325,39 @@ export async function inspectPhysicalFile(
   path: string,
   requiredRoot?: string,
 ): Promise<PhysicalFile> {
-  const absolute = resolve(path);
-  const before = await lstat(absolute, { bigint: true });
-  if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
-    throw new Error('Session source must be a singly-linked regular file');
+  try {
+    const absolute = resolve(path);
+    const before = await lstat(absolute, { bigint: true });
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink !== 1n) {
+      throw sessionFilesystemError('Session source must be a singly-linked regular file');
+    }
+    if (before.size > BigInt(SESSION_IO_LIMITS.fileBytes)) {
+      throw sessionFilesystemError('Session file is too large');
+    }
+    const physical = await realpath(absolute);
+    if (requiredRoot && !within(resolve(requiredRoot), physical)) {
+      throw sessionFilesystemError('Session file escapes its owned directory');
+    }
+    const after = await lstat(absolute, { bigint: true });
+    if (
+      after.dev !== before.dev ||
+      after.ino !== before.ino ||
+      after.size !== before.size ||
+      after.mtimeNs !== before.mtimeNs ||
+      after.ctimeNs !== before.ctimeNs
+    ) {
+      throw sessionFilesystemError('Session file changed during validation');
+    }
+    return {
+      path: absolute,
+      key: `${String(before.dev)}:${String(before.ino)}`,
+      size: Number(before.size),
+      mtimeNs: String(before.mtimeNs),
+      ctimeNs: String(before.ctimeNs),
+    };
+  } catch (error) {
+    throw safeFilesystemError(error, 'Session source is unavailable or unsafe');
   }
-  if (before.size > BigInt(SESSION_IO_LIMITS.fileBytes)) {
-    throw new Error('Session file is too large');
-  }
-  const physical = await realpath(absolute);
-  if (requiredRoot && !within(resolve(requiredRoot), physical)) {
-    throw new Error('Session file escapes its owned directory');
-  }
-  const after = await lstat(absolute, { bigint: true });
-  if (
-    after.dev !== before.dev ||
-    after.ino !== before.ino ||
-    after.size !== before.size ||
-    after.mtimeNs !== before.mtimeNs ||
-    after.ctimeNs !== before.ctimeNs
-  ) {
-    throw new Error('Session file changed during validation');
-  }
-  return {
-    path: absolute,
-    key: `${String(before.dev)}:${String(before.ino)}`,
-    size: Number(before.size),
-    mtimeNs: String(before.mtimeNs),
-    ctimeNs: String(before.ctimeNs),
-  };
 }
 
 interface ExclusiveCopyOptions {
@@ -333,10 +377,12 @@ export async function exclusiveCopy(
   destination: string,
   options: ExclusiveCopyOptions = {},
 ): Promise<PhysicalFile> {
-  const sourceHandle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
+  let sourceHandle;
   let destinationHandle;
   let created = false;
+  let stage: 'source' | 'destination' | 'copy' = 'source';
   try {
+    sourceHandle = await open(source, constants.O_RDONLY | constants.O_NOFOLLOW);
     const before = await sourceHandle.stat({ bigint: true });
     const sourceKey = `${String(before.dev)}:${String(before.ino)}`;
     if (
@@ -344,7 +390,7 @@ export async function exclusiveCopy(
       before.nlink !== 1n ||
       before.size > BigInt(SESSION_IO_LIMITS.fileBytes)
     ) {
-      throw new Error('Copy source must be a bounded singly-linked regular file');
+      throw sessionFilesystemError('Copy source must be a bounded singly-linked regular file');
     }
     if (
       options.expectedSource &&
@@ -353,14 +399,16 @@ export async function exclusiveCopy(
         String(before.mtimeNs) !== options.expectedSource.mtimeNs ||
         String(before.ctimeNs) !== options.expectedSource.ctimeNs)
     ) {
-      throw new Error('Copy source no longer matches its authoritative identity');
+      throw sessionFilesystemError('Copy source no longer matches its authoritative identity');
     }
+    stage = 'destination';
     destinationHandle = await open(
       destination,
       constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
       0o600,
     );
     created = true;
+    stage = 'copy';
     await options.afterCreate?.(destination);
     const buffer = Buffer.alloc(64 * 1024);
     let position = 0;
@@ -372,7 +420,7 @@ export async function exclusiveCopy(
         Math.min(buffer.length, sourceSize - position),
         position,
       );
-      if (read.bytesRead === 0) throw new Error('Copy source ended unexpectedly');
+      if (read.bytesRead === 0) throw sessionFilesystemError('Copy source ended unexpectedly');
       await destinationHandle.write(buffer, 0, read.bytesRead, position);
       position += read.bytesRead;
     }
@@ -388,14 +436,14 @@ export async function exclusiveCopy(
       after.mtimeNs !== before.mtimeNs ||
       after.ctimeNs !== before.ctimeNs
     ) {
-      throw new Error('Copy source changed during copy');
+      throw sessionFilesystemError('Copy source changed during copy');
     }
     const physical = await inspectPhysicalFile(destination, dirname(destination));
     if (
       physical.key !== `${String(createdInfo.dev)}:${String(createdInfo.ino)}` ||
       physical.size !== createdInfo.size
     ) {
-      throw new Error('Copy destination changed after exclusive creation');
+      throw sessionFilesystemError('Copy destination changed after exclusive creation');
     }
     return physical;
   } catch (error) {
@@ -404,9 +452,20 @@ export async function exclusiveCopy(
         'Retained failed copy artifact because atomic path ownership cleanup is unavailable',
       );
     }
-    throw error;
+    if (error instanceof SessionFilesystemError) throw error;
+    const code = (error as NodeJS.ErrnoException).code;
+    if (stage === 'destination' && code === 'EEXIST') {
+      throw sessionFilesystemError('Export destination already exists', 'EEXIST');
+    }
+    throw sessionFilesystemError(
+      stage === 'source'
+        ? 'Session export source could not be opened safely'
+        : stage === 'destination'
+          ? 'Export destination could not be created safely'
+          : 'Session export copy failed safely',
+    );
   } finally {
     await destinationHandle?.close().catch(() => undefined);
-    await sourceHandle.close().catch(() => undefined);
+    await sourceHandle?.close().catch(() => undefined);
   }
 }

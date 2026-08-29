@@ -123,7 +123,40 @@ describe('session catalog record isolation', () => {
 
     const catalog = await loadCatalog(root, null);
     expect(catalog.records).toEqual([]);
-    expect(catalog.diagnostics.join(' ')).toContain('session identity is invalid');
+    expect(catalog.diagnostics.join(' ')).toContain(
+      'Dropped malformed session record: metadata is invalid',
+    );
+  });
+
+  it('uses a fixed path-free diagnostic when a backing file fails its listing recheck', async () => {
+    root = await mkdtemp(join(tmpdir(), 'tau-gui-catalog-'));
+    const directory = join(root, 'sessions', 'private-project-name');
+    await mkdir(directory, { recursive: true });
+    const privateName = 'private-backing-name.jsonl';
+    const path = join(directory, privateName);
+    await writeFile(path, '{}\n');
+    vi.spyOn(SessionManager, 'listAll').mockImplementation(async () => {
+      await writeFile(path, '{"changed":true}\n');
+      return [
+        {
+          path,
+          id: 'recheck-id',
+          cwd: '/work',
+          created: new Date(1),
+          modified: new Date(2),
+          messageCount: 0,
+          firstMessage: '',
+          allMessagesText: '',
+        },
+      ];
+    });
+
+    const catalog = await loadCatalog(root, null);
+    const diagnostic = catalog.diagnostics.join(' ');
+    expect(catalog.complete).toBe(false);
+    expect(diagnostic).toMatch(/Session file changed (before|during) listing/);
+    expect(diagnostic).not.toContain(root);
+    expect(diagnostic).not.toContain(privateName);
   });
 
   it('drops every selectable record when one logical id names two physical files', async () => {

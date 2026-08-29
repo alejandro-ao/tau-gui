@@ -441,8 +441,12 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     return result.records.map((record) => record.summary);
   }
 
-  exportHtml(path?: string): Promise<string> {
-    return this.session.exportToHtml(path);
+  async exportHtml(path?: string): Promise<string> {
+    try {
+      return await this.session.exportToHtml(path);
+    } catch {
+      throw new Error('HTML export failed safely');
+    }
   }
 
   async exportJsonl(path: string, sessionId?: string): Promise<string> {
@@ -678,10 +682,20 @@ export async function loadCatalog(
   cwd: string | null,
   excludedPath?: string,
 ): Promise<{ records: CatalogRecord[]; diagnostics: string[]; complete: boolean }> {
-  const [nativeRoot, importedRoot] = await Promise.all([
-    ensureCheckedDirectory(join(agentDir, 'sessions')),
-    ensureCheckedDirectory(join(agentDir, 'imported-sessions')),
-  ]);
+  let nativeRoot: string;
+  let importedRoot: string;
+  try {
+    [nativeRoot, importedRoot] = await Promise.all([
+      ensureCheckedDirectory(join(agentDir, 'sessions')),
+      ensureCheckedDirectory(join(agentDir, 'imported-sessions')),
+    ]);
+  } catch {
+    return {
+      records: [],
+      diagnostics: ['Session catalog roots are unavailable or unsafe'],
+      complete: false,
+    };
+  }
   const [native, imported] = await Promise.all([
     boundedSessionList(nativeRoot),
     boundedSessionList(importedRoot),
@@ -738,9 +752,9 @@ export async function loadCatalog(
           parentSessionId: null,
         },
       });
-    } catch (error) {
+    } catch {
       complete = false;
-      diagnostics.push(`Dropped malformed session record: ${(error as Error).message}`);
+      diagnostics.push('Dropped malformed session record: metadata is invalid');
     }
   }
 
@@ -757,7 +771,7 @@ export async function loadCatalog(
         idCounts.get(record.sessionId) === 1 && physicalCounts.get(record.physical.key) === 1;
       if (!unique) {
         complete = false;
-        diagnostics.push(`Dropped conflicting session identity: ${record.sessionId}`);
+        diagnostics.push('Dropped conflicting session identity');
       }
       return unique;
     })

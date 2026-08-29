@@ -404,7 +404,7 @@ describe('EmbeddedPiRuntime', () => {
     for (const [name, mutation] of mutations) {
       mutateExportSource = mutation;
       await expect(runtime.exportJsonl(join(root, `${name}-rejected.jsonl`))).rejects.toThrow(
-        /changed during copy|ended unexpectedly/,
+        /Copy source changed during copy|Copy source ended unexpectedly/,
       );
       mutateExportSource = null;
       writeFileSync(activePath, authoritativeBytes);

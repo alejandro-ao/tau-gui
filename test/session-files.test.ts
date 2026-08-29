@@ -22,6 +22,15 @@ async function root(): Promise<string> {
   return path;
 }
 
+async function rejectionMessage(operation: Promise<unknown>): Promise<string> {
+  try {
+    await operation;
+    throw new Error('operation unexpectedly succeeded');
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 describe('privileged session filesystem guards', () => {
   it('never overwrites an existing copy destination', async () => {
     const directory = await root();
@@ -61,7 +70,7 @@ describe('privileged session filesystem guards', () => {
         },
         onRetained: (message) => diagnostics.push(message),
       }),
-    ).rejects.toThrow('forced post-create failure');
+    ).rejects.toThrow('Session export copy failed safely');
 
     await expect(readFile(destination, 'utf8')).resolves.toBe('caller replacement');
     await expect(readFile(displaced, 'utf8')).resolves.toBe('');
@@ -136,7 +145,22 @@ describe('privileged session filesystem guards', () => {
     await symlink(sessions, rootLink);
     const rootResult = await boundedSessionList(rootLink);
     expect(rootResult.sessions).toEqual([]);
-    expect(rootResult.diagnostics[0]).toContain('Session root rejected');
+    expect(rootResult.diagnostics[0]).toBe('Session root is unavailable or unsafe');
+  });
+
+  it('keeps missing sources and rejected backing names out of helper errors', async () => {
+    const directory = await root();
+    const privateName = 'private-backing-session.jsonl';
+    const missing = join(directory, privateName);
+    const sourceError = await rejectionMessage(inspectPhysicalFile(missing));
+    const copyError = await rejectionMessage(
+      exclusiveCopy(missing, join(directory, 'export.jsonl')),
+    );
+
+    expect(sourceError).toBe('Session source is unavailable or unsafe');
+    expect(copyError).toBe('Session export source could not be opened safely');
+    expect(`${sourceError} ${copyError}`).not.toContain(directory);
+    expect(`${sourceError} ${copyError}`).not.toContain(privateName);
   });
 
   it('enforces directory-entry budgets before public SDK calls', async () => {
