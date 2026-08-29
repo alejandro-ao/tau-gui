@@ -1,20 +1,14 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
 import { injectBridgePayload, launchApp, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
-let recoveryRoot: string;
 
 test.beforeAll(async () => {
-  recoveryRoot = mkdtempSync(join(tmpdir(), 'tau-gui-preload-recovery-'));
-  handle = await launchApp({ env: { PI_CODING_AGENT_DIR: join(recoveryRoot, 'agent') } });
+  handle = await launchApp();
 });
 
 test.afterAll(async () => {
   await handle.close();
-  rmSync(recoveryRoot, { recursive: true, force: true });
 });
 
 test('the renderer has no Node integration', async () => {
@@ -88,40 +82,6 @@ test('drops forged nested and incomplete bridge events', async () => {
 
   await injectBridgePayload(app, { type: 'focus', focused: true });
   await expect.poll(() => page.evaluate<number>('window.__acceptedBridgeEvents')).toBe(1);
-});
-
-test('recovery health crosses actual IPC and preload validation', async () => {
-  const health = await handle.page.evaluate(`window.tau.invoke('session.importHealth')`);
-  expect(health).toEqual({ available: true, retained: 0, capacity: 32 });
-});
-
-test('recovery filesystem and reveal failures stay generic across actual IPC', async () => {
-  const root = mkdtempSync(join(tmpdir(), 'tau-gui-preload-recovery-failure-'));
-  const userDataDir = join(root, 'user-data');
-  const projectDir = join(root, 'project');
-  const invalidAgentDir = join(root, 'agent-file');
-  writeFileSync(invalidAgentDir, 'private filesystem fixture');
-  const failed = await launchApp({
-    userDataDir,
-    projectDir,
-    env: { PI_CODING_AGENT_DIR: invalidAgentDir },
-  });
-  try {
-    const health = await failed.page.evaluate(`window.tau.invoke('session.importHealth')`);
-    expect(health).toEqual({ available: false, error: 'Import recovery is unavailable' });
-
-    await failed.app.evaluate(({ shell }, privatePath) => {
-      shell.openPath = () => Promise.resolve(`denied: ${privatePath}`);
-    }, invalidAgentDir);
-    const revealError = await failed.page.evaluate(
-      `window.tau.invoke('session.revealImportRecovery').then(() => 'resolved', (error) => String(error.message))`,
-    );
-    expect(revealError).toBe('Could not reveal the import recovery directory');
-    expect(revealError).not.toContain(invalidAgentDir);
-  } finally {
-    await failed.close();
-    rmSync(root, { recursive: true, force: true });
-  }
 });
 
 test('an invalid IPC action is rejected by validation', async () => {

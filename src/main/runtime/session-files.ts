@@ -21,16 +21,6 @@ export interface PhysicalFile {
   ctimeNs: string;
 }
 
-function samePhysicalGeneration(left: PhysicalFile, right: PhysicalFile): boolean {
-  return (
-    left.path === right.path &&
-    left.key === right.key &&
-    left.size === right.size &&
-    left.mtimeNs === right.mtimeNs &&
-    left.ctimeNs === right.ctimeNs
-  );
-}
-
 /**
  * Node cannot unlink relative to an already-open file handle. Never path-delete an
  * artifact after a separate ownership check: a same-user swap could make that
@@ -101,6 +91,16 @@ export async function checkedExistingDirectory(path: string): Promise<string> {
   }
 }
 
+/** Refuse another import when uncertain artifacts reach the finite recovery budget. */
+export async function assertArtifactCapacity(directory: string): Promise<void> {
+  const retained = await retainedArtifactCount(directory);
+  if (retained >= SESSION_IO_LIMITS.retainedArtifacts) {
+    throw new Error(
+      'Retained import artifact budget reached; use Import recovery while the app is stopped',
+    );
+  }
+}
+
 export async function retainedArtifactCount(directory: string): Promise<number> {
   let handle;
   try {
@@ -121,6 +121,16 @@ export async function retainedArtifactCount(directory: string): Promise<number> 
   } finally {
     await handle?.close().catch(() => undefined);
   }
+}
+
+/** Durable, exclusive evidence that one destination may need manual recovery. */
+export async function markRetainedArtifact(path: string): Promise<void> {
+  const handle = await open(
+    `${path}.retained`,
+    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
+    0o600,
+  );
+  await handle.close();
 }
 
 async function checkedDirectory(path: string, rootReal?: string): Promise<string> {

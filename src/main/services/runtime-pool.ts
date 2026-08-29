@@ -438,9 +438,32 @@ export class RuntimePool {
     return this.replaceSession(target, (runtime) => runtime.clone());
   }
 
+  async importSession(path: string, target?: SessionTarget | null): Promise<RuntimeSnapshot> {
+    return this.replaceSession(target, async (runtime, manager) => {
+      if (!runtime.prepareImport) throw new Error('This runtime cannot safely prepare imports');
+      let prospective: { sessionId: string; physicalKey: string };
+      try {
+        prospective = await runtime.prepareImport(path);
+        this.assertIdentityAvailable(manager, prospective.sessionId, prospective.physicalKey, true);
+      } catch (error) {
+        await runtime.discardPreparedImport?.();
+        throw new PreparedReplacementError(error);
+      }
+      const imported = await runtime.importJsonl(path);
+      if (!imported) throw new Error('Runtime did not report the activated import identity');
+      if (imported.sessionId !== prospective.sessionId) {
+        throw new Error('Activated import does not match its reserved logical identity');
+      }
+      return imported;
+    });
+  }
+
   private async replaceSession(
     target: SessionTarget | null | undefined,
-    replace: (runtime: AgentRuntime, manager: RuntimeManager) => Promise<void>,
+    replace: (
+      runtime: AgentRuntime,
+      manager: RuntimeManager,
+    ) => Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>,
   ): Promise<RuntimeSnapshot> {
     return this.enqueueTransition(async () => {
       const manager = this.managerFor(target);
@@ -448,13 +471,28 @@ export class RuntimePool {
       if (isBusy(manager)) throw new Error('Wait for the current session to finish');
       const restart = restartIdentity(manager);
       try {
-        await replace(manager.active, manager);
+        const expected = await replace(manager.active, manager);
         await manager.refreshState();
+        if (expected) {
+          const finalState = manager.internalState;
+          const finalPhysical = finalState?.sessionFile
+            ? await inspectPhysicalFile(finalState.sessionFile).catch(() => null)
+            : null;
+          if (
+            finalState?.sessionId !== expected.sessionId ||
+            !finalPhysical ||
+            finalPhysical.key !== expected.physicalKey ||
+            finalPhysical.path !== expected.physicalPath
+          ) {
+            throw new Error('Activated import does not match its reserved physical identity');
+          }
+        }
         this.removeOwnership(manager);
         this.index(manager);
         await this.claimSnapshot(manager);
         return manager.snapshot();
       } catch (error) {
+        if (error instanceof PreparedReplacementError) throw error.originalError;
         await this.remove(manager);
         this.failedRestart = { ...restart, detail: boundedError(error) };
         this.broadcast({ type: 'status', snapshot: this.snapshot() });
@@ -706,6 +744,12 @@ export class RuntimePool {
     this.runLifecycles.delete(manager);
     this.spawned.delete(manager);
     if (this.current === manager) this.current = null;
+  }
+}
+
+class PreparedReplacementError extends Error {
+  constructor(readonly originalError: unknown) {
+    super('Session replacement was rejected before mutation');
   }
 }
 

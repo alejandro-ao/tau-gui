@@ -27,9 +27,6 @@ export interface HandlerContext {
 
 const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 
-export const IMPORT_UNAVAILABLE_MESSAGE =
-  'Session import is unavailable: the public Pi SDK has no handle- or bytes-based no-follow validator that binds an expected file identity before opening.';
-
 /** Executes one validated request. Throws on failure; the caller serializes it. */
 export async function handleRequest(
   context: HandlerContext,
@@ -170,11 +167,12 @@ export async function handleRequest(
     case 'session.clone':
       await manager.cloneSession(target);
       return null;
-    case 'session.importJsonl':
-      // Fail before opening a picker or touching any source. SessionManager.open
-      // follows a path and may initialize/migrate it; Pi 0.84.2 has no public
-      // immutable-input validation API suitable for the same-user swap model.
-      throw new Error(IMPORT_UNAVAILABLE_MESSAGE);
+    case 'session.importJsonl': {
+      const input = await pickSessionFile(context);
+      if (!input) return null;
+      await manager.importSession(input, target);
+      return null;
+    }
     case 'session.importHealth':
       return context.importRecovery.health();
     case 'session.revealImportRecovery':
@@ -308,6 +306,19 @@ export async function handleRequest(
     case 'diagnostics.list':
       return manager.listDiagnostics();
   }
+}
+
+async function pickSessionFile(context: HandlerContext): Promise<string | null> {
+  const options = {
+    title: 'Import Pi session',
+    properties: ['openFile' as const],
+    filters: [{ name: 'Pi session', extensions: ['jsonl'] }],
+  };
+  const window = context.window();
+  const result = window
+    ? await dialog.showOpenDialog(window, options)
+    : await dialog.showOpenDialog(options);
+  return result.canceled ? null : (result.filePaths[0] ?? null);
 }
 
 async function pickExportPath(

@@ -138,7 +138,7 @@ test('keeps catalog/export filesystem failures path-free across main IPC and pre
   expect(JSON.stringify(rootDiagnostics)).not.toContain('private-displaced-sessions');
 });
 
-test('fails import closed while preserving native list, resume, clone, and export', async () => {
+test('rejects current portable re-import while preserving list, resume, and export', async () => {
   const { app, page } = handle;
   const portable = join(root, 'portable.jsonl');
 
@@ -166,32 +166,13 @@ test('fails import closed while preserving native list, resume, clone, and expor
     .toBeGreaterThanOrEqual(2);
   await page.keyboard.press('Escape');
 
-  const portableBefore = readFileSync(portable);
-  await app.evaluate(({ dialog }) => {
-    const testGlobal = globalThis as typeof globalThis & { __importPickerCalls: number };
-    testGlobal.__importPickerCalls = 0;
-    dialog.showOpenDialog = () => {
-      testGlobal.__importPickerCalls += 1;
-      return Promise.resolve({ canceled: true, filePaths: [] });
-    };
-  });
-  const importError = await page.evaluate(
-    `window.tau.invoke('session.importJsonl').then(() => 'resolved', (error) => String(error.message))`,
-  );
-  expect(importError).toContain('public Pi SDK has no handle- or bytes-based no-follow validator');
-  expect(
-    await app.evaluate(
-      () => (globalThis as typeof globalThis & { __importPickerCalls: number }).__importPickerCalls,
-    ),
-  ).toBe(0);
-  expect(readFileSync(portable)).toEqual(portableBefore);
-
+  await app.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = () => Promise.resolve({ canceled: false, filePaths: [path] });
+  }, portable);
   await runCommand('/import');
-  await expect(
-    page
-      .getByRole('log', { name: 'transcript' })
-      .getByText(/public Pi SDK has no handle- or bytes-based no-follow validator/),
-  ).toBeVisible();
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
+  await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
+
   await runCommand('/resume');
   const preserved = page
     .getByTestId('modal-session')

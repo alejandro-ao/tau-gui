@@ -6,11 +6,9 @@ import { Modal } from './Modal.js';
 /** Bounded diagnostics list from the main process plus renderer notices. */
 export function DiagnosticsModal(): ReactNode {
   const { state, actions } = useStore();
-  const [importHealth, setImportHealth] = useState<
-    | { available: true; retained: number; capacity: 32 }
-    | { available: false; error: 'Import recovery is unavailable' }
-    | null
-  >(null);
+  const [importHealth, setImportHealth] = useState<{ retained: number; capacity: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     void actions.loadDiagnostics();
@@ -37,9 +35,8 @@ export function DiagnosticsModal(): ReactNode {
     >
       {importHealth ? (
         <p>
-          {importHealth.available
-            ? `import recovery: ${importHealth.retained}/${importHealth.capacity} retained uncertain artifacts`
-            : importHealth.error}
+          import recovery: {importHealth.retained}/{importHealth.capacity} retained uncertain
+          artifacts
         </p>
       ) : null}
       {diagnostics.length === 0 ? (

@@ -35,10 +35,6 @@ export interface RuntimeProbe {
   error: string | null;
 }
 
-export type ImportRecoveryHealth =
-  | { available: true; retained: number; capacity: 32 }
-  | { available: false; error: 'Import recovery is unavailable' };
-
 export const IPC_INVOKE_CHANNEL = 'tau:invoke';
 export const IPC_EVENT_CHANNEL = 'tau:event';
 
@@ -487,7 +483,6 @@ const runtimeCapabilitiesSchema = z
     retryControls: z.boolean(),
     sessionTree: z.boolean(),
     sessionClone: z.boolean(),
-    sessionImport: z.boolean(),
     sessionList: z.boolean(),
     extensionDialogs: z.boolean(),
     providerLogin: z.boolean(),
@@ -867,7 +862,7 @@ export interface IpcResultMap {
   'session.label': null;
   'session.clone': null;
   'session.importJsonl': null;
-  'session.importHealth': ImportRecoveryHealth;
+  'session.importHealth': { retained: number; capacity: number };
   'session.revealImportRecovery': null;
   'session.list': SessionSummary[];
   'session.compact': CompactionResult;
@@ -893,21 +888,12 @@ export type IpcResult<A extends IpcAction> = IpcResultMap[A];
 
 const nullableExportPathSchema = safePathText.nullable();
 const nullResultSchema = z.null();
-const importHealthSchema = z.discriminatedUnion('available', [
-  z
-    .object({
-      available: z.literal(true),
-      retained: z.number().int().nonnegative().max(32),
-      capacity: z.literal(32),
-    })
-    .strict(),
-  z
-    .object({
-      available: z.literal(false),
-      error: z.literal('Import recovery is unavailable'),
-    })
-    .strict(),
-]);
+const importHealthSchema = z
+  .object({
+    retained: z.number().int().nonnegative().max(32),
+    capacity: z.literal(32),
+  })
+  .strict();
 
 /** Strict second-boundary schemas for the Pi-native session slice. */
 export function parseSessionIpcResult(action: IpcAction, value: unknown): unknown {
