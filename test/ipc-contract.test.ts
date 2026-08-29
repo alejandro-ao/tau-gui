@@ -6,6 +6,7 @@ import {
   requestSchema,
   resourceCatalogSchema,
 } from '../src/shared/ipc.js';
+import { extensionPolicySchema, extensionUiEventSchema } from '../src/shared/extensions.js';
 import { RESOURCE_LIMITS } from '../src/shared/resources.js';
 import { MAX_SCOPED_MODEL_KEY_LENGTH, modelKey } from '../src/shared/scoped-models.js';
 
@@ -64,6 +65,39 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'settings.rememberWorkingDirectory' }).success).toBe(
       false,
     );
+  });
+
+  it('strictly bounds extension policy and dialog IPC', () => {
+    expect(requestSchema.safeParse({ action: 'extensions.list' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'extensions.policy.update',
+        payload: { userEnabled: true, executePath: '/tmp/evil.ts' },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'extensions.dialog.respond',
+        payload: { requestId: crypto.randomUUID(), value: 'x'.repeat(100_001) },
+      }).success,
+    ).toBe(false);
+    expect(
+      extensionPolicySchema.safeParse({
+        userEnabled: true,
+        projectEnabled: true,
+        executionAvailable: false,
+        blocker: 'blocked',
+      }).success,
+    ).toBe(true);
+    expect(
+      extensionUiEventSchema.safeParse({
+        type: 'custom_message',
+        extensionId: crypto.randomUUID(),
+        customType: 'card',
+        text: 'hello',
+        data: 'x'.repeat(70_000),
+      }).success,
+    ).toBe(false);
   });
 
   it('never lets the renderer choose the probed binary', () => {
