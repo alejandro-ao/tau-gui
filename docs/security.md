@@ -44,10 +44,8 @@
   services.
 - Handlers return `{ ok, value | error }`; exceptions become error strings and
   never leak stack traces to the renderer.
-- The renderer can never name an executable. `runtime.probe` takes at most a
-  runtime `kind`; the binary always comes from persisted settings, and the
-  reported version is reduced to the first line, stripped of control
-  characters, and truncated to 80 characters before it leaves the main process.
+- No IPC action probes, selects, or launches an agent executable. Embedded Pi is
+  the only production runtime.
 - Inbound events are shape-checked in the preload before reaching React.
 
 ## Embedded agent safety
@@ -62,12 +60,9 @@
   arbitrary Node.js and are not a sandbox.
 - Provider/tool diagnostics use the existing bounded in-memory ring (500 lines)
   and are dropped when the app exits.
-- A dedicated Electron utility process remains planned before enabling untrusted
-  extensions by default, to recover crash isolation previously supplied by a
-  subprocess.
-- Strict JSONL framing/backpressure code remains available only to the explicit
-  deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
-  settings.
+- Deterministic coverage injects `FakePiRuntime` at the same typed boundary. It
+  has no subprocess, protocol parser, filesystem authority, provider access, or
+  production selection path.
 
 ## Untrusted content
 
@@ -83,11 +78,12 @@
 
 - Credentials are owned by Pi's main-process model runtime and standard agent
   configuration. The renderer never reads, stores, or forwards provider keys.
-- `process.env` is passed to the child process but never sent to the renderer or
+- Environment values remain main-owned and are never sent to the renderer or
   written to logs.
-- Settings persisted by the GUI contain only binary paths, provider/model names,
-  UI preferences, session references, and resource-directory paths explicitly
-  selected through Electron's native folder chooser.
+- GUI settings contain only UI preferences, Pi session references, favourite
+  model identities, and resource-directory paths explicitly selected through
+  Electron's native folder chooser. Legacy runtime/binary fields are dropped on
+  load and never written again.
 
 ## Filesystem
 
@@ -105,4 +101,4 @@
 - Pi reads skills and prompt templates in the main process. Project-root and home
   `.pi`/`.agents` locations are added to Pi's SDK loader, while custom directories
   must be selected explicitly. Only bounded catalog metadata crosses IPC.
-- Session JSONL files are never read by the GUI; all session data comes from RPC.
+- Session JSONL files are never parsed by the GUI; all session data comes from public Pi SDK APIs.
