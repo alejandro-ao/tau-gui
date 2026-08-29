@@ -37,15 +37,18 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
 - Scope favourite models with `/scoped-models`: the app stores the list per
   runtime, and `Ctrl+P` cycles only scoped models once two are scoped.
 - Run direct shell commands with `!` (adds output to context) and `!!` (does not).
-- Compact, name, branch, resume, and export sessions.
+- Create, compact, name, branch, and export sessions. Saved-session metadata is
+  listed, but persisted resume is fail-closed pending a safe public Pi activation API.
 - Keyboard-first command palette (`Ctrl+K`), slash completion, `@` file
   completion, drag/drop paths, three themes, and native completion notifications.
 - Discover Pi skills and custom prompts from project-root and home `.pi`/`.agents`
   locations, plus user-selected skill or prompt directories; browse with `/prompts`
   or `/skills`, then invoke them from the composer.
 
-Optional protocol surfaces that one runtime lacks are shown disabled with the
-reason. Nothing is faked.
+Optional or unsafe protocol surfaces are shown disabled with the reason. `/resume`,
+`/import`, and `/clone` are unavailable because Pi 0.84.2 cannot activate an exact
+manager/immutable input/no-follow handle bound to an expected logical ID and full
+generation without reopening a pathname. Nothing is faked.
 
 ## Architecture
 

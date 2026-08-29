@@ -63,10 +63,11 @@
   runtime executable or shell-built launch command exists.
 - Pi events and objects are normalized before IPC. Session catalogs contain at
   most 500 bounded metadata records and omit session-file paths. Native and
-  remembered records are tagged; native resume/export uses a bounded opaque ID
+  remembered records are tagged; native metadata/export uses a bounded opaque ID
   hashing a canonical encoding of the complete observed physical generation
-  (path, device/inode key, size, mtime, and ctime), while legacy paths remain only in main-owned settings (renderer
-  settings redact them). Runtime snapshots, status events, agent state, and
+  (path, device/inode key, size, mtime, and ctime), while legacy paths remain only
+  in main-owned settings (renderer settings redact them). Persisted-session
+  activation is disabled for both record types. Runtime snapshots, status events, agent state, and
   details expose only a persisted/ephemeral flag, never the backing session path.
   Conflicting logical IDs or physical files are omitted.
   SDK sessions, credentials, provider headers, environment values, resource
@@ -133,15 +134,17 @@
   expected identity/generation, and activates or returns the validated manager
   without any later path reopen. Until then `sessionImport` is false and `/import`
   explains this blocker without disclosing paths.
-- Clone fails before branch artifact creation and runtime switching. Pi 0.84.2 can
-  call `createBranchedSession` on the exact live manager, but its public activation
-  operation then accepts and reopens the returned pathname. A same-user process can
-  replace that pathname between creation and activation, so inspecting the artifact
-  does not bind what Pi later opens. The missing upstream surface is exact-manager
-  activation or immutable artifact/handle activation bound to the created generation,
-  with no later path reopen. Until then `sessionClone` is false; direct clone IPC and
-  `/clone` return one fixed path-free blocker, and no desktop clone replacement path
-  is reachable.
+- Persisted resume and clone fail before runtime resolution, recent-settings lookup,
+  branch artifact creation, or Pi activation. Pi 0.84.2 can call
+  `createBranchedSession` on the exact live manager, but its public activation
+  operation accepts and reopens a pathname. Resume has the same flaw after a fresh
+  catalog lookup: `SessionManager.open(path, ...)` cannot consume the expected
+  generation and may initialize or migrate substituted bytes. Startup/new-manager,
+  restart, live-switch, native opaque, and legacy remembered-path routes are all
+  rejected before that open. Direct IPC and renderer actions return fixed path-free
+  blockers; the rail/catalog remain metadata-only. `sessionList: true` means only
+  bounded metadata listing and does **not** imply resume. `/resume` is unavailable.
+  Until a safe public activation API exists, `sessionClone` remains false too.
 - Recovery access remains for artifacts retained by older builds. Diagnostics →
   **reveal import recovery** is main-owned and independent of runtime lifecycle.
   Creation, validation, enumeration, and platform reveal failures are caught and
@@ -152,8 +155,8 @@
   containment, symlinks and hardlinks are rejected, SDK calls are sequential,
   and malformed SDK records are isolated. Catalog results carry an explicit
   completeness bit: skipped directories, omitted/malformed/duplicate records,
-  identity conflicts, or budget truncation make identity-sensitive resume/export
-  operations fail closed until a later complete scan recovers. Pi
+  identity conflicts, or budget truncation make identity-sensitive export operations
+  fail closed until a later complete scan recovers. Pi
   0.84.2's public `list/listAll` API
   has no file/byte/deadline/AbortSignal parameters, so a same-user filesystem
   mutation between the final metadata recheck and Pi's read cannot be eliminated
@@ -166,9 +169,9 @@
   arguments/results, or extension/custom details. Editable navigation text is
   capped at 100,000 characters after Pi mutates the branch and carries an explicit
   truncation flag, so successful mutation is never reported as schema failure.
-  Native resume and portable export resolve every opaque selection through a fresh
-  complete catalog; stale tokens cannot select an in-place replacement because the
-  token binds path, device/inode, size, mtime, and ctime. Active export is allowed
+  Portable export resolves every opaque selection through a fresh complete catalog;
+  stale tokens cannot select an in-place replacement because the token binds path,
+  device/inode, size, mtime, and ctime. Active export is allowed
   only when its current session ID and full physical
   generation (device/inode, size, mtime, and ctime) match that fresh record.
   Legacy external active files are never treated as authoritative export sources.
@@ -183,3 +186,12 @@
   handle-based destination API. Active HTML renders from the live session; it does
   not reopen a source path. The selected export destination is the sole intentional
   session-related path returned to the renderer after the user chose it.
+- Resume, import, and clone require one unified root-public Pi activation operation.
+  It must consume the exact `SessionManager`, immutable bytes, or an already-open
+  no-follow handle; accept and enforce the caller's expected logical session ID and
+  full generation (path identity where applicable, device/inode, size, mtime, and
+  ctime); and activate that exact object/input without any later pathname reopen.
+  Import may instead use Pi-owned atomic exclusive adoption of immutable bytes, but
+  must return/activate that exact adopted generation. A parser, preflight stat, or
+  path-only switch is insufficient. This upstream API is required before any of the
+  three actions can be enabled under the accepted same-user substitution model.

@@ -20,9 +20,11 @@ tau --mode rpc --cwd DIR [--provider NAME] [--model ID] [--session ID]
 pi  --mode rpc          [--provider NAME] [--model ID] [extra args…]
 ```
 
-- Tau resumes by indexed **session id** (`--session`); Pi resumes by **session
-  path** through `switch_session` after start. `buildLaunchSpec` encodes this
-  difference (`src/main/runtime/spec.ts`).
+- The historical adapter encoded Tau resume by indexed **session id** (`--session`)
+  and Pi resume by **session path** through `switch_session` after start
+  (`src/main/runtime/spec.ts`). Production does not invoke Pi's path activation:
+  persisted resume is rejected before runtime resolution because the public API
+  cannot bind expected logical identity/full generation through the open.
 - Tau has no interactive project trust in RPC mode: unresolved trust declines
   unless `--approve` is passed. `ProjectTrust` maps to `--approve`/`--no-approve`.
 - Arguments are always passed as an array. No shell interpolation, ever.
@@ -143,7 +145,9 @@ Projected entry types: `message`, `custom_message`, `model_change`,
 `session_info`. `leaf` entries are filtered out by the runtime; `leafId` marks
 the active branch tip. Timestamps are ISO-8601 UTC.
 
-Session JSONL files are runtime-owned. The GUI never reads them.
+Session JSONL files are runtime-owned. The GUI never reads them. The command table
+above documents raw historical protocol support, not enabled desktop capabilities;
+`session.switch` is fail-closed at main IPC for production persisted sessions.
 
 ## Capability differences
 
