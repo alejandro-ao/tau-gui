@@ -57,14 +57,28 @@
 - Pi events and objects are normalized before IPC. SDK sessions, credentials,
   provider headers, environment values, resource contents, and extension
   implementations never enter renderer state.
-- Third-party Pi extensions are disabled by the embedded resource loader until a
-  desktop trust decision and bounded UI contract exist. Extensions execute
-  arbitrary Node.js and are not a sandbox.
+- Third-party Pi extensions remain disabled by the embedded resource loader.
+  Metadata-only discovery skips symlinks and never imports or evaluates source;
+  persisted user/project enablement requests cannot override the hard execution
+  block. Project metadata is marked trusted only after the existing project
+  trust decision.
+- The app-owned extension utility worker has no extension-path/load command. Its
+  strict protocol is capped at 256 KiB; malformed/oversized messages kill the
+  host. Pending dialogs have bounded timeouts, close on crash, and the supervisor
+  stops after three crashes. Worker stderr stays main-only and only byte counts
+  may be recorded.
+- Brokered UI is plain bounded data: select/confirm/input/editor responses,
+  notifications, status/sidebar text, custom-message JSON strings, and portable
+  tool-render text. React renders all values inertly. Terminal widgets, custom
+  editors/footers, overlays, direct rendering components, and key interception
+  are unsupported no-ops. No extension code or Pi object crosses into renderer.
+- Pi's public API has no remote/serializable extension runtime, so enabling code
+  would require in-process authority and is the explicit upstream blocker.
 - Provider/tool diagnostics use the existing bounded in-memory ring (500 lines)
   and are dropped when the app exits.
-- A dedicated Electron utility process remains planned before enabling untrusted
-  extensions by default, to recover crash isolation previously supplied by a
-  subprocess.
+- The Electron utility-process supervisor and broker are implemented, but third-
+  party execution remains blocked until Pi exposes a public adapter that can run
+  the actual extension lifecycle entirely inside that process.
 - Strict JSONL framing/backpressure code remains available only to the explicit
   deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
   settings.

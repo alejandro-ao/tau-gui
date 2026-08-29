@@ -14,7 +14,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining session listing/clone/import/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+- Remaining session listing/clone/import/export UI, provider auth, images, retries, test-fake conversion, and compatibility-code deletion remain tracked in #17. Extension trust, utility supervision, and bounded UI contracts are implemented fail-closed; execution awaits a public Pi remote-host adapter.
 
 ## Active desktop contract audit
 
@@ -44,7 +44,7 @@ are additional requirements.
 | retry controls           | retry events only                  | missing          | no         | add policy, progress, and cancellation operations |
 | session clone            | Pi SDK primitive only              | missing          | no         | add an application-domain clone flow              |
 | session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration          |
-| extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
+| extension dialogs        | strict broker + utility supervisor | fail-closed only | no         | upstream serializable Pi extension host adapter   |
 | provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
 | resource reload          | loader exists; no reload operation | missing          | no         | add counts, diagnostics, and refresh flow         |
 | system prompt inspection | active prompt exists only in main  | missing          | no         | add bounded local-only inspection                 |
@@ -57,8 +57,7 @@ The next implementation order is:
 2. replace app-owned-only recents with Pi-native session listing, then add clone
    and complete import/export flows;
 3. add provider authentication and Pi-owned retry/settings controls;
-4. add images and extension interactions after their security boundaries are
-   defined;
+4. add images; keep extension execution blocked while maintaining its completed isolation/UI boundary;
 5. remove the compatibility runtime and JSONL test infrastructure, then finish
    release hardening.
 
