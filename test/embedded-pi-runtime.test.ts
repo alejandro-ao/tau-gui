@@ -1,4 +1,6 @@
 import {
+  appendFileSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -146,6 +148,90 @@ describe('EmbeddedPiRuntime', () => {
       expect(imported).toContain('"version":3');
     }
     expect(await recoveryHealth(agentDir)).toEqual({ retained: 0, capacity: 32 });
+  });
+
+  it('exports an active main-owned legacy session outside catalog roots safely', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-export-'));
+    roots.push(root);
+    const cwd = join(root, 'project');
+    const agentDir = join(root, 'agent');
+    const externalDir = join(root, 'legacy');
+    mkdirSync(cwd, { recursive: true });
+    mkdirSync(externalDir);
+    const manager = SessionManager.create(cwd, externalDir);
+    manager.appendMessage({ role: 'user', content: 'legacy export', timestamp: Date.now() });
+    manager.appendMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'ready' }],
+      api: 'test',
+      provider: 'test',
+      model: 'test',
+      usage: {
+        input: 1,
+        output: 1,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 2,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
+      stopReason: 'stop',
+      timestamp: Date.now(),
+    });
+    const externalPath = manager.getSessionFile();
+    if (!externalPath) throw new Error('external fixture was not persisted');
+    const legacy = readFileSync(externalPath, 'utf8').replace('"version":3', '"version":2');
+    writeFileSync(externalPath, legacy);
+
+    let mutateOnCreate = false;
+    const runtime = new EmbeddedPiRuntime(
+      { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
+      {
+        agentDir,
+        home: root,
+        exportAfterCreate: () => {
+          if (mutateOnCreate) appendFileSync(externalPath, '\n');
+        },
+      },
+    );
+    active = runtime;
+    await runtime.start({
+      kind: 'pi',
+      binary: '',
+      cwd,
+      sessionRef: externalPath,
+      extraArgs: [],
+      projectTrust: 'default',
+    });
+
+    const portable = join(root, 'external-portable.jsonl');
+    await expect(runtime.exportJsonl(portable)).resolves.toBe(portable);
+    expect(readFileSync(portable, 'utf8')).toContain(manager.getSessionId());
+
+    const alias = join(root, 'external-hardlink.jsonl');
+    linkSync(externalPath, alias);
+    await expect(runtime.exportJsonl(join(root, 'hardlink-rejected.jsonl'))).rejects.toThrow(
+      'singly-linked',
+    );
+    rmSync(alias);
+
+    const displaced = `${externalPath}.displaced`;
+    const unrelated = join(root, 'unrelated.jsonl');
+    writeFileSync(unrelated, 'unrelated');
+    renameSync(externalPath, displaced);
+    writeFileSync(externalPath, 'stale replacement');
+    await expect(runtime.exportJsonl(join(root, 'stale-rejected.jsonl'))).rejects.toThrow(
+      'changed during binding',
+    );
+    rmSync(externalPath);
+    symlinkSync(unrelated, externalPath);
+    await expect(runtime.exportJsonl(join(root, 'symlink-rejected.jsonl'))).rejects.toThrow();
+    rmSync(externalPath);
+    renameSync(displaced, externalPath);
+
+    mutateOnCreate = true;
+    await expect(runtime.exportJsonl(join(root, 'mutation-rejected.jsonl'))).rejects.toThrow(
+      'changed during copy',
+    );
   });
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {

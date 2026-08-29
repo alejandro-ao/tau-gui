@@ -92,11 +92,17 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   readonly capabilities: RuntimeCapabilities = EMBEDDED_PI_CAPABILITIES;
   private runtime: AgentSessionRuntime | null = null;
   private unsubscribe: (() => void) | null = null;
+  private activeSessionBinding: {
+    path: string;
+    sessionId: string;
+    physicalKey: string | null;
+  } | null = null;
   private sink: RuntimeSink;
   private readonly agentDir: string;
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
   private readonly importDestinationName: () => string;
+  private readonly exportAfterCreate?: (destination: string) => void | Promise<void>;
   private readonly catalog = new Map<
     string,
     { path: string; sessionId: string; physical: PhysicalFile }
@@ -117,6 +123,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       spawnSession?: SpawnSessionHandler;
       /** Deterministic destination naming for filesystem adversarial tests. */
       importDestinationName?: () => string;
+      /** Test seam for source/destination races after exclusive creation. */
+      exportAfterCreate?: (destination: string) => void | Promise<void>;
     } = {},
   ) {
     this.sink = sink;
@@ -124,6 +132,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.home = options.home ?? homedir();
     this.spawnSession = options.spawnSession ?? null;
     this.importDestinationName = options.importDestinationName ?? (() => `${randomUUID()}.jsonl`);
+    this.exportAfterCreate = options.exportAfterCreate;
   }
 
   get running(): boolean {
@@ -195,11 +204,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       sessionManager,
     });
     this.runtime = runtime;
-    runtime.setRebindSession((session) => {
-      this.bindSession(session);
-      return Promise.resolve();
-    });
-    this.bindSession(runtime.session);
+    runtime.setRebindSession((session) => this.bindSession(session));
+    await this.bindSession(runtime.session);
     for (const diagnostic of runtime.diagnostics) {
       this.sink.diagnostic(`Pi ${diagnostic.type}: ${diagnostic.message}`);
     }
@@ -211,12 +217,13 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     this.runtime = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
+    this.activeSessionBinding = null;
     await this.discardPreparedImport();
     if (runtime) await runtime.dispose();
     this.sink.status('stopped');
   }
 
-  private bindSession(session: AgentSession): void {
+  private async bindSession(session: AgentSession): Promise<void> {
     this.unsubscribe?.();
     this.unsubscribe = session.subscribe((event) => {
       const normalized = normalizeEvent(event);
@@ -229,6 +236,21 @@ export class EmbeddedPiRuntime implements AgentRuntime {
         this.sink.diagnostic(`Ignored unknown Pi event: ${event.type}`);
       }
     });
+    const path = session.sessionFile;
+    if (!path) {
+      this.activeSessionBinding = null;
+      return;
+    }
+    let physicalKey: string | null;
+    try {
+      physicalKey = (await inspectPhysicalFile(path)).key;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      // A newly-created empty Pi session has a reserved path before its first
+      // persisted turn. Its first export binds the inode created there.
+      physicalKey = null;
+    }
+    this.activeSessionBinding = { path, sessionId: session.sessionId, physicalKey };
   }
 
   private get host(): AgentSessionRuntime {
@@ -562,32 +584,50 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   async exportJsonl(path: string, sessionId?: string): Promise<string> {
-    const catalog = await loadCatalog(this.agentDir, null);
-    if (!catalog.complete) throw incompleteCatalogError();
-
-    let record: CatalogRecord | undefined;
+    let source: { path: string; physical: PhysicalFile; sessionId: string };
     if (sessionId) {
-      record = catalog.records.find((candidate) => candidate.summary.id === sessionId);
+      const catalog = await loadCatalog(this.agentDir, null);
+      if (!catalog.complete) throw incompleteCatalogError();
+      const record = catalog.records.find((candidate) => candidate.summary.id === sessionId);
       if (!record) throw new Error('Inactive export requires a fresh native catalog record');
+      source = { path: record.path, physical: record.physical, sessionId: record.sessionId };
     } else {
-      const source = this.session.sessionFile;
-      if (!source) throw new Error('This session has not been saved yet');
-      const current = await inspectPhysicalFile(source);
-      record = catalog.records.find(
-        (candidate) =>
-          candidate.physical.key === current.key &&
-          candidate.physical.size === current.size &&
-          candidate.sessionId === this.session.sessionId,
-      );
-      if (!record) throw new Error('Active export source is not in the fresh native catalog');
+      // Active legacy settings may legitimately point outside catalog roots.
+      // Bind the main-only live path directly to a fresh no-follow identity and
+      // the session object's authoritative logical ID.
+      const activePath = this.session.sessionFile;
+      const activeSessionId = this.session.sessionId;
+      if (!activePath) throw new Error('This session has not been saved yet');
+      assertValidImportedSessionId(activeSessionId);
+      const binding = this.activeSessionBinding;
+      const physical = await inspectPhysicalFile(activePath);
+      if (
+        !binding ||
+        binding.path !== activePath ||
+        binding.sessionId !== activeSessionId ||
+        (binding.physicalKey !== null && binding.physicalKey !== physical.key) ||
+        this.session.sessionFile !== activePath ||
+        this.session.sessionId !== activeSessionId
+      ) {
+        throw new Error('Active export source changed during binding');
+      }
+      if (binding.physicalKey === null) binding.physicalKey = physical.key;
+      source = { path: activePath, physical, sessionId: activeSessionId };
     }
 
     const parent = await checkedExistingDirectory(dirname(resolve(path)));
     const destination = join(parent, basename(path));
-    await exclusiveCopy(record.path, destination, {
-      expectedSource: record.physical,
+    await exclusiveCopy(source.path, destination, {
+      expectedSource: source.physical,
+      afterCreate: this.exportAfterCreate,
       onRetained: (message) => this.sink.diagnostic(message),
     });
+    if (
+      !sessionId &&
+      (this.session.sessionFile !== source.path || this.session.sessionId !== source.sessionId)
+    ) {
+      throw new Error('Active export source changed during copy');
+    }
     return path;
   }
 
