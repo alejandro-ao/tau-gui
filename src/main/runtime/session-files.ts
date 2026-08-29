@@ -21,6 +21,16 @@ export interface PhysicalFile {
   ctimeNs: string;
 }
 
+function samePhysicalGeneration(left: PhysicalFile, right: PhysicalFile): boolean {
+  return (
+    left.path === right.path &&
+    left.key === right.key &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
+}
+
 /**
  * Node cannot unlink relative to an already-open file handle. Never path-delete an
  * artifact after a separate ownership check: a same-user swap could make that
@@ -67,16 +77,6 @@ export async function checkedExistingDirectory(path: string): Promise<string> {
   return checkedDirectory(path);
 }
 
-/** Refuse another import when uncertain artifacts reach the finite recovery budget. */
-export async function assertArtifactCapacity(directory: string): Promise<void> {
-  const retained = await retainedArtifactCount(directory);
-  if (retained >= SESSION_IO_LIMITS.retainedArtifacts) {
-    throw new Error(
-      'Retained import artifact budget reached; use Import recovery while the app is stopped',
-    );
-  }
-}
-
 export async function retainedArtifactCount(directory: string): Promise<number> {
   const checked = await checkedDirectory(directory);
   const handle = await opendir(checked);
@@ -94,16 +94,6 @@ export async function retainedArtifactCount(directory: string): Promise<number> 
     await handle.close().catch(() => undefined);
   }
   return retained;
-}
-
-/** Durable, exclusive evidence that one destination may need manual recovery. */
-export async function markRetainedArtifact(path: string): Promise<void> {
-  const handle = await open(
-    `${path}.retained`,
-    constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-    0o600,
-  );
-  await handle.close();
 }
 
 async function checkedDirectory(path: string, rootReal?: string): Promise<string> {
@@ -250,7 +240,7 @@ export async function boundedSessionList(root: string): Promise<{
       // point remains the narrowly documented listing residual.
       for (const approvedFile of directory.files.values()) {
         const checked = await inspectPhysicalFile(approvedFile.path, directory.path);
-        if (checked.key !== approvedFile.key || checked.size !== approvedFile.size) {
+        if (!samePhysicalGeneration(checked, approvedFile)) {
           throw new Error('Session file changed before listing');
         }
       }
@@ -274,7 +264,7 @@ export async function boundedSessionList(root: string): Promise<{
         if (represented.has(path)) throw new Error('SDK returned a duplicate path');
         represented.add(path);
         const checked = await inspectPhysicalFile(path, directory.path);
-        if (checked.key !== physical.key || checked.size !== physical.size) {
+        if (!samePhysicalGeneration(checked, physical)) {
           throw new Error('Session file changed during listing');
         }
         sessions.push({ info, physical });
@@ -382,7 +372,7 @@ export async function exclusiveCopy(
         Math.min(buffer.length, sourceSize - position),
         position,
       );
-      if (read.bytesRead === 0) throw new Error('Import source ended unexpectedly');
+      if (read.bytesRead === 0) throw new Error('Copy source ended unexpectedly');
       await destinationHandle.write(buffer, 0, read.bytesRead, position);
       position += read.bytesRead;
     }
@@ -405,7 +395,7 @@ export async function exclusiveCopy(
       physical.key !== `${String(createdInfo.dev)}:${String(createdInfo.ino)}` ||
       physical.size !== createdInfo.size
     ) {
-      throw new Error('Import destination changed after exclusive creation');
+      throw new Error('Copy destination changed after exclusive creation');
     }
     return physical;
   } catch (error) {

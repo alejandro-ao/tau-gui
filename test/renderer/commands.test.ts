@@ -46,6 +46,17 @@ describe('command registry', () => {
     expect(calls).toContain('cloneSession:');
   });
 
+  it('explains the public SDK import blocker without a path', () => {
+    const { actions } = stubActions();
+    const command = buildCommands(stateWith({ sessionImport: false }), actions).find(
+      (candidate) => candidate.id === 'session.import',
+    );
+    expect(command?.unavailable).toContain(
+      'public Pi SDK has no handle- or bytes-based no-follow validator',
+    );
+    expect(command?.unavailable).not.toMatch(/[/\\]/);
+  });
+
   it('keeps the runtime capability reason when the runtime cannot clone', () => {
     const { actions } = stubActions();
     const commands = buildCommands(stateWith({ sessionClone: false }), actions);

@@ -73,7 +73,11 @@ export interface Actions {
   setLabel: (entryId: string, label: string | null) => Promise<void>;
   cloneSession: () => Promise<void>;
   importJsonl: () => Promise<void>;
-  importRecoveryHealth: () => Promise<{ retained: number; capacity: number } | null>;
+  importRecoveryHealth: () => Promise<
+    | { available: true; retained: number; capacity: 32 }
+    | { available: false; error: 'Import recovery is unavailable' }
+    | null
+  >;
   revealImportRecovery: () => Promise<void>;
   compact: (instructions?: string) => Promise<void>;
   exportHtml: () => Promise<void>;

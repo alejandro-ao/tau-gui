@@ -3,7 +3,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
-  assertArtifactCapacity,
   boundedSessionList,
   exclusiveCopy,
   inspectPhysicalFile,
@@ -24,7 +23,7 @@ async function root(): Promise<string> {
 }
 
 describe('privileged session filesystem guards', () => {
-  it('never overwrites an existing import destination', async () => {
+  it('never overwrites an existing copy destination', async () => {
     const directory = await root();
     const source = join(directory, 'source.jsonl');
     const destination = join(directory, 'destination.jsonl');
@@ -101,18 +100,7 @@ describe('privileged session filesystem guards', () => {
     expect(diagnostics.join(' ')).toContain('ownership became uncertain');
   });
 
-  it('fails closed at the retained staging-artifact budget', async () => {
-    const directory = await root();
-    await Promise.all(
-      Array.from({ length: SESSION_IO_LIMITS.retainedArtifacts }, (_, index) =>
-        writeFile(join(directory, `retained-${index}.jsonl.retained`), ''),
-      ),
-    );
-
-    await expect(assertArtifactCapacity(directory)).rejects.toThrow('artifact budget reached');
-  });
-
-  it('rejects symlink and hardlink import sources', async () => {
+  it('rejects symlink and hardlink copy sources', async () => {
     const directory = await root();
     const source = join(directory, 'source.jsonl');
     const alias = join(directory, 'alias.jsonl');

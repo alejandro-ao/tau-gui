@@ -1,13 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_SETTINGS } from '../src/shared/domain.js';
 import type { AgentEvent, AppSettings, SessionRef } from '../src/shared/domain.js';
 import type { BridgeEvent, PromptQueueItem, PromptQueueSnapshot } from '../src/shared/ipc.js';
 import { handleRequest } from '../src/main/ipc.js';
-import { inspectPhysicalFile } from '../src/main/runtime/session-files.js';
 import { RuntimePool } from '../src/main/services/runtime-pool.js';
 import type { RuntimeManager } from '../src/main/services/runtime-manager.js';
 import type { SettingsStore } from '../src/main/services/settings.js';
@@ -106,72 +102,6 @@ describe('RuntimePool', () => {
 
     expect(maximum).toBe(1);
     expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
-  });
-
-  it('serializes and rejects simultaneous same-owner logical-ID imports', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    const runtime = pool.runtimeFor(target);
-    let activeImports = 0;
-    let maximum = 0;
-    runtime.prepareImport = async () => {
-      activeImports += 1;
-      maximum = Math.max(maximum, activeImports);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      activeImports -= 1;
-      return { sessionId: 'fake-session-1', physicalKey: 'prepared-file' };
-    };
-    runtime.importJsonl = () => Promise.resolve();
-
-    const results = await Promise.allSettled([
-      pool.importSession('/first', target),
-      pool.importSession('/second', target),
-    ]);
-    expect(results.every((result) => result.status === 'rejected')).toBe(true);
-    expect(maximum).toBe(1);
-    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
-  });
-
-  it('rejects a final import snapshot swapped away from its reserved identity', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'tau-import-final-'));
-    try {
-      const reservedPath = join(root, 'reserved.jsonl');
-      const swappedPath = join(root, 'swapped.jsonl');
-      writeFileSync(reservedPath, 'reserved');
-      writeFileSync(swappedPath, 'swapped');
-      const reserved = await inspectPhysicalFile(reservedPath);
-
-      const settings = makeSettings();
-      pool = new RuntimePool(settings, () => undefined);
-      await pool.start();
-      const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-      const runtime = pool.runtimeFor(target);
-      const originalState = await runtime.getState();
-      runtime.prepareImport = () =>
-        Promise.resolve({ sessionId: 'imported-session', physicalKey: reserved.key });
-      runtime.importJsonl = () =>
-        Promise.resolve({
-          sessionId: 'imported-session',
-          physicalKey: reserved.key,
-          physicalPath: reserved.path,
-        });
-      runtime.getState = () =>
-        Promise.resolve({
-          ...originalState,
-          sessionId: 'imported-session',
-          sessionFile: swappedPath,
-          persisted: true,
-        });
-
-      await expect(pool.importSession('/portable', target)).rejects.toThrow(
-        'reserved physical identity',
-      );
-      expect(pool.snapshot()).toMatchObject({ status: 'failed', recoveryTarget: target });
-    } finally {
-      rmSync(root, { recursive: true, force: true });
-    }
   });
 
   it('reuses an owner found by prospective logical/physical identity', async () => {
@@ -522,7 +452,8 @@ describe('RuntimePool', () => {
       settings,
       manager: pool,
       importRecovery: {
-        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        health: () =>
+          Promise.resolve({ available: true as const, retained: 0, capacity: 32 as const }),
         reveal: () => Promise.resolve(),
       },
       window: () => null,
@@ -610,7 +541,8 @@ describe('RuntimePool', () => {
       settings,
       manager: pool,
       importRecovery: {
-        health: () => Promise.resolve({ retained: 0, capacity: 32 }),
+        health: () =>
+          Promise.resolve({ available: true as const, retained: 0, capacity: 32 as const }),
         reveal: () => Promise.resolve(),
       },
       window: () => null,

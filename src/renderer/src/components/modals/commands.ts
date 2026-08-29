@@ -202,11 +202,14 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'session.import',
     title: '/import',
-    description: 'Import a Pi JSONL session through a native file picker',
+    description: 'Import a portable Pi session (currently blocked)',
     group: 'session',
     origin: 'backend',
     slash: '/import',
-    unavailable: gate(capabilities.sessionClone, 'this runtime cannot replace sessions'),
+    unavailable: gate(
+      capabilities.sessionImport,
+      'the public Pi SDK has no handle- or bytes-based no-follow validator that binds an expected file identity before opening',
+    ),
     run: () => void actions.importJsonl(),
   });
   add({

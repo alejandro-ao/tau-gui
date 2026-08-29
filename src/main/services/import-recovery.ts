@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import type { ImportRecoveryHealth } from '../../shared/ipc.js';
 import {
   ensureCheckedDirectory,
   retainedArtifactCount,
@@ -6,7 +7,7 @@ import {
 } from '../runtime/session-files.js';
 
 export interface ImportRecoveryAccess {
-  health(): Promise<{ retained: number; capacity: number }>;
+  health(): Promise<ImportRecoveryHealth>;
   reveal(): Promise<void>;
 }
 
@@ -17,12 +18,19 @@ export class ImportRecoveryService implements ImportRecoveryAccess {
     private readonly openPath: (path: string) => Promise<string>,
   ) {}
 
-  async health(): Promise<{ retained: number; capacity: number }> {
-    const root = await ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
-    return {
-      retained: await retainedArtifactCount(root),
-      capacity: SESSION_IO_LIMITS.retainedArtifacts,
-    };
+  async health(): Promise<ImportRecoveryHealth> {
+    try {
+      const root = await ensureCheckedDirectory(join(this.agentDir, 'imported-sessions'));
+      return {
+        available: true,
+        retained: await retainedArtifactCount(root),
+        capacity: SESSION_IO_LIMITS.retainedArtifacts,
+      };
+    } catch {
+      // Creation, directory validation, and enumeration failures are all
+      // intentionally collapsed before this DTO reaches IPC.
+      return { available: false, error: 'Import recovery is unavailable' };
+    }
   }
 
   async reveal(): Promise<void> {

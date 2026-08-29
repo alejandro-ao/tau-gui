@@ -167,7 +167,8 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       },
     } as Context['settings'],
     importRecovery: {
-      health: () => Promise.resolve({ retained: 2, capacity: 32 }),
+      health: () =>
+        Promise.resolve({ available: true as const, retained: 2, capacity: 32 as const }),
       reveal: () => Promise.resolve(),
     },
     manager: {
@@ -509,6 +510,7 @@ describe('capability-gated and adapter-contract actions', () => {
     };
 
     await expect(handleRequest(context, { action: 'session.importHealth' })).resolves.toEqual({
+      available: true,
       retained: 2,
       capacity: 32,
     });
@@ -541,11 +543,8 @@ describe('capability-gated and adapter-contract actions', () => {
     expect(electronMocks.showSaveDialog).toHaveBeenCalledTimes(2);
   });
 
-  it('gets import and export paths only from native dialogs', async () => {
-    electronMocks.showOpenDialog.mockResolvedValueOnce({
-      canceled: false,
-      filePaths: ['/chosen/import.jsonl'],
-    });
+  it('fails import before source selection and still gets export paths from a native dialog', async () => {
+    electronMocks.showOpenDialog.mockClear();
     electronMocks.showSaveDialog.mockResolvedValueOnce({
       canceled: false,
       filePath: '/chosen/export.jsonl',
@@ -553,17 +552,17 @@ describe('capability-gated and adapter-contract actions', () => {
     const { context, calls } = makeContext();
     const target = { runtime: 'pi' as const, sessionId: 'session-1' };
 
-    await handleRequest(context, { action: 'session.importJsonl', session: target });
+    await expect(
+      handleRequest(context, { action: 'session.importJsonl', session: target }),
+    ).rejects.toThrow('public Pi SDK has no handle- or bytes-based no-follow validator');
     await handleRequest(context, {
       action: 'session.exportJsonl',
       payload: { sessionId: 'session-1' },
       session: target,
     });
 
-    expect(calls.imports).toEqual(['/chosen/import.jsonl']);
+    expect(calls.imports).toEqual([]);
+    expect(electronMocks.showOpenDialog).not.toHaveBeenCalled();
     expect(calls.jsonlExports).toEqual([{ path: '/chosen/export.jsonl', sessionId: 'session-1' }]);
-    expect(electronMocks.showOpenDialog).toHaveBeenCalledWith(
-      expect.objectContaining({ properties: ['openFile'] }),
-    );
   });
 });

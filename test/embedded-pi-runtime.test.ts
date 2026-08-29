@@ -1,22 +1,17 @@
 import {
-  appendFileSync,
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { SessionManager } from '@earendil-works/pi-coding-agent';
 import { afterEach, describe, expect, it } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
-import { ImportRecoveryService } from '../src/main/services/import-recovery.js';
-import { SESSION_IO_LIMITS } from '../src/main/runtime/session-files.js';
 import {
   EMBEDDED_PI_CAPABILITIES,
   EmbeddedPiRuntime,
@@ -27,10 +22,6 @@ import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
 let active: EmbeddedPiRuntime | null = null;
-
-function recoveryHealth(agentDir: string): Promise<{ retained: number; capacity: number }> {
-  return new ImportRecoveryService(agentDir, () => Promise.resolve('')).health();
-}
 
 afterEach(async () => {
   await active?.stop();
@@ -61,6 +52,7 @@ describe('EmbeddedPiRuntime', () => {
       abortBash: false,
       retryControls: false,
       sessionClone: true,
+      sessionImport: false,
       sessionList: true,
       extensionDialogs: false,
       providerLogin: false,
@@ -70,87 +62,7 @@ describe('EmbeddedPiRuntime', () => {
     });
   });
 
-  it('copies empty and legacy imports before Pi initializes or migrates them', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-import-'));
-    roots.push(root);
-    const cwd = join(root, 'project');
-    const agentDir = join(root, 'agent');
-    mkdirSync(cwd, { recursive: true });
-    let destination = 0;
-    const runtime = new EmbeddedPiRuntime(
-      { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
-      {
-        agentDir,
-        home: root,
-        importDestinationName: () => `legacy-${destination++}.jsonl`,
-      },
-    );
-    active = runtime;
-    await runtime.start({
-      kind: 'pi',
-      binary: '',
-      cwd,
-      extraArgs: [],
-      projectTrust: 'default',
-    });
-
-    const sources: string[] = [];
-    const empty = join(root, 'empty.jsonl');
-    writeFileSync(empty, '');
-    sources.push(empty);
-    for (const version of [1, 2]) {
-      const directory = join(root, `v${version}`);
-      mkdirSync(directory);
-      const manager = SessionManager.create(cwd, directory);
-      manager.appendMessage({ role: 'user', content: `legacy v${version}`, timestamp: Date.now() });
-      manager.appendMessage({
-        role: 'assistant',
-        content: [{ type: 'text', text: 'ready' }],
-        api: 'test',
-        provider: 'test',
-        model: 'test',
-        usage: {
-          input: 1,
-          output: 1,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 2,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-        stopReason: 'stop',
-        timestamp: Date.now(),
-      });
-      const path = manager.getSessionFile();
-      if (!path) throw new Error('legacy fixture was not persisted');
-      const migratedFixture = readFileSync(path, 'utf8')
-        .trimEnd()
-        .split('\n')
-        .map((line, index) => {
-          const entry = JSON.parse(line) as Record<string, unknown>;
-          if (index === 0) entry['version'] = version;
-          if (version === 1 && index > 0) {
-            delete entry['id'];
-            delete entry['parentId'];
-          }
-          return JSON.stringify(entry);
-        })
-        .join('\n');
-      writeFileSync(path, `${migratedFixture}\n`);
-      sources.push(path);
-    }
-
-    for (const source of sources) {
-      const original = readFileSync(source);
-      await runtime.prepareImport(source);
-      await runtime.importJsonl(source);
-      expect(readFileSync(source)).toEqual(original);
-      const imported = readFileSync((await runtime.getState()).sessionFile!, 'utf8');
-      expect(imported).toContain('"version":3');
-    }
-    expect(await recoveryHealth(agentDir)).toEqual({ retained: 0, capacity: 32 });
-  });
-
-  it('exports an active main-owned legacy session outside catalog roots safely', async () => {
+  it('refuses portable export of an active legacy session outside native catalog roots', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-export-'));
     roots.push(root);
     const cwd = join(root, 'project');
@@ -182,16 +94,9 @@ describe('EmbeddedPiRuntime', () => {
     const legacy = readFileSync(externalPath, 'utf8').replace('"version":3', '"version":2');
     writeFileSync(externalPath, legacy);
 
-    let mutateOnCreate = false;
     const runtime = new EmbeddedPiRuntime(
       { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
-      {
-        agentDir,
-        home: root,
-        exportAfterCreate: () => {
-          if (mutateOnCreate) appendFileSync(externalPath, '\n');
-        },
-      },
+      { agentDir, home: root },
     );
     active = runtime;
     await runtime.start({
@@ -203,35 +108,13 @@ describe('EmbeddedPiRuntime', () => {
       projectTrust: 'default',
     });
 
+    const original = readFileSync(externalPath);
     const portable = join(root, 'external-portable.jsonl');
-    await expect(runtime.exportJsonl(portable)).resolves.toBe(portable);
-    expect(readFileSync(portable, 'utf8')).toContain(manager.getSessionId());
-
-    const alias = join(root, 'external-hardlink.jsonl');
-    linkSync(externalPath, alias);
-    await expect(runtime.exportJsonl(join(root, 'hardlink-rejected.jsonl'))).rejects.toThrow(
-      'singly-linked',
+    await expect(runtime.exportJsonl(portable)).rejects.toThrow(
+      'unavailable for legacy external sessions',
     );
-    rmSync(alias);
-
-    const displaced = `${externalPath}.displaced`;
-    const unrelated = join(root, 'unrelated.jsonl');
-    writeFileSync(unrelated, 'unrelated');
-    renameSync(externalPath, displaced);
-    writeFileSync(externalPath, 'stale replacement');
-    await expect(runtime.exportJsonl(join(root, 'stale-rejected.jsonl'))).rejects.toThrow(
-      'changed during binding',
-    );
-    rmSync(externalPath);
-    symlinkSync(unrelated, externalPath);
-    await expect(runtime.exportJsonl(join(root, 'symlink-rejected.jsonl'))).rejects.toThrow();
-    rmSync(externalPath);
-    renameSync(displaced, externalPath);
-
-    mutateOnCreate = true;
-    await expect(runtime.exportJsonl(join(root, 'mutation-rejected.jsonl'))).rejects.toThrow(
-      'changed during copy',
-    );
+    expect(readFileSync(externalPath)).toEqual(original);
+    expect(() => readFileSync(portable)).toThrow();
   });
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {
@@ -286,7 +169,7 @@ describe('EmbeddedPiRuntime', () => {
     }
 
     const statuses: RuntimeStatus[] = [];
-    let forcedImportDestination: string | null = null;
+    let mutateExportSource: (() => void) | null = null;
     const runtime = new EmbeddedPiRuntime(
       {
         event: () => undefined,
@@ -301,7 +184,7 @@ describe('EmbeddedPiRuntime', () => {
             sessionId: 'spawned-session',
             cwd: spawnedCwd,
           }),
-        importDestinationName: () => forcedImportDestination ?? 'unused-import.jsonl',
+        exportAfterCreate: () => mutateExportSource?.(),
       },
     );
     active = runtime;
@@ -404,8 +287,24 @@ describe('EmbeddedPiRuntime', () => {
     const portable = join(root, 'portable.jsonl');
     await expect(runtime.exportJsonl(portable)).resolves.toBe(portable);
 
-    // A stale active path or same-user symlink swap must never export its target.
+    // Mutating the same inode after fresh catalog selection must fail closed.
     const activePath = (await runtime.getState()).sessionFile!;
+    const authoritativeBytes = readFileSync(activePath);
+    const mutations: Array<[string, () => void]> = [
+      ['overwrite', () => writeFileSync(activePath, Buffer.alloc(authoritativeBytes.length, 0x20))],
+      ['truncate', () => writeFileSync(activePath, authoritativeBytes.subarray(0, 1))],
+      ['rewrite', () => writeFileSync(activePath, authoritativeBytes)],
+    ];
+    for (const [name, mutation] of mutations) {
+      mutateExportSource = mutation;
+      await expect(runtime.exportJsonl(join(root, `${name}-rejected.jsonl`))).rejects.toThrow(
+        /changed during copy|ended unexpectedly/,
+      );
+      mutateExportSource = null;
+      writeFileSync(activePath, authoritativeBytes);
+    }
+
+    // A stale active path or same-user symlink swap must never export its target.
     const displacedActive = `${activePath}.displaced`;
     const secret = join(root, 'secret.jsonl');
     const rejectedExport = join(root, 'rejected-swap.jsonl');
@@ -427,119 +326,6 @@ describe('EmbeddedPiRuntime', () => {
     expect(await runtime.listSessions('all')).toEqual(
       expect.arrayContaining([expect.objectContaining({ sessionId: cloneId })]),
     );
-
-    // The uniqueness oracle must not trust a partial scan. Poison the directory
-    // containing exported A and clone B, then prove import refuses until a
-    // subsequent complete catalog recovers.
-    const nativeDirectory = dirname((await runtime.getState()).sessionFile!);
-    const poison = Array.from({ length: SESSION_IO_LIMITS.entriesPerDirectory + 1 }, (_, index) =>
-      join(nativeDirectory, `catalog-poison-${index}`),
-    );
-    for (const path of poison) writeFileSync(path, '');
-    await expect(runtime.prepareImport(portable)).rejects.toThrow('catalog is incomplete');
-    expect((await runtime.listSessions('all')).length).toBe(1);
-    for (const path of poison) rmSync(path);
-    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl'));
-    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl.retained'));
-    expect(await runtime.listSessions('all')).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ sessionId: originalId }),
-        expect.objectContaining({ sessionId: cloneId }),
-      ]),
-    );
-
-    // A portable copy preserves its logical ID. Re-importing it while the
-    // original remains in this manager's recovered catalog must fail without
-    // creating a duplicate that would make both records disappear.
-    await expect(runtime.prepareImport(portable)).rejects.toThrow('portable re-import is refused');
-    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl'));
-    rmSync(join(agentDir, 'imported-sessions', 'unused-import.jsonl.retained'));
-    const afterRejectedImport = await runtime.listSessions('all');
-    const originalRecord = afterRejectedImport.find((session) => session.sessionId === originalId);
-    expect(originalRecord).toBeDefined();
-    expect(afterRejectedImport.some((session) => session.sessionId === cloneId)).toBe(true);
-    await runtime.switchSession(originalRecord!.id);
-    expect((await runtime.getState()).sessionId).toBe(originalId);
-    const afterRejectedExport = join(root, 'after-rejected-import.jsonl');
-    await expect(runtime.exportJsonl(afterRejectedExport)).resolves.toBe(afterRejectedExport);
-    expect(readFileSync(afterRejectedExport, 'utf8')).toContain(originalId);
-
-    await expect(runtime.prepareImport((await runtime.getState()).sessionFile!)).rejects.toThrow(
-      'active session',
-    );
-
-    const externalDirectory = join(root, 'external-sessions');
-    mkdirSync(externalDirectory, { recursive: true });
-    const external = SessionManager.create(cwd, externalDirectory);
-    external.appendMessage({ role: 'user', content: 'External import', timestamp: Date.now() });
-    external.appendMessage({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'External ready' }],
-      api: 'test',
-      provider: 'test',
-      model: 'test',
-      usage: {
-        input: 1,
-        output: 1,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 2,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: 'stop',
-      timestamp: Date.now(),
-    });
-    const externalPath = external.getSessionFile();
-    if (!externalPath) throw new Error('external session was not persisted');
-    const externalBytes = readFileSync(externalPath);
-    forcedImportDestination = 'caller-collision.jsonl';
-    const collision = join(agentDir, 'imported-sessions', forcedImportDestination);
-    writeFileSync(collision, 'caller-owned collision');
-    await expect(runtime.prepareImport(externalPath)).rejects.toThrow();
-    expect(readFileSync(collision, 'utf8')).toBe('caller-owned collision');
-    expect((await runtime.getState()).sessionId).toBe(originalId);
-    rmSync(collision);
-    forcedImportDestination = 'successful-import.jsonl';
-    await runtime.prepareImport(externalPath);
-    await runtime.importJsonl(externalPath);
-    expect((await runtime.getState()).sessionId).toBe(external.getSessionId());
-    expect(readFileSync(externalPath)).toEqual(externalBytes);
-
-    // Successful final files are sessions, not retained recovery artifacts:
-    // 32 further imports and import 33 all remain available.
-    for (let index = 0; index < 32; index += 1) {
-      const capacitySource = join(root, `capacity-source-${index}`);
-      mkdirSync(capacitySource);
-      const candidate = SessionManager.create(cwd, capacitySource);
-      candidate.appendMessage({
-        role: 'user',
-        content: `capacity import ${index}`,
-        timestamp: Date.now() + index,
-      });
-      candidate.appendMessage({
-        role: 'assistant',
-        content: [{ type: 'text', text: 'ready' }],
-        api: 'test',
-        provider: 'test',
-        model: 'test',
-        usage: {
-          input: 1,
-          output: 1,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: 2,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-        },
-        stopReason: 'stop',
-        timestamp: Date.now() + index,
-      });
-      const candidatePath = candidate.getSessionFile();
-      if (!candidatePath) throw new Error('capacity session was not persisted');
-      forcedImportDestination = `successful-import-${index}.jsonl`;
-      await runtime.prepareImport(candidatePath);
-      await runtime.importJsonl(candidatePath);
-    }
-    expect(await recoveryHealth(agentDir)).toEqual({ retained: 0, capacity: 32 });
 
     const leafBeforeOversized = (await runtime.getTree()).leafId;
     const oversizedEntry = sessionInternals.runtime.session.sessionManager.appendMessage({
@@ -573,15 +359,5 @@ describe('EmbeddedPiRuntime', () => {
     expect(navigation.editorText).toHaveLength(100_000);
     expect((await runtime.getTree()).leafId).toBe(leafBeforeOversized);
     expect((await runtime.getMessages()).at(-1)).not.toMatchObject({ text: 'oversized reply' });
-
-    const malformed = join(root, 'malformed.jsonl');
-    writeFileSync(malformed, '{not-jsonl}\n');
-    const importedRoot = join(agentDir, 'imported-sessions');
-    const retainedBeforeMalformed = readdirSync(importedRoot).length;
-    forcedImportDestination = 'malformed-import.jsonl';
-    await expect(runtime.prepareImport(malformed)).rejects.toThrow();
-    expect(readdirSync(importedRoot)).toHaveLength(retainedBeforeMalformed + 2);
-    expect(readFileSync(malformed, 'utf8')).toBe('{not-jsonl}\n');
-    expect(await recoveryHealth(agentDir)).toEqual({ retained: 1, capacity: 32 });
   });
 });

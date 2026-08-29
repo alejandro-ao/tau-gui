@@ -88,11 +88,6 @@ export interface AgentRuntime {
   }>;
   setLabel(entryId: string, label: string | null): Promise<void>;
   clone(): Promise<void>;
-  prepareImport?(path: string): Promise<{ sessionId: string; physicalKey: string }>;
-  importJsonl(
-    path: string,
-  ): Promise<void | { sessionId: string; physicalKey: string; physicalPath: string }>;
-  discardPreparedImport?(): Promise<void>;
   describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
   listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
@@ -119,6 +114,7 @@ export const CAPABILITY_RUNTIME_METHODS = {
   retryControls: null,
   sessionTree: ['getTree', 'fork', 'setLabel'],
   sessionClone: ['clone'],
+  sessionImport: null,
   sessionList: ['listSessions'],
   extensionDialogs: null,
   providerLogin: null,
@@ -564,10 +560,6 @@ export class JsonlAgentRuntime implements AgentRuntime {
 
   clone(): Promise<void> {
     return Promise.reject(new Error('Session cloning is unavailable in the test RPC runtime'));
-  }
-
-  importJsonl(): Promise<void> {
-    return Promise.reject(new Error('Session import is unavailable in the test RPC runtime'));
   }
 
   listSessions(): Promise<SessionSummary[]> {

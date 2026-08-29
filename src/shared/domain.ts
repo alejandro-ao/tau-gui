@@ -32,6 +32,8 @@ export interface RuntimeCapabilities {
   retryControls: boolean;
   sessionTree: boolean;
   sessionClone: boolean;
+  /** Safe portable import through the desktop application boundary. */
+  sessionImport: boolean;
   sessionList: boolean;
   extensionDialogs: boolean;
   providerLogin: boolean;
@@ -495,6 +497,7 @@ export const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
   retryControls: false,
   sessionTree: false,
   sessionClone: false,
+  sessionImport: false,
   sessionList: false,
   extensionDialogs: false,
   providerLogin: false,
