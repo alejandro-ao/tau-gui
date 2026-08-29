@@ -51,6 +51,16 @@ function within(root: string, candidate: string): boolean {
   return path === '' || (!path.startsWith(`..${sep}`) && path !== '..' && !isAbsolute(path));
 }
 
+function samePhysicalGeneration(left: PhysicalFile, right: PhysicalFile): boolean {
+  return (
+    left.path === right.path &&
+    left.key === right.key &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
+}
+
 class SessionFilesystemError extends Error {}
 
 function sessionFilesystemError(message: string, code?: string): SessionFilesystemError {
@@ -60,7 +70,10 @@ function sessionFilesystemError(message: string, code?: string): SessionFilesyst
 }
 
 function safeFilesystemError(error: unknown, fallback: string): Error {
-  return error instanceof SessionFilesystemError ? error : sessionFilesystemError(fallback);
+  if (error instanceof SessionFilesystemError) return error;
+  const code =
+    typeof error === 'object' && error !== null ? (error as NodeJS.ErrnoException).code : undefined;
+  return sessionFilesystemError(fallback, code);
 }
 
 function safeFilesystemMessage(error: unknown, fallback: string): string {

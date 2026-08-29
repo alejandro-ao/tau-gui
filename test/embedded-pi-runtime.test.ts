@@ -487,6 +487,7 @@ describe('EmbeddedPiRuntime', () => {
 
     const statuses: RuntimeStatus[] = [];
     let forcedImportDestination: string | null = null;
+    let mutateExportSource: (() => void) | null = null;
     const runtime = new EmbeddedPiRuntime(
       {
         event: () => undefined,
@@ -502,6 +503,7 @@ describe('EmbeddedPiRuntime', () => {
             cwd: spawnedCwd,
           }),
         importDestinationName: () => forcedImportDestination ?? 'unused-import.jsonl',
+        exportAfterCreate: () => mutateExportSource?.(),
       },
     );
     active = runtime;

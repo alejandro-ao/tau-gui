@@ -824,7 +824,7 @@ export async function loadCatalog(
     };
   }
   const [native, imported] = await Promise.all([
-    boundedSessionList(join(agentDir, 'sessions')),
+    boundedSessionList(nativeRoot),
     boundedSessionList(importedRoot),
   ]);
   const listed = {
