@@ -8,7 +8,7 @@ import type {
   RuntimeStatus,
   ProjectTrust,
 } from '../../shared/domain.js';
-import type { BridgeEvent, RuntimeSnapshot } from '../../shared/ipc.js';
+import { authFlowEventSchema, type BridgeEvent, type RuntimeSnapshot } from '../../shared/ipc.js';
 import {
   JsonlAgentRuntime,
   type AgentRuntime,
@@ -155,6 +155,7 @@ export class RuntimeManager {
       event: (event) => this.handleEvent(event),
       status: (status, detail) => this.setStatus(status, detail ?? null),
       diagnostic: (line) => this.addDiagnostic(line),
+      auth: (event) => this.broadcast({ type: 'auth', event: authFlowEventSchema.parse(event) }),
     });
     this.runtime = runtime;
     this.launchProjectTrust = config.projectTrust;

@@ -17,6 +17,9 @@ import type {
   EntrySnapshot,
   Model,
   ModelCycleResult,
+  AuthFlowEvent,
+  PiAgentPreferences,
+  ProviderAuthStatus,
   ResourceCatalog,
   RuntimeCapabilities,
   RuntimeStatus,
@@ -36,7 +39,7 @@ export interface RuntimeProbe {
 export const IPC_INVOKE_CHANNEL = 'tau:invoke';
 export const IPC_EVENT_CHANNEL = 'tau:event';
 
-const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const thinkingLevel = z.enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
 const runtimeKind = z.enum(['tau', 'pi']);
 const safePathText = z
   .string()
@@ -82,6 +85,136 @@ export const sessionTargetSchema = z.object({
 });
 export type SessionTarget = z.infer<typeof sessionTargetSchema>;
 const projectTrust = z.enum(['default', 'approve-once', 'decline-once']);
+const boundedId = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9._:@/-]+$/);
+const deliveryMode = z.enum(['all', 'one-at-a-time']);
+const transportMode = z.enum(['sse', 'websocket', 'websocket-cached', 'auto']);
+
+export const providerAuthStatusSchema = z
+  .object({
+    id: boundedId,
+    name: z.string().min(1).max(200),
+    methods: z.array(z.enum(['api_key', 'oauth'])).max(2),
+    configured: z.boolean(),
+    credentialType: z.enum(['api_key', 'oauth']).nullable(),
+    source: z.string().max(200).nullable(),
+  })
+  .strict();
+
+export const providerAuthListSchema = z.array(providerAuthStatusSchema).max(100);
+
+export const authFlowEventSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      flowId: boundedId,
+      type: z.literal('prompt'),
+      challengeId: boundedId,
+      input: z.enum(['text', 'secret', 'select', 'manual_code']),
+      message: z.string().max(4_096),
+      placeholder: z.string().max(500).nullable(),
+      options: z
+        .array(
+          z
+            .object({
+              id: z.string().min(1).max(200),
+              label: z.string().min(1).max(300),
+              description: z.string().max(1_000).nullable(),
+            })
+            .strict(),
+        )
+        .max(50),
+    })
+    .strict(),
+  z
+    .object({
+      flowId: boundedId,
+      type: z.enum(['info', 'progress']),
+      message: z.string().max(4_096),
+      links: z
+        .array(
+          z
+            .object({ url: z.string().url().max(4_096), label: z.string().max(300).nullable() })
+            .strict(),
+        )
+        .max(10),
+    })
+    .strict(),
+  z
+    .object({
+      flowId: boundedId,
+      type: z.literal('auth_url'),
+      url: z.string().url().max(4_096),
+      instructions: z.string().max(4_096).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      flowId: boundedId,
+      type: z.literal('device_code'),
+      userCode: z.string().max(500),
+      verificationUri: z.string().url().max(4_096),
+      intervalSeconds: z.number().int().min(0).max(86_400).nullable(),
+      expiresInSeconds: z.number().int().min(0).max(86_400).nullable(),
+    })
+    .strict(),
+  z
+    .object({
+      flowId: boundedId,
+      type: z.literal('complete'),
+      success: z.boolean(),
+      message: z.string().max(1_000),
+    })
+    .strict(),
+]);
+
+export const piAgentPreferencesSchema = z
+  .object({
+    steeringMode: deliveryMode,
+    followUpMode: deliveryMode,
+    transport: transportMode,
+    retryEnabled: z.boolean(),
+    retryMaxRetries: z.number().int().min(0).max(20),
+    retryBaseDelayMs: z.number().int().min(0).max(300_000),
+    providerTimeoutMs: z.number().int().min(0).max(86_400_000).nullable(),
+    providerMaxRetries: z.number().int().min(0).max(20),
+    providerMaxRetryDelayMs: z.number().int().min(0).max(86_400_000),
+    isRetrying: z.boolean(),
+    retryAttempt: z.number().int().min(0).max(20),
+    autoCompactionEnabled: z.boolean(),
+    compactionReserveTokens: z.number().int().min(1).max(2_000_000),
+    compactionKeepRecentTokens: z.number().int().min(0).max(2_000_000),
+    defaultProvider: boundedId.nullable(),
+    defaultModel: z.string().min(1).max(500).nullable(),
+    defaultThinkingLevel: thinkingLevel.nullable(),
+    writable: z
+      .object({
+        queueModes: z.boolean(),
+        transport: z.boolean(),
+        retryEnabled: z.boolean(),
+        retryPolicy: z.boolean(),
+        autoCompaction: z.boolean(),
+        compactionThresholds: z.boolean(),
+        modelDefaults: z.boolean(),
+      })
+      .strict(),
+  })
+  .strict();
+
+const piAgentPreferencesPatchSchema = z
+  .object({
+    steeringMode: deliveryMode.optional(),
+    followUpMode: deliveryMode.optional(),
+    transport: transportMode.optional(),
+    retryEnabled: z.boolean().optional(),
+    autoCompactionEnabled: z.boolean().optional(),
+    defaultProvider: boundedId.optional(),
+    defaultModel: z.string().min(1).max(500).optional(),
+    defaultThinkingLevel: thinkingLevel.optional(),
+  })
+  .strict();
 
 const runtimeSettings = z.object({
   binary: z.string().min(1),
@@ -182,6 +315,41 @@ export const requestSchema = z.discriminatedUnion('action', [
     payload: z.object({ provider: z.string().min(1), modelId: z.string().min(1) }),
   }),
   z.object({ action: z.literal('models.cycle') }),
+
+  z.object({ action: z.literal('auth.providers') }).strict(),
+  z
+    .object({
+      action: z.literal('auth.login'),
+      payload: z.object({ providerId: boundedId, method: z.enum(['api_key', 'oauth']) }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('auth.respond'),
+      payload: z
+        .object({
+          flowId: boundedId,
+          challengeId: boundedId,
+          value: z.string().max(8_192),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({ action: z.literal('auth.cancel'), payload: z.object({ flowId: boundedId }).strict() })
+    .strict(),
+  z
+    .object({
+      action: z.literal('auth.logout'),
+      payload: z.object({ providerId: boundedId }).strict(),
+    })
+    .strict(),
+
+  z.object({ action: z.literal('pi.preferences.get') }).strict(),
+  z
+    .object({ action: z.literal('pi.preferences.update'), payload: piAgentPreferencesPatchSchema })
+    .strict(),
+  z.object({ action: z.literal('retry.abort') }).strict(),
 
   z.object({ action: z.literal('thinking.list') }),
   z.object({ action: z.literal('thinking.set'), payload: z.object({ level: thinkingLevel }) }),
@@ -322,6 +490,14 @@ export interface IpcResultMap {
   'models.list': Model[];
   'models.set': Model | null;
   'models.cycle': ModelCycleResult | null;
+  'auth.providers': ProviderAuthStatus[];
+  'auth.login': null;
+  'auth.respond': null;
+  'auth.cancel': null;
+  'auth.logout': null;
+  'pi.preferences.get': PiAgentPreferences;
+  'pi.preferences.update': PiAgentPreferences;
+  'retry.abort': null;
   'thinking.list': ThinkingLevel[];
   'thinking.set': null;
   'thinking.cycle': ThinkingLevel | null;
@@ -365,6 +541,7 @@ export type BridgeEvent =
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }
+  | { type: 'auth'; event: AuthFlowEvent }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

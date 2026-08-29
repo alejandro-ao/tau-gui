@@ -7,9 +7,12 @@ import type {
   SessionTarget,
 } from '../shared/ipc.js';
 import {
+  authFlowEventSchema,
   contextFilesSchema,
   IPC_EVENT_CHANNEL,
   IPC_INVOKE_CHANNEL,
+  piAgentPreferencesSchema,
+  providerAuthListSchema,
   resourceCatalogSchema,
 } from '../shared/ipc.js';
 
@@ -50,6 +53,12 @@ const bridge: TauBridge = {
     if (action === 'context.list') {
       return contextFilesSchema.parse(response.value) as IpcResult<typeof action>;
     }
+    if (action === 'auth.providers') {
+      return providerAuthListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'pi.preferences.get' || action === 'pi.preferences.update') {
+      return piAgentPreferencesSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     return response.value as IpcResult<typeof action>;
   },
   subscribe(listener) {
@@ -89,6 +98,8 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
     type === 'diagnostic' ||
     type === 'settings' ||
     type === 'sessionActivity' ||
+    (type === 'auth' &&
+      authFlowEventSchema.safeParse((value as { event?: unknown }).event).success) ||
     type === 'focus'
   );
 }
