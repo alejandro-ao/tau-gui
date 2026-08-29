@@ -152,28 +152,38 @@ test('keeps catalog/export filesystem failures path-free across main IPC and pre
   expect(JSON.stringify(rootDiagnostics)).not.toContain('private-displaced-sessions');
 });
 
-test('fails clone and import closed while preserving native list, resume, and export', async () => {
+test('fails resume, clone, and import closed while preserving native metadata and export', async () => {
   const { app, page } = handle;
   const portable = join(root, 'portable.jsonl');
 
   await runCommand('/resume');
-  const picker = page.getByTestId('modal-session');
-  const seeded = picker.getByRole('option').filter({ hasText: 'Native E2E session' });
+  await expect(page.getByTestId('modal-session')).toHaveCount(0);
+  await expect(page.getByRole('log', { name: 'transcript' })).toContainText(
+    'public Pi SDK cannot activate an exact manager',
+  );
+  const seeded = page
+    .getByTestId('sessions-rail')
+    .locator('li')
+    .filter({ hasText: 'Native E2E session' });
   await expect(seeded).toHaveCount(1);
-  await expect(seeded).toContainText('2 messages');
   await expect(seeded).not.toContainText('.jsonl');
+  await expect(seeded.locator('.sessions-rail-item')).toBeDisabled();
 
   await app.evaluate(({ dialog }, path) => {
     dialog.showSaveDialog = () => Promise.resolve({ canceled: false, filePath: path });
   }, portable);
-  await seeded.getByRole('button', { name: 'export' }).click();
+  await seeded.getByRole('button', { name: /export Native E2E session/ }).click();
   await expect.poll(() => existsSync(portable)).toBe(true);
-
-  await seeded.click();
-  await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
 
   const filesBeforeClone = fileSnapshot(agentDir);
   const sourceBeforeClone = readFileSync(backingPath);
+  const resumeError = await page.evaluate(
+    `window.tau.invoke('session.switch', { ref: ${JSON.stringify(seededId)} }).then(() => 'resolved', (error) => String(error.message))`,
+  );
+  expect(resumeError).toContain('public Pi SDK cannot activate an exact manager');
+  expect(resumeError).not.toContain(agentDir);
+  expect(readFileSync(backingPath)).toEqual(sourceBeforeClone);
+  expect(fileSnapshot(agentDir)).toEqual(filesBeforeClone);
   const cloneError = await page.evaluate(
     `window.tau.invoke('session.clone').then(() => 'resolved', (error) => String(error.message))`,
   );
@@ -217,14 +227,8 @@ test('fails clone and import closed while preserving native list, resume, and ex
       .getByRole('log', { name: 'transcript' })
       .getByText(/public Pi SDK has no handle- or bytes-based no-follow validator/),
   ).toBeVisible();
-  await runCommand('/resume');
-  const preserved = page
-    .getByTestId('modal-session')
-    .getByRole('option')
-    .filter({ hasText: 'Native E2E session' });
-  await expect(preserved).toHaveCount(1);
-  await preserved.first().click();
-  await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
+  await expect(seeded).toHaveCount(1);
+  await expect(seeded.locator('.sessions-rail-item')).toBeDisabled();
 
   const html = join(root, 'session.html');
   await app.evaluate(({ dialog }, path) => {

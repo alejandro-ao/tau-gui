@@ -1,5 +1,8 @@
 import { useMemo, type ReactNode } from 'react';
-import type { SessionSummary } from '../../../../shared/domain.js';
+import {
+  SESSION_RESUME_UNAVAILABLE_REASON,
+  type SessionSummary,
+} from '../../../../shared/domain.js';
 import { useStore } from '../../state/store.js';
 import { catalogSessions, sessionLabel } from '../../state/working-directories.js';
 import { Picker, type PickerItem } from './Picker.js';
@@ -21,6 +24,7 @@ export function SessionModal(): ReactNode {
         hint: new Date(session.modifiedAt).toISOString().slice(0, 16).replace('T', ' '),
         detail: describe(session),
         current: session.sessionId === activeId,
+        reason: SESSION_RESUME_UNAVAILABLE_REASON,
         keywords: `${session.name ?? ''} ${session.firstMessage ?? ''} ${session.cwd ?? ''}`,
       })),
     [sessions, activeId],
@@ -30,7 +34,7 @@ export function SessionModal(): ReactNode {
     <Picker
       name="session"
       title="Pi sessions"
-      subtitle="Pi-native session catalog — session files remain in the main process"
+      subtitle="Metadata-only Pi session catalog — activation is unavailable"
       placeholder="search sessions…"
       items={items}
       emptyLabel="no saved Pi sessions yet"
@@ -52,12 +56,9 @@ export function SessionModal(): ReactNode {
           </button>
         );
       }}
-      onAccept={(item) => {
-        const session = sessions.find((candidate) => candidate.id === item.id);
-        if (!session) return;
-        actions.openModal(null);
-        void actions.resumeSession(session);
-      }}
+      onAccept={() =>
+        actions.notice(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`)
+      }
     />
   );
 }

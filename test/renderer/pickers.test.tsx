@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from 'vitest';
 import { query, texts, type Mounted } from './harness.js';
-import { click, composer, options, press, renderApp, selectedOption, type } from './ui.js';
-import type { AgentState, Model, SessionRef, TreeSnapshot } from '../../src/shared/domain.js';
+import { click, composer, press, renderApp, selectedOption, type } from './ui.js';
+import type { AgentState, Model, TreeSnapshot } from '../../src/shared/domain.js';
 
 let mounted: Mounted | null = null;
 
@@ -61,25 +61,6 @@ const AGENT: AgentState = {
   messageCount: 12,
   pendingMessageCount: 0,
 };
-
-const RECENTS: SessionRef[] = [
-  {
-    id: 'session-1',
-    name: 'refactor transport',
-    path: '/work/project/.tau/sessions/one.jsonl',
-    cwd: '/work/project',
-    runtime: 'tau',
-    lastSeen: 1_760_000_000_000,
-  },
-  {
-    id: 'session-2',
-    name: null,
-    path: '/work/project/.tau/sessions/two.jsonl',
-    cwd: '/work/project',
-    runtime: 'tau',
-    lastSeen: 1_759_000_000_000,
-  },
-];
 
 const TREE: TreeSnapshot = {
   rows: [
@@ -145,38 +126,19 @@ describe('model picker', () => {
 });
 
 describe('session picker', () => {
-  it('switches from the Pi-native picker and exports without exposing a path', async () => {
+  it('marks resume unavailable without opening a picker or sending an activation', async () => {
     const { view, bridge } = await renderApp({
       agent: AGENT,
       runtime: 'pi',
       capabilities: { sessionList: true },
       settings: { recentSessions: [] },
-      results: {
-        'session.list': RECENTS.map((session) => ({
-          id: session.id,
-          name: session.name,
-          firstMessage: session.id,
-          cwd: session.cwd,
-          createdAt: session.lastSeen,
-          modifiedAt: session.lastSeen,
-          messageCount: 1,
-          parentSessionId: null,
-        })),
-      },
     });
     mounted = view;
     await runPaletteCommand(view, '/resume');
-    const dialog = query(view.container, '[data-modal-name="session"]');
-    expect(dialog.textContent).toContain('Pi-native session catalog');
-    expect(options(dialog)).toHaveLength(2);
 
-    await click(query(dialog, '[role="option"]:nth-child(2) button'));
-    expect(bridge.payloads('session.exportJsonl')).toEqual([{ sessionId: 'session-2' }]);
+    expect(view.container.textContent).toContain('public Pi SDK cannot activate an exact manager');
+    expect(view.container.querySelector('[data-modal-name="session"]')).toBeNull();
     expect(bridge.payloads('session.switch')).toEqual([]);
-
-    const rows = [...dialog.querySelectorAll('[role="option"]')];
-    await click(rows[1]!);
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-2' }]);
   });
 });
 

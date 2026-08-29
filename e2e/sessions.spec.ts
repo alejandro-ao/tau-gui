@@ -55,17 +55,13 @@ test('/new from the composer clears the transcript too', async () => {
   await expect(composer(page)).toHaveValue('');
 });
 
-test('the fallback session picker preserves app metadata in the deterministic harness', async () => {
+test('the fallback resume command is unavailable without activating app metadata', async () => {
   const { page } = handle;
   await composer(page).fill('/resume');
   await composer(page).press('Enter');
 
-  const picker = page.getByTestId('modal-session');
-  await expect(picker).toBeVisible();
-  await expect(picker.getByRole('option')).toHaveCount(1);
-  await expect(picker.getByRole('option').first()).toContainText('recent-');
-  await expect(picker).toContainText('Pi-native session catalog');
-
-  await page.keyboard.press('Escape');
-  await expect(picker).toHaveCount(0);
+  await expect(page.getByTestId('modal-session')).toHaveCount(0);
+  await expect(transcript(page)).toContainText('public Pi SDK cannot activate an exact manager');
+  const recent = page.getByTestId('sessions-rail').locator('.sessions-rail-item').first();
+  await expect(recent).toBeDisabled();
 });

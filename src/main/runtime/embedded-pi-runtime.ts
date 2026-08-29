@@ -33,6 +33,7 @@ import type {
   ThinkingLevel,
   TreeSnapshot,
 } from '../../shared/domain.js';
+import { SESSION_RESUME_UNAVAILABLE_REASON } from '../../shared/domain.js';
 import type { AgentRuntime, RuntimeAgentState, RuntimeSink } from './agent-runtime.js';
 import {
   normalizeEntries,
@@ -119,6 +120,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   async start(config: RuntimeLaunchConfig): Promise<void> {
     if (this.runtime) throw new Error('Pi is already started');
+    if (config.sessionRef) throw resumeUnavailableError();
     this.sink.status('starting');
 
     const agentDir = this.agentDir;
@@ -173,9 +175,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       return { ...created, services, diagnostics: services.diagnostics };
     };
 
-    const sessionManager = config.sessionRef
-      ? await openSession(config.sessionRef, config.cwd, agentDir)
-      : SessionManager.create(config.cwd, sessionDirFor(config.cwd, agentDir));
+    const sessionManager = SessionManager.create(config.cwd, sessionDirFor(config.cwd, agentDir));
     const runtime = await createAgentSessionRuntime(createRuntime, {
       cwd: config.cwd,
       agentDir,
@@ -361,10 +361,10 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     await this.host.newSession();
   }
 
-  async switchSession(ref: string): Promise<void> {
-    const record = await resolveCatalogSession(ref, this.agentDir);
-    if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
-    await this.host.switchSession(record.path);
+  switchSession(_ref: string): Promise<void> {
+    // Pi 0.84.2's public switch operation accepts only a pathname. Never let a
+    // native opaque token or remembered legacy reference reach that reopen.
+    return Promise.reject(resumeUnavailableError());
   }
 
   nameSession(name: string): Promise<void> {
@@ -403,12 +403,6 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (!this.session.sessionManager.getEntry(entryId)) throw new Error('Unknown session entry');
     this.session.sessionManager.appendLabelChange(entryId, label?.trim() || undefined);
     return Promise.resolve();
-  }
-
-  async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {
-    const record = await resolveCatalogSession(ref, this.agentDir);
-    if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
-    return { sessionId: record.sessionId, physicalKey: record.physical.key };
   }
 
   async listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]> {
@@ -789,27 +783,8 @@ function incompleteCatalogError(): Error {
   return new Error('Session catalog is incomplete; identity-sensitive operation refused');
 }
 
-async function resolveCatalogSession(ref: string, agentDir: string): Promise<CatalogRecord | null> {
-  if (!/^pi-[a-f0-9]{32}$/.test(ref)) return null;
-  const catalog = await loadCatalog(agentDir, null);
-  if (!catalog.complete) throw incompleteCatalogError();
-  return catalog.records.find((record) => record.summary.id === ref) ?? null;
-}
-
-async function openSession(ref: string, cwd: string, agentDir: string): Promise<SessionManager> {
-  // Legacy paths can enter only through main-owned persisted settings. Renderer
-  // IPC cannot carry a path-shaped session reference.
-  if (isAbsolute(ref)) {
-    const physical = await inspectPhysicalFile(ref);
-    return SessionManager.open(physical.path, dirname(physical.path), cwd);
-  }
-  const catalog = await loadCatalog(agentDir, null);
-  if (!catalog.complete) throw incompleteCatalogError();
-  const record = catalog.records.find(
-    (candidate) => candidate.summary.id === ref || candidate.sessionId === ref,
-  );
-  if (!record) throw new Error('Pi session reference is not in the main-owned catalog');
-  return SessionManager.open(record.path, dirname(record.path), record.summary.cwd ?? cwd);
+function resumeUnavailableError(): Error {
+  return new Error(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`);
 }
 
 /** Pi accepts a host-selected session directory through its public SDK. */

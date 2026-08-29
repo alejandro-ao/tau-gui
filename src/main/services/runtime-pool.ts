@@ -1,5 +1,6 @@
 import { realpath, stat } from 'node:fs/promises';
 import { inspectPhysicalFile } from '../runtime/session-files.js';
+import { SESSION_RESUME_UNAVAILABLE_REASON } from '../../shared/domain.js';
 import type { AgentEvent, AgentState, ProjectTrust, RuntimeKind } from '../../shared/domain.js';
 import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/ipc.js';
 import type { AgentRuntime } from '../runtime/agent-runtime.js';
@@ -180,6 +181,8 @@ export class RuntimePool {
     options: { cwd?: string | null; sessionRef?: string | null; runtime?: RuntimeKind },
     { replaceCurrent = true }: { replaceCurrent?: boolean } = {},
   ): Promise<RuntimeSnapshot> {
+    const kind = options.runtime ?? this.settings.current.agentRuntime;
+    if (kind === 'pi' && options.sessionRef) throw resumeUnavailableError();
     const previous = this.current;
     if (replaceCurrent && previous) await this.remove(previous);
     const manager = this.createManager();
@@ -319,6 +322,9 @@ export class RuntimePool {
 
   private async activateSessionNow(ref: string, cwd?: string | null): Promise<RuntimeSnapshot> {
     const kind = this.settings.current.agentRuntime;
+    // Reject before consulting main-owned recent records. In particular, never
+    // turn a legacy remembered path into a Pi launch reference.
+    if (kind === 'pi') throw resumeUnavailableError();
     const recent = this.settings.current.recentSessions.find(
       (session) =>
         session.runtime === kind && (recentCatalogId(session) === ref || session.id === ref),
@@ -721,6 +727,10 @@ function targetFor(manager: RuntimeManager): SessionTarget {
   const sessionId = snapshot.state?.sessionId;
   if (!sessionId) throw new Error('Runtime session is not ready');
   return { runtime: snapshot.runtime, sessionId };
+}
+
+function resumeUnavailableError(): Error {
+  return new Error(`Session resume is unavailable: ${SESSION_RESUME_UNAVAILABLE_REASON}.`);
 }
 
 function sessionKey(kind: string, ref: string): string {

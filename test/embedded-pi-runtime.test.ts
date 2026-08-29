@@ -1,4 +1,5 @@
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -177,60 +178,65 @@ describe('EmbeddedPiRuntime', () => {
     },
   );
 
-  it('refuses portable export of an active legacy session outside native catalog roots', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'tau-gui-legacy-export-'));
-    roots.push(root);
-    const cwd = join(root, 'project');
-    const agentDir = join(root, 'agent');
-    const externalDir = join(root, 'legacy');
-    mkdirSync(cwd, { recursive: true });
-    mkdirSync(externalDir);
-    const manager = SessionManager.create(cwd, externalDir);
-    manager.appendMessage({ role: 'user', content: 'legacy export', timestamp: Date.now() });
-    manager.appendMessage({
-      role: 'assistant',
-      content: [{ type: 'text', text: 'ready' }],
-      api: 'test',
-      provider: 'test',
-      model: 'test',
-      usage: {
-        input: 1,
-        output: 1,
-        cacheRead: 0,
-        cacheWrite: 0,
-        totalTokens: 2,
-        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-      },
-      stopReason: 'stop',
-      timestamp: Date.now(),
-    });
-    const externalPath = manager.getSessionFile();
-    if (!externalPath) throw new Error('external fixture was not persisted');
-    const legacy = readFileSync(externalPath, 'utf8').replace('"version":3', '"version":2');
-    writeFileSync(externalPath, legacy);
+  it.each(
+    ['regular', 'symlink', 'hardlink', 'same-inode'].flatMap((substitution) =>
+      ['native', 'legacy'].flatMap((reference) =>
+        ['startup', 'live-switch'].map((route) => ({ substitution, reference, route })),
+      ),
+    ),
+  )(
+    'fails $reference $route closed before a $substitution pathname can change external bytes',
+    async ({ substitution, reference, route }) => {
+      const root = mkdtempSync(join(tmpdir(), 'tau-gui-resume-closed-'));
+      roots.push(root);
+      const cwd = join(root, 'project');
+      const agentDir = join(root, 'agent');
+      const selected = join(root, 'selected.jsonl');
+      const external = join(root, 'external.jsonl');
+      mkdirSync(cwd, { recursive: true });
+      const bytes = Buffer.from(`external-${substitution}-${reference}-${route}`);
+      writeFileSync(external, bytes);
+      if (substitution === 'symlink') symlinkSync(external, selected);
+      else if (substitution === 'hardlink') linkSync(external, selected);
+      else if (substitution === 'same-inode') {
+        linkSync(external, selected);
+        writeFileSync(selected, bytes);
+      } else writeFileSync(selected, bytes);
 
-    const runtime = new EmbeddedPiRuntime(
-      { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
-      { agentDir, home: root },
-    );
-    active = runtime;
-    await runtime.start({
-      kind: 'pi',
-      binary: '',
-      cwd,
-      sessionRef: externalPath,
-      extraArgs: [],
-      projectTrust: 'default',
-    });
-
-    const original = readFileSync(externalPath);
-    const portable = join(root, 'external-portable.jsonl');
-    await expect(runtime.exportJsonl(portable)).rejects.toThrow(
-      'unavailable for legacy external sessions',
-    );
-    expect(readFileSync(externalPath)).toEqual(original);
-    expect(() => readFileSync(portable)).toThrow();
-  });
+      const runtime = new EmbeddedPiRuntime(
+        { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
+        { agentDir, home: root },
+      );
+      active = runtime;
+      const ref = reference === 'native' ? `pi-${'a'.repeat(32)}` : selected;
+      if (route === 'startup') {
+        await expect(
+          runtime.start({
+            kind: 'pi',
+            binary: '',
+            cwd,
+            sessionRef: ref,
+            extraArgs: [],
+            projectTrust: 'default',
+          }),
+        ).rejects.toThrow('Session resume is unavailable');
+        expect(runtime.running).toBe(false);
+      } else {
+        await runtime.start({
+          kind: 'pi',
+          binary: '',
+          cwd,
+          extraArgs: [],
+          projectTrust: 'default',
+        });
+        const before = await runtime.getState();
+        await expect(runtime.switchSession(ref)).rejects.toThrow('Session resume is unavailable');
+        expect((await runtime.getState()).sessionId).toBe(before.sessionId);
+      }
+      expect(readFileSync(external)).toEqual(bytes);
+      expect(readFileSync(selected)).toEqual(bytes);
+    },
+  );
 
   it('starts without an external executable and exposes Pi-owned resources', async () => {
     const root = mkdtempSync(join(tmpdir(), 'tau-gui-embedded-pi-'));
