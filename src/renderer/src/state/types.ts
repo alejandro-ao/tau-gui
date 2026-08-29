@@ -20,6 +20,14 @@ import type {
   ToolCatalog,
 } from '../../../shared/introspection.js';
 import type {
+  ExtensionDialog,
+  ExtensionHostStatus,
+  ExtensionPolicy,
+  ExtensionResource,
+  ExtensionUiEvent,
+  PortableToolRender,
+} from '../../../shared/extensions.js';
+import type {
   ContextFile,
   PromptQueueSnapshot,
   RuntimeSnapshot,
@@ -131,6 +139,8 @@ export type ModalKind =
   | 'details'
   | 'settings'
   | 'auth'
+  | 'extensions'
+  | 'extensionDialog'
   | 'diagnostics'
   | 'commands'
   | 'skills'
@@ -158,6 +168,14 @@ export interface AppState {
   toolCatalog: ToolCatalog;
   resourceReload: ResourceReloadResult | null;
   imageAttachments: ImageAttachmentPreview[];
+  extensionResources: ExtensionResource[];
+  extensionPolicy: ExtensionPolicy | null;
+  extensionHost: ExtensionHostStatus | null;
+  extensionDialog: ExtensionDialog | null;
+  extensionStatuses: Record<string, string>;
+  extensionSidebar: Record<string, { title: string; lines: string[] }>;
+  extensionMessages: { customType: string; text: string; data: string }[];
+  extensionToolRenders: PortableToolRender[];
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -223,6 +241,10 @@ export type Action =
     }
   | { type: 'toolCatalog'; catalog: ToolCatalog; target: SessionTarget }
   | { type: 'resourceReload'; result: ResourceReloadResult; target: SessionTarget }
+  | { type: 'extensionResources'; resources: ExtensionResource[] }
+  | { type: 'extensionPolicy'; policy: ExtensionPolicy }
+  | { type: 'extensionHost'; host: ExtensionHostStatus }
+  | { type: 'extensionUi'; event: ExtensionUiEvent }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

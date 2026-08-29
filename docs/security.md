@@ -92,9 +92,28 @@
 - Live/restored tool and shell output uses a 65,536 UTF-16-character limit (not a byte or KiB claim); the truncation marker is included inside that limit. Restored entry/tree DTOs omit raw SDK entries, cap message fields, identifiers (including `leafId`), collection depth/count, and recursively bound tool arguments/details. Tree wrappers receive a bounded iterative width/node/depth pass before entry parsing or serialization, so arbitrarily deep, wide, or cyclic malformed values produce controlled main/preload validation failures rather than recursive stack overflow. The complete entry/tree wrapper, not only its collection, stays within a 1 MiB serialized UTF-8 budget and is strictly parsed in both main and preload. Direct-shell results are also strictly parsed at both boundaries.
 - `/reload` uses public `AgentSession.reload()` in place. A per-target reservation is acquired synchronously before reload enters the lifecycle transition queue. All session-mutating IPC paths claim the manager gate: prompt/abort, model and thinking changes, naming (including deferred persistence), fork, compact, auto-compaction, shell execution, and shell abort. Reload rejects if a mutation claimed first; those mutations reject if reload reserved first, with both failure paths releasing their claims. New/switch/restart/stop operations use the serialized lifecycle chain. Read-only state/message/entry/tree/statistics/catalog/inspection/export operations are explicitly non-claiming, remain exact-target routed, and retain bounded output validation.
 - Queued, settle-triggered, failure-triggered, and background prompt scheduling records an exact pending manager/session while reload or any lifecycle transition is pending. Reload success/failure release requests scheduling but never dispatch inline. Only after all transitions already claimed during reload finish does a non-awaiting post-transition boundary re-resolve the surviving manager/session and hand off its prompt. Stop/new discard stale targets, restart uses the replacement owner, switch may resume the exact background owner, and a held prompt promise never blocks the transition chain. Reload also verifies exact runtime/session identity after awaits. Only bounded category counts and diagnostics cross IPC; resource contents and extension implementations remain main-owned. Extensions remain disabled by policy after reload.
-- A dedicated Electron utility process remains planned before enabling untrusted
-  extensions by default, to recover crash isolation previously supplied by a
-  subprocess.
+- Third-party Pi extensions remain disabled by the embedded resource loader.
+  Metadata-only discovery skips symlinks and never imports or evaluates source;
+  persisted user/project enablement requests cannot override the hard execution
+  block. Project metadata is marked trusted only after the existing project
+  trust decision.
+- The app-owned extension utility worker has no extension-path/load command. Its
+  strict protocol is capped at 256 KiB; malformed/oversized messages kill the
+  host. Pending dialogs have bounded timeouts, close on crash, and the supervisor
+  stops after three crashes. Worker stderr stays main-only and only byte counts
+  may be recorded.
+- Brokered UI is plain bounded data: select/confirm/input/editor responses,
+  notifications, status/sidebar text, custom-message JSON strings, and portable
+  tool-render text. React renders all values inertly. Terminal widgets, custom
+  editors/footers, overlays, direct rendering components, and key interception
+  are unsupported no-ops. No extension code or Pi object crosses into renderer.
+- Pi's public API has no remote/serializable extension runtime, so enabling code
+  would require in-process authority and is the explicit upstream blocker.
+- Provider/tool diagnostics use the existing bounded in-memory ring (500 lines)
+  and are dropped when the app exits.
+- The Electron utility-process supervisor and broker are implemented, but third-
+  party execution remains blocked until Pi exposes a public adapter that can run
+  the actual extension lifecycle entirely inside that process.
 - Strict JSONL framing/backpressure code remains available only to the explicit
   deterministic test adapter (`TAU_GUI_TEST_RPC_RUNTIME=1`), never through user
   settings.

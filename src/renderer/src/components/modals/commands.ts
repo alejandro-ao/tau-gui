@@ -339,6 +339,16 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     run: () => actions.openModal('settings'),
   });
   add({
+    id: 'view.extensions',
+    title: '/extensions',
+    description: 'Extension trust, metadata, and isolation status',
+    group: 'view',
+    origin: 'frontend',
+    slash: '/extensions',
+    unavailable: null,
+    run: () => actions.openModal('extensions'),
+  });
+  add({
     id: 'view.diagnostics',
     title: '/diagnostics',
     description: 'Runtime diagnostics',

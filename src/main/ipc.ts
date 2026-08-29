@@ -24,6 +24,7 @@ import type { ImageAttachmentService } from './services/image-attachments.js';
 import type { AgentRuntime } from './runtime/agent-runtime.js';
 import type { ImportRecoveryAccess } from './services/import-recovery.js';
 import { discoverTauResources } from './services/resources.js';
+import type { ExtensionHostService } from './services/extension-host.js';
 import type { RuntimePool } from './services/runtime-pool.js';
 import type { SettingsStore } from './services/settings.js';
 import { recentSummary, rendererSettings } from './services/session-identity.js';
@@ -34,6 +35,7 @@ export interface HandlerContext {
   importRecovery: ImportRecoveryAccess;
   window: () => BrowserWindow | null;
   images?: ImageAttachmentService;
+  extensionHost?: ExtensionHostService;
 }
 
 const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
@@ -359,6 +361,22 @@ export async function handleRequest(
         }
         return systemPromptInspectionSchema.parse(await runtime.inspectSystemPrompt());
       });
+    case 'extensions.list': {
+      const host = requiredExtensionHost(context);
+      return host.list(manager.snapshot().cwd, manager.effectiveProjectTrust === 'approve-once');
+    }
+    case 'extensions.policy.get':
+      return requiredExtensionHost(context).getPolicy();
+    case 'extensions.policy.update':
+      return requiredExtensionHost(context).updatePolicy(request.payload);
+    case 'extensions.host.probe':
+      return requiredExtensionHost(context).probe();
+    case 'extensions.dialog.respond':
+      requiredExtensionHost(context).respondDialog(
+        request.payload.requestId,
+        request.payload.value,
+      );
+      return null;
     case 'tools.list':
       return read(async (runtime) => {
         if (!runtime.listTools) throw new Error('Tool catalog inspection is unavailable');
@@ -503,6 +521,11 @@ async function imageSessionKey(runtime: AgentRuntime, requireCapability: boolean
   }
   if (!state.sessionId) throw new Error('No active session for image attachments');
   return `${runtime.kind}:${state.sessionId}`;
+}
+
+function requiredExtensionHost(context: HandlerContext): ExtensionHostService {
+  if (!context.extensionHost) throw new Error('Extension isolation service is unavailable');
+  return context.extensionHost;
 }
 
 async function pickDirectory(context: HandlerContext, title: string): Promise<string | null> {

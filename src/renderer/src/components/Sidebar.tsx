@@ -82,6 +82,28 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
         />
       ) : null}
 
+      {Object.keys(state.extensionStatuses).length > 0 ? (
+        <section className="sidebar-section">
+          <h2>extension status</h2>
+          {Object.entries(state.extensionStatuses).map(([key, text]) => (
+            <p className="sidebar-line" key={key}>
+              {text}
+            </p>
+          ))}
+        </section>
+      ) : null}
+
+      {Object.entries(state.extensionSidebar).map(([key, section]) => (
+        <section className="sidebar-section" key={key}>
+          <h2>{section.title}</h2>
+          {section.lines.map((line, index) => (
+            <p className="sidebar-line" key={`${key}:${index}`}>
+              {line}
+            </p>
+          ))}
+        </section>
+      ))}
+
       <div className="version-mark">
         <span>τ = 2π</span>
         <span>{versionLabel(snapshot.runtime, snapshot.runtimeVersion)}</span>

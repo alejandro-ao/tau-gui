@@ -17,6 +17,7 @@ import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
 import { ImageAttachmentService } from './services/image-attachments.js';
 import { ImportRecoveryService } from './services/import-recovery.js';
+import { ExtensionHostService } from './services/extension-host.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -49,6 +50,7 @@ let settings: SettingsStore;
 let manager: RuntimePool;
 let importRecovery: ImportRecoveryService;
 let images: ImageAttachmentService;
+let extensionHost: ExtensionHostService;
 
 function broadcast(event: BridgeEvent): void {
   const parsed = bridgeEventSchema.safeParse(event);
@@ -118,7 +120,7 @@ function createWindow(): BrowserWindow {
   return window;
 }
 
-void app.whenReady().then(() => {
+void app.whenReady().then(async () => {
   electronSession.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
@@ -136,6 +138,13 @@ void app.whenReady().then(() => {
   settings = new SettingsStore(SettingsStore.defaultFile(app.getPath('userData')));
   importRecovery = new ImportRecoveryService(getAgentDir(), (path) => shell.openPath(path));
   images = new ImageAttachmentService();
+  extensionHost = new ExtensionHostService({
+    agentDir: getAgentDir(),
+    policyPath: join(app.getPath('userData'), 'extension-policy.json'),
+    workerPath: join(dirname, 'extension-host-worker.cjs'),
+    broadcast: (event) => broadcast({ type: 'extensionUi', event }),
+  });
+  await extensionHost.load();
   const useTestRpcRuntime = process.env['TAU_GUI_TEST_RPC_RUNTIME'] === '1';
   manager = new RuntimePool(settings, broadcast, {
     runtimeFactory: useTestRpcRuntime
@@ -155,7 +164,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, importRecovery, images, window: () => mainWindow },
+        { settings, manager, importRecovery, images, extensionHost, window: () => mainWindow },
         parsed.data,
       );
       return {
@@ -183,5 +192,6 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+  extensionHost?.stop();
   void manager?.stopAll();
 });

@@ -13,10 +13,10 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
   main-process runtime pool owns its queue, lifecycle, and sidebar activity.
 - Removed runtime/binary/provider/argument/trust controls from the active settings UI and migrated persisted runtime selection to Pi.
 - Removed Tau/Pi switch entries from the command palette.
-- Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
+- Third-party extension execution remains deliberately disabled. The fail-closed trust policy, metadata discovery, utility-process supervisor, broker, and bounded desktop UI are complete; execution awaits a public Pi remote-host adapter.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining extension UI, cancellable bash UX, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
 - Bounded native multi-image prompts, Pi-native session workflows, main-owned provider authentication, retry cancellation/progress, and public-setter-backed Pi preferences are complete.
+- Remaining cancellable bash UX, test-fake conversion, compatibility-code deletion, and inactive-session HTML export remain tracked in #17. Pi 0.84.2 implements inactive HTML export internally but does not export that function from the package's public entry point.
 
 ## Active desktop contract audit
 
@@ -35,29 +35,28 @@ cancellable bash remain disabled until they have bounded desktop flows.
 minimum runtime operation for every capability; IPC, renderer, and test coverage
 are additional requirements.
 
-| Capability               | Runtime operation                      | IPC / renderer   | Advertised | Next action                                |
-| ------------------------ | -------------------------------------- | ---------------- | ---------- | ------------------------------------------ |
-| text prompts             | `prompt`                               | complete         | yes        | maintain contract tests                    |
-| steering / follow-ups    | `steer`, `followUp`                    | complete         | yes        | maintain queue and E2E coverage            |
-| direct bash              | `runShell`                             | complete         | yes        | maintain contract tests                    |
-| cancellable bash         | `abortShell`                           | no renderer flow | no         | add cancellation UX and E2E coverage       |
-| session tree / fork      | bounded rows, `fork`, labels           | complete         | yes        | maintain adversarial coverage              |
-| image prompts            | bounded SDK image prompt options       | complete         | yes        | maintain normalization/security coverage   |
-| retry controls           | Pi state, events, `abortRetry()`       | complete         | yes        | maintain restoration/cancellation coverage |
-| session clone            | public branch create + switch          | complete         | yes        | maintain cleanup/lifecycle coverage        |
-| session listing          | preflight + `SessionManager.listAll()` | complete         | yes        | upstream abortable bounded listing API     |
-| extension dialogs        | extensions intentionally disabled      | missing          | no         | define trust and isolation first           |
-| provider login/logout    | public `ModelRuntime` auth APIs        | complete         | yes        | maintain credential-redaction coverage     |
-| resource reload          | `reloadResources`                      | complete         | yes        | maintain lifecycle/count coverage          |
-| system prompt inspection | `inspectSystemPrompt`                  | complete         | yes        | keep output local-only and bounded         |
-| tool catalog             | `listTools`                            | complete         | yes        | keep schemas/origins bounded               |
+| Capability               | Runtime operation                       | IPC / renderer   | Advertised | Next action                                |
+| ------------------------ | --------------------------------------- | ---------------- | ---------- | ------------------------------------------ |
+| text prompts             | `prompt`                                | complete         | yes        | maintain contract tests                    |
+| steering / follow-ups    | `steer`, `followUp`                     | complete         | yes        | maintain queue and E2E coverage            |
+| direct bash              | `runShell`                              | complete         | yes        | maintain contract tests                    |
+| cancellable bash         | `abortShell`                            | no renderer flow | no         | add cancellation UX and E2E coverage       |
+| session tree / fork      | bounded rows, `fork`, labels            | complete         | yes        | maintain adversarial coverage              |
+| image prompts            | bounded SDK image prompt options        | complete         | yes        | maintain normalization/security coverage   |
+| retry controls           | Pi state, events, `abortRetry()`        | complete         | yes        | maintain restoration/cancellation coverage |
+| session clone            | public branch create + switch           | complete         | yes        | maintain cleanup/lifecycle coverage        |
+| session listing          | preflight + `SessionManager.listAll()`  | complete         | yes        | upstream abortable bounded listing API     |
+| extension dialogs        | fail-closed broker + utility supervisor | bounded UI only  | no         | upstream serializable Pi host adapter      |
+| provider login/logout    | public `ModelRuntime` auth APIs         | complete         | yes        | maintain credential-redaction coverage     |
+| resource reload          | `reloadResources`                       | complete         | yes        | maintain lifecycle/count coverage          |
+| system prompt inspection | `inspectSystemPrompt`                   | complete         | yes        | keep output local-only and bounded         |
+| tool catalog             | `listTools`                             | complete         | yes        | keep schemas/origins bounded               |
 
 The next implementation order is:
 
-1. add extension interactions after their isolation boundary is defined;
-2. add cancellable bash UX and E2E coverage;
-3. remove the compatibility runtime and JSONL test infrastructure, then finish
-   release hardening.
+1. add cancellable bash UX and E2E coverage;
+2. remove the compatibility runtime and JSONL test infrastructure;
+3. finish release hardening while keeping extension execution blocked until Pi exposes a serializable remote-host adapter.
 
 ## Roadmap reconciliation notes
 

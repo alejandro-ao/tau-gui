@@ -14,6 +14,16 @@ import {
   type SystemPromptInspection,
   type ToolCatalog,
 } from './introspection.js';
+import {
+  extensionHostStatusSchema,
+  extensionPolicySchema,
+  extensionResourceListSchema,
+  extensionUiEventSchema,
+  type ExtensionHostStatus,
+  type ExtensionPolicy,
+  type ExtensionResource,
+  type ExtensionUiEvent,
+} from './extensions.js';
 import { resourceCatalogSchema } from './resources.js';
 import { entrySnapshotSchema, MAX_SESSION_STRUCTURE_BYTES } from './session-structures.js';
 import type {
@@ -936,6 +946,28 @@ const requestUnion = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('agent.inspectSystemPrompt') }),
   z.strictObject({ action: z.literal('tools.list') }),
   z.strictObject({ action: z.literal('context.list') }),
+  z.object({ action: z.literal('extensions.list') }).strict(),
+  z.object({ action: z.literal('extensions.policy.get') }).strict(),
+  z
+    .object({
+      action: z.literal('extensions.policy.update'),
+      payload: z
+        .object({ userEnabled: z.boolean().optional(), projectEnabled: z.boolean().optional() })
+        .strict(),
+    })
+    .strict(),
+  z.object({ action: z.literal('extensions.host.probe') }).strict(),
+  z
+    .object({
+      action: z.literal('extensions.dialog.respond'),
+      payload: z
+        .object({
+          requestId: z.string().uuid(),
+          value: z.union([z.string().max(100_000), z.boolean(), z.null()]),
+        })
+        .strict(),
+    })
+    .strict(),
 
   z.strictObject({
     action: z.literal('fs.complete'),
@@ -990,9 +1022,13 @@ function strictTopLevel(allowed: ReadonlySet<string>): z.ZodType<unknown> {
 export const requestSchema = strictTopLevel(new Set(['action', 'payload'])).pipe(requestUnion);
 
 export {
+  entrySnapshotSchema,
+  extensionHostStatusSchema,
+  extensionPolicySchema,
+  extensionResourceListSchema,
+  extensionUiEventSchema,
   imageAttachmentListSchema,
   resourceCatalogSchema,
-  entrySnapshotSchema,
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
@@ -1119,6 +1155,11 @@ export interface IpcResultMap {
   'shell.run': BashResult;
   'shell.abort': null;
   'commands.list': CommandInfo[];
+  'extensions.list': ExtensionResource[];
+  'extensions.policy.get': ExtensionPolicy;
+  'extensions.policy.update': ExtensionPolicy;
+  'extensions.host.probe': ExtensionHostStatus;
+  'extensions.dialog.respond': null;
   'resources.list': ResourceCatalog;
   'resources.reload': ResourceReloadResult;
   'agent.inspectSystemPrompt': SystemPromptInspection;
@@ -1268,6 +1309,7 @@ export type BridgeEvent =
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }
   | { type: 'auth'; event: AuthFlowEvent }
+  | { type: 'extensionUi'; event: ExtensionUiEvent }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

@@ -44,6 +44,15 @@ export function SettingsModal(): ReactNode {
           login / logout…
         </button>
 
+        <span>extensions</span>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => actions.openModal('extensions')}
+        >
+          trust and isolation…
+        </button>
+
         <label htmlFor="setting-cwd">project</label>
         <div className="settings-inline">
           <span className="dim" title={settings.cwd ?? undefined}>

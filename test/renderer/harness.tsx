@@ -107,6 +107,21 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     'pi.preferences.get': null,
     'thinking.list': [],
     'commands.list': [],
+    'extensions.list': [],
+    'extensions.policy.get': {
+      userEnabled: false,
+      projectEnabled: false,
+      executionAvailable: false,
+      blocker: 'blocked in tests',
+    },
+    'extensions.policy.update': {
+      userEnabled: false,
+      projectEnabled: false,
+      executionAvailable: false,
+      blocker: 'blocked in tests',
+    },
+    'extensions.host.probe': { status: 'ready', crashes: 0, detail: 'isolated' },
+    'extensions.dialog.respond': null,
     'resources.list': { skills: [], prompts: [], diagnostics: [] },
     'resources.reload': {
       before: { skills: 0, prompts: 0, themes: 2, contextFiles: 0, extensions: 0, tools: 4 },
