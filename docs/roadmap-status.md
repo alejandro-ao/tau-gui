@@ -6,7 +6,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
-- Pi SDK now owns production sessions, models, thinking, compaction, bash, in-place tree navigation, labels, HTML/native-catalog JSONL export, bounded session catalogs, resources, and context-file metadata. Clone and import are explicitly blocked.
+- Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, labels, cloning, HTML/native-catalog JSONL export, bounded session catalogs, resources, and context-file metadata. Import is explicitly blocked.
 - The app injects a trusted `spawn_session` SDK tool that creates an independently
   running session in the current directory or another existing directory. The
   main-process runtime pool owns its queue, lifecycle, and sidebar activity.
@@ -25,31 +25,31 @@ all required layers:
 Pi SDK or app service → AgentRuntime → validated IPC/preload → renderer flow → tests
 ```
 
-SDK support by itself is not a desktop capability. Pi-native listing is a complete
-slice; cloning, import, auth, resource reload, tools, system prompts, images,
-retries, and extensions remain disabled until each has a safe bounded domain
-operation and usable desktop flow.
+SDK support by itself is not a desktop capability. Pi-native listing and cloning
+are now complete desktop slices; auth, resources reload, tools, system prompts,
+images, retries, import, and extensions remain disabled until the app exposes bounded
+domain operations and usable desktop flows.
 `CAPABILITY_RUNTIME_METHODS` in `src/main/runtime/agent-runtime.ts` records the
 minimum runtime operation for every capability; IPC, renderer, and test coverage
 are additional requirements.
 
-| Capability               | Runtime operation                     | IPC / renderer   | Advertised | Next action                                       |
-| ------------------------ | ------------------------------------- | ---------------- | ---------- | ------------------------------------------------- |
-| text prompts             | `prompt`                              | complete         | yes        | maintain contract tests                           |
-| steering / follow-ups    | `steer`, `followUp`                   | complete         | yes        | maintain queue and E2E coverage                   |
-| direct bash              | `runShell`                            | complete         | yes        | maintain contract tests                           |
-| cancellable bash         | `abortShell`                          | no renderer flow | no         | add cancellation UX and E2E coverage              |
-| session tree / fork      | bounded rows, `navigateTree`, labels  | complete         | yes        | maintain cancellation/adversarial coverage        |
-| image prompts            | no image-bearing prompt operation     | missing          | no         | add bounded attachment DTOs and UI                |
-| retry controls           | retry events only                     | missing          | no         | add policy, progress, and cancellation operations |
-| session clone            | branch create; path-reopen activation | fail-closed UI   | no         | upstream exact-manager/immutable activation       |
-| session import           | path-following/mutating open only     | fail-closed UI   | no         | upstream immutable handle/bytes validator         |
-| session listing          | preflight + `SessionManager.listAll`  | complete         | yes        | upstream abortable bounded listing API            |
-| extension dialogs        | extensions intentionally disabled     | missing          | no         | define trust and isolation first                  |
-| provider login/logout    | Pi SDK primitive only                 | missing          | no         | add main-owned auth flows                         |
-| resource reload          | loader exists; no reload operation    | missing          | no         | add counts, diagnostics, and refresh flow         |
-| system prompt inspection | active prompt exists only in main     | missing          | no         | add bounded local-only inspection                 |
-| tool catalog             | active tools exist only in main       | missing          | no         | add bounded schemas/origins and picker            |
+| Capability               | Runtime operation                    | IPC / renderer   | Advertised | Next action                                       |
+| ------------------------ | ------------------------------------ | ---------------- | ---------- | ------------------------------------------------- |
+| text prompts             | `prompt`                             | complete         | yes        | maintain contract tests                           |
+| steering / follow-ups    | `steer`, `followUp`                  | complete         | yes        | maintain queue and E2E coverage                   |
+| direct bash              | `runShell`                           | complete         | yes        | maintain contract tests                           |
+| cancellable bash         | `abortShell`                         | no renderer flow | no         | add cancellation UX and E2E coverage              |
+| session tree / fork      | bounded rows, `navigateTree`, labels | complete         | yes        | maintain cancellation/adversarial coverage        |
+| image prompts            | no image-bearing prompt operation    | missing          | no         | add bounded attachment DTOs and UI                |
+| retry controls           | retry events only                    | missing          | no         | add policy, progress, and cancellation operations |
+| session clone            | public branch create + switch        | complete         | yes        | maintain cleanup/lifecycle coverage               |
+| session import           | path-following/mutating open only    | fail-closed UI   | no         | upstream immutable handle/bytes validator         |
+| session listing          | preflight + `SessionManager.listAll` | complete         | yes        | upstream abortable bounded listing API            |
+| extension dialogs        | extensions intentionally disabled    | missing          | no         | define trust and isolation first                  |
+| provider login/logout    | Pi SDK primitive only                | missing          | no         | add main-owned auth flows                         |
+| resource reload          | loader exists; no reload operation   | missing          | no         | add counts, diagnostics, and refresh flow         |
+| system prompt inspection | active prompt exists only in main    | missing          | no         | add bounded local-only inspection                 |
+| tool catalog             | active tools exist only in main      | missing          | no         | add bounded schemas/origins and picker            |
 
 The next implementation order is:
 
@@ -150,12 +150,11 @@ claims.
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
   the catalog match, so the pill distinguishes runtime expansions from GUI commands
   before Enter is pressed. Slash completion entries use the same colours.
-- Commands with no safe GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
+- Commands with no GUI implementation (`/tools`, `/system`, `/reload`, `/login`,
   `/logout`, `/clone`, and extension commands that RPC can list but not execute)
   are listed as unavailable with the reason instead of being sent incorrectly to
-  the model. `/clone` uses a fixed path-free blocker even on Pi: branch creation
-  cannot be followed by exact-manager or immutable generation-bound activation,
-  because the public switch operation reopens the artifact pathname.
+  the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
+  because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.
 - One accessible picker framework (`Modal` + `Picker`) with focus trapping,
@@ -199,9 +198,9 @@ claims.
   the complete physical generation; app recents are tagged main-resolved fallbacks;
   backing paths are absent from all
   renderer settings/state/status DTOs and renderer fallback never creates IDs.
-- New/switch/name, bounded in-place flat-row tree navigation with explicitly truncated editable user turns,
-  labels, no/default/custom branch summaries, fresh-native-catalog portable export,
-  HTML export, fail-closed clone/import explanations, compaction, settings, and diagnostics modals.
+- New/switch/name, bounded flat-row tree navigation with explicitly truncated editable user turns,
+  labels, no/default/custom branch summaries, clone, fresh-native-catalog portable
+  export, HTML export, fail-closed import explanation, compaction, settings, and diagnostics modals.
   Renderer-visible runtime/settings state and every bounded bridge event variant
   are schema-parsed in main and preload.
 - Concurrent live sessions through a main-process runtime pool: selecting a
@@ -235,19 +234,19 @@ claims.
 Capability flags exist and are `false` until both adapters can implement them
 with conformance tests:
 
-| Surface                          | Flag                     | Status                                                            |
-| -------------------------------- | ------------------------ | ----------------------------------------------------------------- |
-| portable session listing         | `sessionList`            | production embedded Pi provides a bounded native catalog          |
-| cancellable direct bash          | `abortBash`              | Pi only                                                           |
-| queue modes / retry controls     | `retryControls`          | Pi only                                                           |
-| session clone                    | `sessionClone`           | blocked on exact-manager/immutable activation without path reopen |
-| image prompts                    | `imagePrompt`            | Pi only; GUI drop previews deferred                               |
-| extension dialogs/status/widgets | `extensionDialogs`       | Pi subprotocol only; Tau routes extension UI to stderr            |
-| provider login/logout            | `providerLogin`          | neither                                                           |
-| resource reload                  | `resourceReload`         | neither                                                           |
-| system prompt inspection         | `systemPromptInspection` | neither                                                           |
-| tool catalog                     | `toolCatalog`            | neither                                                           |
-| interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline              |
+| Surface                          | Flag                     | Status                                                     |
+| -------------------------------- | ------------------------ | ---------------------------------------------------------- |
+| portable session listing         | `sessionList`            | production embedded Pi provides a bounded native catalog   |
+| cancellable direct bash          | `abortBash`              | Pi only                                                    |
+| queue modes / retry controls     | `retryControls`          | Pi only                                                    |
+| session clone                    | `sessionClone`           | production embedded Pi provides the complete `/clone` flow |
+| image prompts                    | `imagePrompt`            | Pi only; GUI drop previews deferred                        |
+| extension dialogs/status/widgets | `extensionDialogs`       | Pi subprotocol only; Tau routes extension UI to stderr     |
+| provider login/logout            | `providerLogin`          | neither                                                    |
+| resource reload                  | `resourceReload`         | neither                                                    |
+| system prompt inspection         | `systemPromptInspection` | neither                                                    |
+| tool catalog                     | `toolCatalog`            | neither                                                    |
+| interactive project trust        | n/a                      | headless RPC; exposed as launch-time approve/decline       |
 
 ## Phase 7 — packaging and release ⏳ partial
 

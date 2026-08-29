@@ -87,6 +87,7 @@ export interface AgentRuntime {
     aborted: boolean;
   }>;
   setLabel(entryId: string, label: string | null): Promise<void>;
+  clone(): Promise<void>;
   describeSession?(ref: string): Promise<{ sessionId: string; physicalKey: string }>;
   listSessions(scope: 'cwd' | 'all'): Promise<SessionSummary[]>;
   exportHtml(path?: string): Promise<string>;
@@ -112,7 +113,7 @@ export const CAPABILITY_RUNTIME_METHODS = {
   abortBash: ['abortShell'],
   retryControls: null,
   sessionTree: ['getTree', 'fork', 'setLabel'],
-  sessionClone: null,
+  sessionClone: ['clone'],
   sessionImport: null,
   sessionList: ['listSessions'],
   extensionDialogs: null,
@@ -555,6 +556,10 @@ export class JsonlAgentRuntime implements AgentRuntime {
 
   setLabel(): Promise<void> {
     return Promise.reject(new Error('Session labels are unavailable in the test RPC runtime'));
+  }
+
+  clone(): Promise<void> {
+    return Promise.reject(new Error('Session cloning is unavailable in the test RPC runtime'));
   }
 
   listSessions(): Promise<SessionSummary[]> {

@@ -3,7 +3,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   renameSync,
   rmSync,
   symlinkSync,
@@ -20,19 +19,6 @@ let root: string;
 let seededId: string;
 let agentDir: string;
 let backingPath: string;
-
-function fileSnapshot(root: string): Map<string, Buffer> {
-  const files = new Map<string, Buffer>();
-  const visit = (directory: string): void => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) visit(path);
-      else if (entry.isFile()) files.set(path.slice(root.length), readFileSync(path));
-    }
-  };
-  visit(root);
-  return files;
-}
 
 function sessionDirectory(cwd: string, agentDir: string): string {
   const safePath = `--${resolve(cwd)
@@ -152,7 +138,7 @@ test('keeps catalog/export filesystem failures path-free across main IPC and pre
   expect(JSON.stringify(rootDiagnostics)).not.toContain('private-displaced-sessions');
 });
 
-test('fails clone and import closed while preserving native list, resume, and export', async () => {
+test('fails import closed while preserving native list, resume, clone, and export', async () => {
   const { app, page } = handle;
   const portable = join(root, 'portable.jsonl');
 
@@ -172,24 +158,13 @@ test('fails clone and import closed while preserving native list, resume, and ex
   await seeded.click();
   await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
 
-  const filesBeforeClone = fileSnapshot(agentDir);
-  const sourceBeforeClone = readFileSync(backingPath);
-  const cloneError = await page.evaluate(
-    `window.tau.invoke('session.clone').then(() => 'resolved', (error) => String(error.message))`,
-  );
-  expect(cloneError).toContain(
-    'cannot activate the exact newly branched manager or an immutable artifact',
-  );
-  expect(cloneError).not.toContain(agentDir);
-
   await runCommand('/clone');
-  await expect(
-    page
-      .getByRole('log', { name: 'transcript' })
-      .getByText(/cannot activate the exact newly branched manager or an immutable artifact/),
-  ).toBeVisible();
-  expect(readFileSync(backingPath)).toEqual(sourceBeforeClone);
-  expect(fileSnapshot(agentDir)).toEqual(filesBeforeClone);
+  await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
+  await runCommand('/resume');
+  await expect
+    .poll(() => page.getByTestId('modal-session').getByRole('option').count())
+    .toBeGreaterThanOrEqual(2);
+  await page.keyboard.press('Escape');
 
   const portableBefore = readFileSync(portable);
   await app.evaluate(({ dialog }) => {
@@ -222,7 +197,7 @@ test('fails clone and import closed while preserving native list, resume, and ex
     .getByTestId('modal-session')
     .getByRole('option')
     .filter({ hasText: 'Native E2E session' });
-  await expect(preserved).toHaveCount(1);
+  await expect(preserved).toHaveCount(2);
   await preserved.first().click();
   await expect(page.getByRole('log', { name: 'transcript' })).toContainText('Test native sessions');
 

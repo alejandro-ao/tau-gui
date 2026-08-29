@@ -37,19 +37,13 @@ function stateWith(capabilities: Partial<typeof DEFAULT_CAPABILITIES> = {}): App
 }
 
 describe('command registry', () => {
-  it('keeps /clone on a fixed path-free blocker without reaching a UI mutation', () => {
+  it('executes /clone when the complete runtime slice is available', () => {
     const { actions, calls } = stubActions();
     const commands = buildCommands(stateWith({ sessionClone: true }), actions);
     const clone = commands.find((command) => command.id === 'session.clone');
-    expect(clone?.unavailable).toContain(
-      'cannot activate the exact newly branched manager or an immutable artifact',
-    );
-    expect(clone?.unavailable).not.toMatch(/[/\\]/);
+    expect(clone?.unavailable).toBeNull();
     clone?.run();
-    expect(calls).toEqual([
-      expect.stringMatching(/^notice:\/clone is unavailable: the public Pi SDK cannot activate/),
-    ]);
-    expect(calls.some((call) => call.startsWith('cloneSession:'))).toBe(false);
+    expect(calls).toContain('cloneSession:');
   });
 
   it('explains the public SDK import blocker without a path', () => {
@@ -61,6 +55,13 @@ describe('command registry', () => {
       'public Pi SDK has no handle- or bytes-based no-follow validator',
     );
     expect(command?.unavailable).not.toMatch(/[/\\]/);
+  });
+
+  it('keeps the runtime capability reason when the runtime cannot clone', () => {
+    const { actions } = stubActions();
+    const commands = buildCommands(stateWith({ sessionClone: false }), actions);
+    const clone = commands.find((command) => command.id === 'session.clone');
+    expect(clone?.unavailable).toBe('this runtime cannot clone sessions');
   });
 
   it('never lets a capability-enabled but unimplemented command silently no-op', () => {
