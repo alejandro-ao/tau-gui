@@ -26,7 +26,7 @@ export const CAPABILITIES: Record<RuntimeKind, RuntimeCapabilities> = {
     abortBash: true,
     retryControls: true,
     sessionTree: true,
-    sessionClone: true,
+    sessionClone: false,
   },
 };
 

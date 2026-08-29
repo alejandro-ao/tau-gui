@@ -83,27 +83,6 @@ describe('RuntimePool', () => {
     expect(pool.snapshot().state?.sessionId).toBe('other-session');
   });
 
-  it('serializes session replacement so one owner never clones concurrently', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    const runtime = pool.runtimeFor(target);
-    let activeClones = 0;
-    let maximum = 0;
-    runtime.clone = async () => {
-      activeClones += 1;
-      maximum = Math.max(maximum, activeClones);
-      await new Promise((resolve) => setTimeout(resolve, 10));
-      activeClones -= 1;
-    };
-
-    await Promise.all([pool.cloneSession(target), pool.cloneSession(target)]);
-
-    expect(maximum).toBe(1);
-    expect(pool.snapshot().state?.sessionId).toBe('fake-session-1');
-  });
-
   it('reuses an owner found by prospective logical/physical identity', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);
@@ -116,22 +95,6 @@ describe('RuntimePool', () => {
     expect(snapshot.state?.sessionId).toBe('fake-session-1');
     const internals = pool as unknown as { managers: Set<unknown> };
     expect(internals.managers.size).toBe(1);
-  });
-
-  it('removes a destructively replaced runtime after recreation failure', async () => {
-    const settings = makeSettings();
-    const events: BridgeEvent[] = [];
-    pool = new RuntimePool(settings, (event) => events.push(event));
-    await pool.start();
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    pool.runtimeFor(target).clone = () => Promise.reject(new Error('rebind failed'));
-
-    await expect(pool.cloneSession(target)).rejects.toThrow('rebind failed');
-    expect(pool.snapshot()).toMatchObject({ status: 'failed', recoveryTarget: target });
-    expect(() => pool?.runtimeFor(target)).toThrow('Session is no longer available');
-    expect(
-      events.some((event) => event.type === 'status' && event.snapshot.status === 'failed'),
-    ).toBe(true);
   });
 
   it('stops a subprocess whose session activation fails', async () => {

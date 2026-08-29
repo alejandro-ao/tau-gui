@@ -50,7 +50,6 @@ import {
   ensureCheckedDirectory,
   exclusiveCopy,
   inspectPhysicalFile,
-  retainPhysicalFile,
   type PhysicalFile,
 } from './session-files.js';
 
@@ -69,7 +68,7 @@ export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   abortBash: false,
   retryControls: false,
   sessionTree: true,
-  sessionClone: true,
+  sessionClone: false,
   sessionImport: false,
   sessionList: true,
   extensionDialogs: false,
@@ -404,42 +403,6 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (!this.session.sessionManager.getEntry(entryId)) throw new Error('Unknown session entry');
     this.session.sessionManager.appendLabelChange(entryId, label?.trim() || undefined);
     return Promise.resolve();
-  }
-
-  async clone(): Promise<void> {
-    const catalog = await loadCatalog(this.agentDir, null);
-    if (!catalog.complete) throw incompleteCatalogError();
-    if (catalog.records.length >= MAX_SESSION_CATALOG_ENTRIES) {
-      throw new Error('Session catalog capacity reached; clone refused');
-    }
-    const session = this.session;
-    if (session.isStreaming) throw new Error('Wait for the current response before cloning');
-    const manager = session.sessionManager;
-    const leafId = manager.getLeafId();
-    if (!leafId || !session.sessionFile) {
-      throw new Error('Send a message before cloning this session');
-    }
-    const sessionDir = await ensureCheckedDirectory(manager.getSessionDir());
-    if (
-      this.session !== session ||
-      this.session.sessionManager !== manager ||
-      session.isStreaming
-    ) {
-      throw new Error('Active session changed before clone creation');
-    }
-    // Pi documents this instance operation as extracting the selected path from
-    // the manager's live tree. Never reopen the active path: a same-user swap
-    // could substitute different bytes and opening can migrate or initialize it.
-    const destination = this.session.sessionManager.createBranchedSession(leafId);
-    if (!destination) throw new Error('Failed to create cloned session');
-    const artifact = await inspectPhysicalFile(destination, sessionDir);
-    try {
-      const result = await this.host.switchSession(destination);
-      if (result.cancelled) throw new Error('Session clone was cancelled');
-    } catch (error) {
-      await retainPhysicalFile(artifact, (message) => this.sink.diagnostic(message));
-      throw error;
-    }
   }
 
   async describeSession(ref: string): Promise<{ sessionId: string; physicalKey: string }> {

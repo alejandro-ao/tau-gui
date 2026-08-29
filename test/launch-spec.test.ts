@@ -80,7 +80,7 @@ describe('capability tables', () => {
     expect(CAPABILITIES.pi).toMatchObject({
       abortBash: true,
       imagePrompt: true,
-      sessionClone: true,
+      sessionClone: false,
       retryControls: true,
     });
   });

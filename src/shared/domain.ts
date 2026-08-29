@@ -22,6 +22,9 @@ export const THINKING_LEVELS: readonly ThinkingLevel[] = [
 export type ProjectTrust = 'default' | 'approve-once' | 'decline-once';
 
 /** Optional protocol surfaces. Unsupported actions must be disabled, never faked. */
+export const SESSION_CLONE_UNAVAILABLE_REASON =
+  'the public Pi SDK cannot activate the exact newly branched manager or an immutable artifact; switching reopens a pathname and cannot bind the created generation against same-user replacement';
+
 export interface RuntimeCapabilities {
   textPrompt: boolean;
   imagePrompt: boolean;

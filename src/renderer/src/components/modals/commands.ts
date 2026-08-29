@@ -1,4 +1,5 @@
 import {
+  SESSION_CLONE_UNAVAILABLE_REASON,
   THINKING_LEVELS,
   type SidebarPosition,
   type ThinkingLevel,
@@ -192,12 +193,11 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
   add({
     id: 'session.clone',
     title: '/clone',
-    description: 'Clone the session',
+    description: 'Clone the session (currently blocked)',
     group: 'session',
     origin: 'backend',
     slash: '/clone',
-    unavailable: gate(capabilities.sessionClone, 'this runtime cannot clone sessions'),
-    run: () => void actions.cloneSession(),
+    unavailable: SESSION_CLONE_UNAVAILABLE_REASON,
   });
   add({
     id: 'session.import',

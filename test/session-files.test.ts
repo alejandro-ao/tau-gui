@@ -6,7 +6,6 @@ import {
   boundedSessionList,
   exclusiveCopy,
   inspectPhysicalFile,
-  retainPhysicalFile,
   SESSION_IO_LIMITS,
 } from '../src/main/runtime/session-files.js';
 
@@ -90,23 +89,6 @@ describe('privileged session filesystem guards', () => {
         afterCreate: () => writeFile(source, 'mutated!'),
       }),
     ).rejects.toThrow('source changed during copy');
-  });
-
-  it('never deletes a replacement swapped in after an ownership check', async () => {
-    const directory = await root();
-    const destination = join(directory, 'cleanup.jsonl');
-    const displaced = join(directory, 'retained-app-artifact.jsonl');
-    const diagnostics: string[] = [];
-    await writeFile(destination, 'app artifact');
-    const expected = await inspectPhysicalFile(destination);
-
-    await rename(destination, displaced);
-    await writeFile(destination, 'caller replacement');
-    await retainPhysicalFile(expected, (message) => diagnostics.push(message));
-
-    await expect(readFile(destination, 'utf8')).resolves.toBe('caller replacement');
-    await expect(readFile(displaced, 'utf8')).resolves.toBe('app artifact');
-    expect(diagnostics.join(' ')).toContain('ownership became uncertain');
   });
 
   it('rejects symlink and hardlink copy sources', async () => {

@@ -434,35 +434,6 @@ export class RuntimePool {
     await this.managerFor(target).nameSession(name);
   }
 
-  async cloneSession(target?: SessionTarget | null): Promise<RuntimeSnapshot> {
-    return this.replaceSession(target, (runtime) => runtime.clone());
-  }
-
-  private async replaceSession(
-    target: SessionTarget | null | undefined,
-    replace: (runtime: AgentRuntime, manager: RuntimeManager) => Promise<void>,
-  ): Promise<RuntimeSnapshot> {
-    return this.enqueueTransition(async () => {
-      const manager = this.managerFor(target);
-      if (manager !== this.current) throw new Error('Select the session before replacing it');
-      if (isBusy(manager)) throw new Error('Wait for the current session to finish');
-      const restart = restartIdentity(manager);
-      try {
-        await replace(manager.active, manager);
-        await manager.refreshState();
-        this.removeOwnership(manager);
-        this.index(manager);
-        await this.claimSnapshot(manager);
-        return manager.snapshot();
-      } catch (error) {
-        await this.remove(manager);
-        this.failedRestart = { ...restart, detail: boundedError(error) };
-        this.broadcast({ type: 'status', snapshot: this.snapshot() });
-        throw error;
-      }
-    });
-  }
-
   async refreshState(touch = false, target?: SessionTarget | null): Promise<AgentState | null> {
     const manager = target ? this.ownerOf(target) : this.current;
     if (!manager) return null;

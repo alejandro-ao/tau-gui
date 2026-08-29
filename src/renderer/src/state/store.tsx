@@ -71,7 +71,6 @@ export interface Actions {
   nameSession: (name: string) => Promise<void>;
   fork: (entryId: string, options: TreeNavigateOptions) => Promise<string | null>;
   setLabel: (entryId: string, label: string | null) => Promise<void>;
-  cloneSession: () => Promise<void>;
   importJsonl: () => Promise<void>;
   importRecoveryHealth: () => Promise<
     | { available: true; retained: number; capacity: 32 }
@@ -577,15 +576,6 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       },
       setLabel: async (entryId, label) => {
         await attempt('session.label', { entryId, label }, notice, viewed());
-      },
-      cloneSession: async () => {
-        const target = viewed();
-        const navigation = beginNavigation(stateRef.current.snapshot.runtime);
-        try {
-          await navigate(navigation, () => invoke('session.clone', undefined, target));
-        } finally {
-          finishNavigation(navigation);
-        }
       },
       importJsonl: async () => {
         const target = viewed();

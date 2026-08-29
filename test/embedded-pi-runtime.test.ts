@@ -1,5 +1,4 @@
 import {
-  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -74,7 +73,7 @@ describe('EmbeddedPiRuntime', () => {
       imagePrompt: false,
       abortBash: false,
       retryControls: false,
-      sessionClone: true,
+      sessionClone: false,
       sessionImport: false,
       sessionList: true,
       extensionDialogs: false,
@@ -85,78 +84,14 @@ describe('EmbeddedPiRuntime', () => {
     });
   });
 
-  it.each(['regular replacement', 'symlink replacement', 'hardlink replacement', 'same inode'])(
-    'clones the live manager without reading or mutating an externally changed source: %s',
-    async (mutation) => {
-      const root = mkdtempSync(join(tmpdir(), 'tau-gui-clone-race-'));
-      roots.push(root);
-      const cwd = join(root, 'project');
-      const agentDir = join(root, 'agent');
-      mkdirSync(cwd, { recursive: true });
-
-      const runtime = new EmbeddedPiRuntime(
-        { event: () => undefined, status: () => undefined, diagnostic: () => undefined },
-        { agentDir, home: root },
-      );
-      active = runtime;
-      await runtime.start({
-        kind: 'pi',
-        binary: '',
-        cwd,
-        extraArgs: [],
-        projectTrust: 'default',
-      });
-
-      const manager = (
-        runtime as unknown as { runtime: { session: { sessionManager: SessionManager } } }
-      ).runtime.session.sessionManager;
-      appendConversation(manager, `live manager ${mutation}`);
-      const source = manager.getSessionFile();
-      if (!source) throw new Error('clone fixture was not persisted');
-      const sourceId = manager.getSessionId();
-      const displaced = `${source}.displaced`;
-      const external = join(root, 'external.jsonl');
-      const externalBytes = Buffer.from(`EXTERNAL-${mutation}`);
-      const createBranchedSession = manager.createBranchedSession.bind(manager);
-      let createCalls = 0;
-
-      manager.createBranchedSession = (leafId: string) => {
-        createCalls += 1;
-        if (mutation === 'same inode') {
-          writeFileSync(source, externalBytes);
-        } else {
-          renameSync(source, displaced);
-          if (mutation === 'regular replacement') {
-            writeFileSync(source, externalBytes);
-          } else {
-            writeFileSync(external, externalBytes);
-            if (mutation === 'symlink replacement') symlinkSync(external, source);
-            else linkSync(external, source);
-          }
-        }
-
-        const destination = createBranchedSession(leafId);
-        const probe =
-          mutation === 'regular replacement' || mutation === 'same inode' ? source : external;
-        expect(readFileSync(probe)).toEqual(externalBytes);
-        return destination;
-      };
-
-      await runtime.clone();
-
-      expect(createCalls).toBe(1);
-      expect((await runtime.getState()).sessionId).not.toBe(sourceId);
-      expect(await runtime.getMessages()).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ role: 'user', text: `live manager ${mutation}` }),
-          expect.objectContaining({ role: 'assistant', text: 'safe reply' }),
-        ]),
-      );
-      const probe =
-        mutation === 'regular replacement' || mutation === 'same inode' ? source : external;
-      expect(readFileSync(probe)).toEqual(externalBytes);
-    },
-  );
+  it('has no runtime clone method that can create or switch an artifact', () => {
+    const runtime = new EmbeddedPiRuntime({
+      event: () => undefined,
+      status: () => undefined,
+      diagnostic: () => undefined,
+    });
+    expect('clone' in runtime).toBe(false);
+  });
 
   it.each([
     {
@@ -517,16 +452,7 @@ describe('EmbeddedPiRuntime', () => {
     rmSync(activePath);
     renameSync(displacedActive, activePath);
 
-    await runtime.clone();
-    const cloneId = (await runtime.getState()).sessionId;
-    expect(cloneId).not.toBe(originalId);
-    expect((await runtime.getMessages())[0]).toMatchObject({
-      role: 'user',
-      text: 'Native catalog task',
-    });
-    expect(await runtime.listSessions('all')).toEqual(
-      expect.arrayContaining([expect.objectContaining({ sessionId: cloneId })]),
-    );
+    expect((await runtime.getState()).sessionId).toBe(originalId);
 
     const leafBeforeOversized = (await runtime.getTree()).leafId;
     const oversizedEntry = sessionInternals.runtime.session.sessionManager.appendMessage({

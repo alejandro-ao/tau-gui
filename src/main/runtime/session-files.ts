@@ -31,26 +31,6 @@ function samePhysicalGeneration(left: PhysicalFile, right: PhysicalFile): boolea
   );
 }
 
-/**
- * Node cannot unlink relative to an already-open file handle. Never path-delete an
- * artifact after a separate ownership check: a same-user swap could make that
- * path caller-owned before unlink. Retain it and report whether ownership stayed
- * stable so bounded diagnostics can direct explicit recovery.
- */
-export async function retainPhysicalFile(
-  expected: PhysicalFile,
-  diagnostic: (message: string) => void,
-): Promise<void> {
-  const current = await inspectPhysicalFile(expected.path, dirname(expected.path)).catch(
-    () => null,
-  );
-  diagnostic(
-    current?.key === expected.key && current.size === expected.size
-      ? 'Retained app-created session artifact because atomic cleanup is unavailable'
-      : 'Retained session artifact path after ownership became uncertain; no file was deleted',
-  );
-}
-
 interface ApprovedDirectory {
   path: string;
   files: Map<string, PhysicalFile>;

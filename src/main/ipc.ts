@@ -1,5 +1,6 @@
 import { clipboard, dialog, Notification, shell } from 'electron';
 import type { BrowserWindow } from 'electron';
+import { SESSION_CLONE_UNAVAILABLE_REASON } from '../shared/domain.js';
 import type { IpcAction, IpcEnvelope, IpcResult } from '../shared/ipc.js';
 import {
   contextFilesSchema,
@@ -27,6 +28,7 @@ export interface HandlerContext {
 
 const SAFE_PROTOCOLS = new Set(['https:', 'http:', 'mailto:']);
 
+export const CLONE_UNAVAILABLE_MESSAGE = `Session clone is unavailable: ${SESSION_CLONE_UNAVAILABLE_REASON}.`;
 export const IMPORT_UNAVAILABLE_MESSAGE =
   'Session import is unavailable: the public Pi SDK has no handle- or bytes-based no-follow validator that binds an expected file identity before opening.';
 
@@ -168,8 +170,10 @@ export async function handleRequest(
       await runtime().setLabel(request.payload.entryId, request.payload.label);
       return null;
     case 'session.clone':
-      await manager.cloneSession(target);
-      return null;
+      // Fail before resolving a runtime or creating/switching any artifact. Pi's
+      // public switch operation reopens the destination pathname, leaving a
+      // same-user replacement window after branch creation.
+      throw new Error(CLONE_UNAVAILABLE_MESSAGE);
     case 'session.importJsonl':
       // Fail before opening a picker or touching any source. SessionManager.open
       // follows a path and may initialize/migrate it; Pi 0.84.2 has no public

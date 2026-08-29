@@ -60,7 +60,7 @@ interface Calls {
   openedDirectories: string[];
   resourceDirectories: { kind: 'skills' | 'prompts'; path: string }[];
   labels: { entryId: string; label: string | null }[];
-  clones: unknown[];
+  cloneMutations: string[];
   imports: string[];
   jsonlExports: { path: string; sessionId?: string }[];
   names: string[];
@@ -85,7 +85,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     openedDirectories: [],
     resourceDirectories: [],
     labels: [],
-    clones: [],
+    cloneMutations: [],
     imports: [],
     jsonlExports: [],
     names: [],
@@ -93,6 +93,14 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
   const snapshot: EntrySnapshot = { entries: [], leafId: 'entry-3' };
 
   const active = {
+    createBranchedSession: () => {
+      calls.cloneMutations.push('createBranchedSession');
+      throw new Error('unsafe branch creation reached');
+    },
+    switchSession: () => {
+      calls.cloneMutations.push('switchSession');
+      throw new Error('unsafe path switch reached');
+    },
     getState: () =>
       Promise.resolve({
         model: null,
@@ -194,8 +202,8 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
         calls.openedDirectories.push(cwd);
         return Promise.resolve({ runtime: 'tau', cwd });
       },
-      cloneSession: (target: unknown) => {
-        calls.clones.push(target);
+      cloneSession: () => {
+        calls.cloneMutations.push('createBranchedSession or switchSession');
         return Promise.resolve({ runtime: 'pi' });
       },
       importSession: (path: string) => {
@@ -440,7 +448,7 @@ describe('capability-gated and adapter-contract actions', () => {
     expect(calls.entries).toEqual([undefined, 'entry-1']);
   });
 
-  it('routes bounded session catalog, labels, and clone through main ownership', async () => {
+  it('routes bounded session catalog and labels through main ownership', async () => {
     const { context, calls } = makeContext();
     const target = { runtime: 'pi' as const, sessionId: 'session-1' };
     await expect(
@@ -455,9 +463,26 @@ describe('capability-gated and adapter-contract actions', () => {
       payload: { entryId: 'entry-1', label: 'bookmark' },
       session: target,
     });
-    await handleRequest(context, { action: 'session.clone', session: target });
     expect(calls.labels).toEqual([{ entryId: 'entry-1', label: 'bookmark' }]);
-    expect(calls.clones).toEqual([target]);
+  });
+
+  it('rejects direct clone IPC before runtime resolution or mutation', async () => {
+    const { context, calls } = makeContext();
+    let runtimeResolutions = 0;
+    context.manager.runtimeFor = () => {
+      runtimeResolutions += 1;
+      calls.cloneMutations.push('runtime resolution');
+      throw new Error('clone reached runtime');
+    };
+
+    await expect(
+      handleRequest(context, {
+        action: 'session.clone',
+        session: { runtime: 'pi', sessionId: 'session-1' },
+      }),
+    ).rejects.toThrow('cannot activate the exact newly branched manager or an immutable artifact');
+    expect(runtimeResolutions).toBe(0);
+    expect(calls.cloneMutations).toEqual([]);
   });
 
   it('rejects a 501-character session name before mutation and preserves bounded outputs', async () => {
