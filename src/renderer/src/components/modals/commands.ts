@@ -460,18 +460,39 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
     ),
   });
   for (const action of ['login', 'logout'] as const) {
-    add({
+    const command = {
       id: `runtime.${action}`,
       title: `/${action}`,
       description: `Provider ${action}`,
-      group: 'runtime',
-      origin: 'backend',
+      group: 'runtime' as const,
+      origin: 'backend' as const,
       slash: `/${action}`,
-      unavailable: missing(
-        capabilities.providerLogin,
-        'provider credential management is not exposed by the desktop application contract',
-      ),
-    });
+    };
+    if (capabilities.providerLogin) {
+      add({
+        ...command,
+        unavailable: null,
+        run: () => {
+          void actions.loadProviderAuth();
+          actions.openModal('auth');
+        },
+      });
+    } else {
+      add({ ...command, unavailable: 'this runtime cannot manage provider credentials' });
+    }
+  }
+  const retryCommand = {
+    id: 'runtime.abortRetry',
+    title: '/abort-retry',
+    description: 'Cancel the current Pi retry delay',
+    group: 'runtime' as const,
+    origin: 'backend' as const,
+    slash: '/abort-retry',
+  };
+  if (capabilities.retryControls) {
+    add({ ...retryCommand, unavailable: null, run: () => void actions.abortRetry() });
+  } else {
+    add({ ...retryCommand, unavailable: 'this runtime cannot cancel retries' });
   }
   /* ------------------------------------------------- runtime-discovered */
 

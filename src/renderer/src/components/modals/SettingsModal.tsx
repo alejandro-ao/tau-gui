@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
 import { Modal } from './Modal.js';
 
@@ -6,6 +6,11 @@ import { Modal } from './Modal.js';
 export function SettingsModal(): ReactNode {
   const { state, actions } = useStore();
   const settings = state.settings;
+  const pi = state.piPreferences;
+
+  useEffect(() => {
+    void actions.loadPiPreferences();
+  }, [actions]);
 
   return (
     <Modal
@@ -26,6 +31,18 @@ export function SettingsModal(): ReactNode {
       <div className="settings-grid">
         <span>agent engine</span>
         <span data-testid="embedded-runtime">Pi SDK · bundled with the app</span>
+
+        <span>providers</span>
+        <button
+          type="button"
+          className="ghost-button"
+          onClick={() => {
+            void actions.loadProviderAuth();
+            actions.openModal('auth');
+          }}
+        >
+          login / logout…
+        </button>
 
         <label htmlFor="setting-cwd">project</label>
         <div className="settings-inline">
@@ -138,6 +155,135 @@ export function SettingsModal(): ReactNode {
           checked={settings.showThinking}
           onChange={(event) => void actions.updateSettings({ showThinking: event.target.checked })}
         />
+
+        {pi ? (
+          <>
+            <label htmlFor="setting-steering-mode">steering delivery</label>
+            <select
+              id="setting-steering-mode"
+              value={pi.steeringMode}
+              onChange={(event) =>
+                void actions.updatePiPreferences({
+                  steeringMode: event.target.value as 'all' | 'one-at-a-time',
+                })
+              }
+            >
+              <option value="one-at-a-time">one at a time</option>
+              <option value="all">all queued</option>
+            </select>
+
+            <label htmlFor="setting-followup-mode">follow-up delivery</label>
+            <select
+              id="setting-followup-mode"
+              value={pi.followUpMode}
+              onChange={(event) =>
+                void actions.updatePiPreferences({
+                  followUpMode: event.target.value as 'all' | 'one-at-a-time',
+                })
+              }
+            >
+              <option value="one-at-a-time">one at a time</option>
+              <option value="all">all queued</option>
+            </select>
+
+            <label htmlFor="setting-transport">provider transport</label>
+            <select
+              id="setting-transport"
+              value={pi.transport}
+              onChange={(event) =>
+                void actions.updatePiPreferences({
+                  transport: event.target.value as typeof pi.transport,
+                })
+              }
+            >
+              <option value="auto">auto</option>
+              <option value="sse">SSE</option>
+              <option value="websocket">WebSocket</option>
+              <option value="websocket-cached">WebSocket cached</option>
+            </select>
+
+            <label htmlFor="setting-auto-retry">automatic retry</label>
+            <div className="settings-inline">
+              <input
+                id="setting-auto-retry"
+                type="checkbox"
+                checked={pi.retryEnabled}
+                onChange={(event) =>
+                  void actions.updatePiPreferences({ retryEnabled: event.target.checked })
+                }
+              />
+              {pi.isRetrying ? (
+                <button
+                  type="button"
+                  className="ghost-button"
+                  onClick={() => void actions.abortRetry()}
+                >
+                  cancel attempt {pi.retryAttempt}
+                </button>
+              ) : null}
+            </div>
+
+            <span>retry policy</span>
+            <span className="dim">
+              {pi.retryMaxRetries} retries · {pi.retryBaseDelayMs}ms base · provider{' '}
+              {pi.providerMaxRetries} retries
+            </span>
+
+            <label htmlFor="setting-auto-compaction">automatic compaction</label>
+            <input
+              id="setting-auto-compaction"
+              type="checkbox"
+              checked={pi.autoCompactionEnabled}
+              onChange={(event) =>
+                void actions.updatePiPreferences({ autoCompactionEnabled: event.target.checked })
+              }
+            />
+
+            <span>compaction thresholds</span>
+            <span className="dim">
+              reserve {pi.compactionReserveTokens} · keep recent {pi.compactionKeepRecentTokens}{' '}
+              tokens
+            </span>
+
+            <label htmlFor="setting-default-provider">default provider</label>
+            <select
+              id="setting-default-provider"
+              value={pi.defaultProvider ?? ''}
+              onChange={(event) =>
+                void actions.updatePiPreferences({ defaultProvider: event.target.value })
+              }
+            >
+              <option value="" disabled>
+                not set
+              </option>
+              {[...new Set(state.models.map((model) => model.provider))].map((provider) => (
+                <option key={provider} value={provider}>
+                  {provider}
+                </option>
+              ))}
+            </select>
+
+            <label htmlFor="setting-default-model">default model</label>
+            <select
+              id="setting-default-model"
+              value={pi.defaultModel ?? ''}
+              onChange={(event) =>
+                void actions.updatePiPreferences({ defaultModel: event.target.value })
+              }
+            >
+              <option value="" disabled>
+                not set
+              </option>
+              {state.models
+                .filter((model) => !pi.defaultProvider || model.provider === pi.defaultProvider)
+                .map((model) => (
+                  <option key={`${model.provider}:${model.id}`} value={model.id}>
+                    {model.id}
+                  </option>
+                ))}
+            </select>
+          </>
+        ) : null}
       </div>
       <p className="modal-note">
         Pi scans skills and prompts from project-root and home <code>.pi</code>/<code>.agents</code>
