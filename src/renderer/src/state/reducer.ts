@@ -25,6 +25,24 @@ function sameTarget(left: SessionTarget | undefined, right: SessionTarget): bool
   return left?.runtime === right.runtime && left.sessionId === right.sessionId;
 }
 
+function sessionDraftKey(target: SessionTarget | undefined): string | null {
+  return target ? `${target.runtime}:${target.sessionId}` : null;
+}
+
+/** Saves the outgoing draft and restores the draft owned by the next session. */
+function switchDraftSession(state: AppState, nextKey: string | null): AppState {
+  if (state.draftSessionKey === nextKey) return state;
+  const draftsBySession = state.draftSessionKey
+    ? { ...state.draftsBySession, [state.draftSessionKey]: state.draft }
+    : state.draftsBySession;
+  return {
+    ...state,
+    draftsBySession,
+    draftSessionKey: nextKey,
+    draft: nextKey ? (draftsBySession[nextKey] ?? '') : '',
+  };
+}
+
 export const INITIAL_STATE: AppState = {
   snapshot: INITIAL_SNAPSHOT,
   settings: DEFAULT_SETTINGS,
@@ -46,6 +64,8 @@ export const INITIAL_STATE: AppState = {
   expandAll: false,
   expanded: {},
   draft: '',
+  draftsBySession: {},
+  draftSessionKey: null,
   composerFocusRequest: 0,
   modal: null,
   windowFocused: true,
@@ -86,7 +106,10 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return applyEvent(state, action.event, action.now);
     case 'snapshot':
-      return { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent };
+      return switchDraftSession(
+        { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent },
+        sessionDraftKey(snapshotTarget(action.snapshot)),
+      );
     case 'queue': {
       const target = snapshotTarget(state.snapshot);
       if (
@@ -108,34 +131,37 @@ export function reducer(state: AppState, action: Action): AppState {
               : state.snapshot,
         };
       }
-      return {
-        ...state,
-        sessionTransitioning: true,
-        snapshot: {
-          ...state.snapshot,
-          runtime: action.targetRuntime ?? state.snapshot.runtime,
-          status: 'starting',
-          detail: 'Opening session',
-          state: null,
+      return switchDraftSession(
+        {
+          ...state,
+          sessionTransitioning: true,
+          snapshot: {
+            ...state.snapshot,
+            runtime: action.targetRuntime ?? state.snapshot.runtime,
+            status: 'starting',
+            detail: 'Opening session',
+            state: null,
+          },
+          agent: null,
+          stats: null,
+          contextFiles: [],
+          systemPromptInspection: null,
+          toolCatalog: { tools: [], total: 0, truncated: false, diagnostics: [] },
+          resourceReload: null,
+          blocks: [],
+          streamingAssistantId: null,
+          streamingThinkingId: null,
+          queue: {
+            runtime: action.targetRuntime ?? state.snapshot.runtime,
+            sessionId: '',
+            steering: [],
+            followUp: [],
+          },
+          expanded: {},
+          composerFocusRequest: state.composerFocusRequest + 1,
         },
-        agent: null,
-        stats: null,
-        contextFiles: [],
-        systemPromptInspection: null,
-        toolCatalog: { tools: [], total: 0, truncated: false, diagnostics: [] },
-        resourceReload: null,
-        blocks: [],
-        streamingAssistantId: null,
-        streamingThinkingId: null,
-        queue: {
-          runtime: action.targetRuntime ?? state.snapshot.runtime,
-          sessionId: '',
-          steering: [],
-          followUp: [],
-        },
-        expanded: {},
-        composerFocusRequest: state.composerFocusRequest + 1,
-      };
+        null,
+      );
     case 'settings':
       return { ...state, settings: action.settings };
     case 'sessionActivity': {
@@ -229,7 +255,13 @@ export function reducer(state: AppState, action: Action): AppState {
         expanded: { ...state.expanded, [action.id]: !isExpanded(state, action.id) },
       };
     case 'draft':
-      return { ...state, draft: action.text };
+      return {
+        ...state,
+        draft: action.text,
+        draftsBySession: state.draftSessionKey
+          ? { ...state.draftsBySession, [state.draftSessionKey]: action.text }
+          : state.draftsBySession,
+      };
     case 'modal':
       return { ...state, modal: action.modal };
     case 'focus':

@@ -155,11 +155,12 @@ export interface AppState {
   diagnostics: string[];
   expandAll: boolean;
   expanded: Record<string, boolean>;
-  /**
-   * Composer draft. It lives in the store so it survives modals, session
-   * switches, and runtime switches.
-   */
+  /** Composer draft for the session currently represented by the snapshot. */
   draft: string;
+  /** Unsent composer text keyed by runtime and session id. */
+  draftsBySession: Record<string, string>;
+  /** Session key that owns `draft`; null while no session is selected. */
+  draftSessionKey: string | null;
   /** Incremented whenever a session opens so the composer can reclaim focus. */
   composerFocusRequest: number;
   modal: ModalKind | null;
