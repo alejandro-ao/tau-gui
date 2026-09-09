@@ -215,7 +215,7 @@ The embedded Pi runtime exposes an app-owned `spawn_session` tool so an agent ca
 - Spawning does not change the transcript currently being viewed.
 - The child appears in the normal sessions rail and emits the same activity/settings events as user-created sessions.
 - The initial prompt uses the same app-owned scheduler.
-- Cap concurrently active tool-created sessions (currently eight) to bound recursive delegation.
+- Cap retained tool-created runtime sessions (currently fifteen) to bound recursive delegation.
 - A supplied whitespace-only directory is an error; never silently fall back to the parent checkout.
 - Propagate cancellation through transition waits, startup, and optional naming.
 - If cancellation or failure occurs after a child is created, stop and unregister it so no write-capable orphan remains.
