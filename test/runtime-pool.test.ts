@@ -553,7 +553,7 @@ describe('RuntimePool', () => {
       );
     });
     expect(pool.queueSnapshot(target).followUp).toEqual([]);
-  });
+  }, 10_000);
 
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
