@@ -21,7 +21,7 @@ test.afterEach(async () => {
   await handle.close();
 });
 
-test('Shift+Ctrl+N chooses and persists a working directory before starting', async () => {
+test('Shift+Ctrl+N persists a working directory but keeps its empty project hidden', async () => {
   const { app, page, userDataDir } = handle;
   const chosen = join(userDataDir, 'chosen-project');
   mkdirSync(chosen);
@@ -31,14 +31,16 @@ test('Shift+Ctrl+N chooses and persists a working directory before starting', as
 
   await page.keyboard.press('Control+Shift+n');
   await waitForSettled(page);
-  await expect(page.getByTestId('sessions-rail')).toContainText('chosen-project');
+  await expect(page.getByTestId('sessions-rail')).toContainText('projects · 0 / sessions · 0');
+  await expect(page.getByTestId('sessions-rail')).not.toContainText('chosen-project');
 
   const persisted = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8')) as {
     cwd: string;
     workingDirectories: string[];
   };
   expect(persisted.cwd).toBe(chosen);
-  expect(persisted.workingDirectories[0]).toBe(chosen);
+  expect(persisted.workingDirectories).toContain(chosen);
+  expect(persisted.workingDirectories.at(-1)).toBe(chosen);
 });
 
 test('/new from the composer clears the transcript too', async () => {

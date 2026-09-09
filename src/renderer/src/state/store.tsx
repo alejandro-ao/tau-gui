@@ -80,6 +80,7 @@ export interface Actions {
   switchRuntime: (kind: RuntimeKind) => Promise<void>;
   restart: () => Promise<void>;
   quit: () => Promise<void>;
+  archiveWorkingDirectory: (cwd: string) => Promise<void>;
   forgetSession: (id: string) => Promise<void>;
   setAutoCompaction: (enabled: boolean) => Promise<void>;
   loadTree: () => Promise<TreeSnapshot | null>;
@@ -670,6 +671,10 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
       quit: async () => {
         await attempt('runtime.stop', undefined, notice);
         window.close();
+      },
+      archiveWorkingDirectory: async (cwd) => {
+        const settings = await attempt('settings.archiveWorkingDirectory', { cwd }, notice);
+        if (settings) dispatch({ type: 'settings', settings });
       },
       forgetSession: async (id) => {
         const settings = await attempt('settings.forgetSession', { id }, notice);

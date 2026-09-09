@@ -7,7 +7,7 @@ import type { SettingsStore } from './settings.js';
 import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
 import { RuntimeManager, type RuntimeManagerOptions } from './runtime-manager.js';
 
-const MAX_SPAWNED_SESSIONS = 8;
+const MAX_SPAWNED_SESSIONS = 15;
 
 /**
  * Owns one runtime process per live session and routes IPC to the session the

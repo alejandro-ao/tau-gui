@@ -66,32 +66,62 @@ describe('composer draft persistence', () => {
     expect(bridge.payloads('runtime.restart')).toEqual([undefined]);
   });
 
-  it('survives a session switch', async () => {
+  it('keeps a separate draft for each session', async () => {
+    const agent = (sessionId: string) => ({
+      model: null,
+      thinkingLevel: 'medium' as const,
+      isStreaming: false,
+      isCompacting: false,
+      sessionFile: null,
+      sessionId,
+      sessionName: sessionId,
+      autoCompactionEnabled: true,
+      messageCount: 0,
+      pendingMessageCount: 0,
+    });
+    const sessions = ['session-a', 'session-b'].map((id, index) => ({
+      id,
+      name: id,
+      path: `/work/project/.tau/${id}.jsonl`,
+      cwd: '/work/project',
+      runtime: 'tau' as const,
+      lastSeen: 1_760_000_000_000 + index,
+    }));
     const { view, bridge } = await renderApp({
-      settings: {
-        recentSessions: [
-          {
-            id: 'session-9',
-            name: 'earlier work',
-            path: '/work/project/.tau/nine.jsonl',
-            cwd: '/work/project',
-            runtime: 'tau',
-            lastSeen: 1_760_000_000_000,
-          },
-        ],
-      },
+      agent: agent('session-a'),
+      settings: { recentSessions: sessions },
     });
     mounted = view;
-    await type(composer(view), 'keep this draft');
+    bridge.setHandler('session.switch', (payload) => {
+      const sessionId = String(payload?.['ref']);
+      bridge.setResult('runtime.snapshot', { ...bridge.snapshot, state: agent(sessionId) });
+    });
+    const sessionButton = (id: string): HTMLButtonElement => {
+      const button = [
+        ...view.container.querySelectorAll<HTMLButtonElement>('.sessions-rail-item'),
+      ].find((candidate) => candidate.textContent?.includes(id));
+      if (!button) throw new Error(`Missing session button for ${id}`);
+      return button;
+    };
 
-    await press(window, 'k', { ctrlKey: true });
-    const picker = query<HTMLInputElement>(view.container, '.picker-input');
-    await type(picker, '/resume');
-    await press(picker, 'Enter');
-    await click(query(view.container, '[data-modal-name="session"] [role="option"]'));
+    await type(composer(view), 'draft for A');
+    await click(sessionButton('session-b'));
     await view.flush();
 
-    expect(bridge.payloads('session.switch')).toEqual([{ ref: 'session-9' }]);
-    expect(composer(view).value).toBe('keep this draft');
+    expect(composer(view).value).toBe('');
+    await type(composer(view), 'draft for B');
+    await click(sessionButton('session-a'));
+    await view.flush();
+
+    expect(composer(view).value).toBe('draft for A');
+    await click(sessionButton('session-b'));
+    await view.flush();
+
+    expect(bridge.payloads('session.switch')).toEqual([
+      { ref: 'session-b' },
+      { ref: 'session-a' },
+      { ref: 'session-b' },
+    ]);
+    expect(composer(view).value).toBe('draft for B');
   });
 });

@@ -119,6 +119,38 @@ describe('SessionsRail', () => {
     expect(groups[0]?.textContent).not.toContain('local work');
   });
 
+  it('omits projects that have no displayable sessions', async () => {
+    const { view } = await render({
+      settings: {
+        cwd: '/work/current',
+        workingDirectories: ['/work/empty', '/work/current'],
+        recentSessions: [
+          session({ id: 'empty', cwd: '/work/empty', messageCount: 0 }),
+          session({ id: 'unlabelled', cwd: '/work/current', name: null, firstMessage: null }),
+        ],
+      },
+    });
+
+    const rail = view.container.querySelector('[data-testid="sessions-rail"]');
+    expect(rail?.textContent).toContain('projects · 0 / sessions · 0');
+    expect(rail?.querySelectorAll('.sessions-directory')).toHaveLength(0);
+  });
+
+  it('archives a project without opening one of its sessions', async () => {
+    const { bridge, view } = await render({
+      settings: { recentSessions: [session({ id: 'here-1', name: 'local work' })] },
+    });
+    const archive = view.container.querySelector<HTMLButtonElement>('.sessions-directory-archive');
+    if (!archive) throw new Error('project archive button missing');
+
+    await click(archive);
+    await settle(view);
+
+    expect(archive.getAttribute('aria-label')).toBe('archive project: project');
+    expect(bridge.payloads('settings.archiveWorkingDirectory')).toEqual([{ cwd: '/work/project' }]);
+    expect(bridge.payloads('session.switch')).toEqual([]);
+  });
+
   it('uses the first user message when a session has no name', async () => {
     const { view } = await render({
       settings: {
