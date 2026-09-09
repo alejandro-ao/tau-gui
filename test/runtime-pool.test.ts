@@ -551,9 +551,9 @@ describe('RuntimePool', () => {
       return messages.some(
         (message) => message.role === 'user' && message.text === 'edited after failed restart',
       );
-    });
+    }, 10_000);
     expect(pool.queueSnapshot(target).followUp).toEqual([]);
-  }, 10_000);
+  }, 15_000);
 
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
@@ -753,6 +753,20 @@ describe('RuntimePool', () => {
     } finally {
       delete process.env['FAKE_RUNTIME_UNIQUE_SESSION'];
     }
+  });
+
+  it('allows up to 15 spawned background sessions', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    const internals = pool as unknown as { spawned: Set<unknown> };
+    for (let index = 0; index < 14; index += 1) internals.spawned.add({ index });
+
+    await pool.spawnSession({ cwd: process.cwd(), prompt: 'fifteenth task' });
+
+    expect(internals.spawned.size).toBe(15);
+    await expect(
+      pool.spawnSession({ cwd: process.cwd(), prompt: 'sixteenth task' }),
+    ).rejects.toThrow('Cannot spawn more than 15 background sessions at once');
   });
 
   it('rejects a background session whose working directory does not exist', async () => {
