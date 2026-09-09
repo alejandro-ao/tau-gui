@@ -19,8 +19,10 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
 
 ## What works
 
-- Manage working directories in the collapsible left rail, with each directory's
-  sessions grouped beneath it. `Ctrl+N` (`Cmd+N` on macOS) starts a new session
+- Manage working directories in the collapsible left rail, with stable project
+  ordering, newest-first sessions within each project, and metadata-only project
+  archiving. Projects without displayable sessions stay hidden. `Ctrl+N` (`Cmd+N`
+  on macOS) starts a new session
   in the active session's directory and worktree. The rail plus button or
   `Shift+Ctrl+N` (`Shift+Cmd+N` on macOS) opens the native folder chooser; `/new`
   also starts in the active session's directory without prompting.

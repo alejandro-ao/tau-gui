@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, test } from '@playwright/test';
@@ -63,6 +63,45 @@ test.describe('sessions rail', () => {
     await rail.getByRole('button', { name: /earlier work/ }).click();
     await expect(page.getByTestId('status-row')).toHaveAttribute('data-state', 'idle');
     await expect(rail).not.toContainText('earlier work');
+  });
+
+  test('archives project metadata without deleting project or session files', async () => {
+    const projectDir = mkdtempSync(join(tmpdir(), 'tau-gui-archive-project-'));
+    const sessionFile = join(projectDir, 'session.jsonl');
+    writeFileSync(sessionFile, '{"type":"session"}\n');
+    handle = await launchApp({
+      projectDir,
+      settings: {
+        workingDirectories: [projectDir],
+        recentSessions: [
+          {
+            id: 'archive-session',
+            name: 'archive me',
+            messageCount: 2,
+            path: sessionFile,
+            cwd: projectDir,
+            runtime: 'pi',
+            lastSeen: Date.now(),
+          },
+        ],
+      },
+    });
+    const { page, userDataDir } = handle;
+    await waitForConnected(page);
+
+    const rail = page.getByTestId('sessions-rail');
+    await expect(rail).toContainText('archive me');
+    await rail.getByRole('button', { name: /archive project:/ }).click();
+    await expect(rail.locator('.sessions-directory')).toHaveCount(0);
+
+    const settings = JSON.parse(readFileSync(join(userDataDir, 'settings.json'), 'utf8')) as {
+      workingDirectories: string[];
+      recentSessions: { cwd: string | null }[];
+    };
+    expect(settings.workingDirectories).not.toContain(projectDir);
+    expect(settings.recentSessions.some((session) => session.cwd === projectDir)).toBe(false);
+    expect(existsSync(projectDir)).toBe(true);
+    expect(existsSync(sessionFile)).toBe(true);
   });
 
   test('keeps background tool work isolated while switching sessions', async () => {

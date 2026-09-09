@@ -113,9 +113,61 @@ describe('SettingsStore', () => {
     store.rememberWorkingDirectory('/work/one');
     store.rememberWorkingDirectory('/work/two');
     store.rememberWorkingDirectory('/work/one');
-    expect(store.current.cwd).toBe('/work/one');
+    store.rememberWorkingDirectory('/work/two');
+    expect(store.current.cwd).toBe('/work/two');
     expect(store.current.workingDirectories).toEqual(['/work/one', '/work/two']);
     expect(new SettingsStore(file).current.workingDirectories).toEqual(['/work/one', '/work/two']);
+  });
+
+  it('keeps project order stable while activity reorders sessions', () => {
+    const store = new SettingsStore(tempFile());
+    const remember = (id: string, cwd: string, lastSeen: number): void => {
+      store.rememberSession({ id, name: id, path: null, cwd, runtime: 'pi', lastSeen });
+    };
+
+    remember('one-old', '/work/one', 1);
+    remember('two', '/work/two', 2);
+    remember('one-new', '/work/one', 3);
+
+    expect(store.current.workingDirectories).toEqual(['/work/one', '/work/two']);
+    expect(store.current.recentSessions.map((session) => session.id)).toEqual([
+      'one-new',
+      'two',
+      'one-old',
+    ]);
+  });
+
+  it('archives all GUI-owned references to a project', () => {
+    const file = tempFile();
+    const store = new SettingsStore(file);
+    store.rememberWorkingDirectory('/work/one');
+    store.rememberWorkingDirectory('/work/two');
+    store.rememberSession({
+      id: 'one',
+      name: 'one',
+      path: '/sessions/one.jsonl',
+      cwd: '/work/one',
+      runtime: 'pi',
+      lastSeen: 1,
+    });
+    store.rememberSession({
+      id: 'two',
+      name: 'two',
+      path: '/sessions/two.jsonl',
+      cwd: '/work/two',
+      runtime: 'pi',
+      lastSeen: 2,
+    });
+
+    const archived = store.archiveWorkingDirectory('/work/two');
+    expect(archived.cwd).toBeNull();
+    expect(archived.workingDirectories).toEqual(['/work/one']);
+    expect(archived.recentSessions.map((session) => session.id)).toEqual(['one']);
+    expect(new SettingsStore(file).current).toMatchObject({
+      cwd: null,
+      workingDirectories: ['/work/one'],
+      recentSessions: [{ id: 'one' }],
+    });
   });
 
   it('tracks recent sessions most-recent-first without duplicates', () => {

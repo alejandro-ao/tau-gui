@@ -60,6 +60,8 @@ export async function handleRequest(
       return settings.removeResourceDirectory(request.payload.kind, request.payload.path);
     case 'settings.rememberWorkingDirectory':
       return settings.rememberWorkingDirectory(request.payload.cwd);
+    case 'settings.archiveWorkingDirectory':
+      return settings.archiveWorkingDirectory(request.payload.cwd);
     case 'settings.forgetSession':
       return settings.forgetSession(request.payload.id);
 
