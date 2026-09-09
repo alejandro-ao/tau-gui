@@ -80,21 +80,34 @@ export function SessionsRail(): ReactNode {
           const isCollapsed = collapsed[group.cwd] === true;
           return (
             <section className="sessions-directory" key={group.cwd} data-collapsed={isCollapsed}>
-              <button
-                type="button"
-                className="sessions-directory-toggle"
-                aria-expanded={!isCollapsed}
-                title={group.cwd}
-                onClick={() =>
-                  setCollapsed((current) => ({ ...current, [group.cwd]: !current[group.cwd] }))
-                }
-              >
-                <span className="sessions-directory-chevron" aria-hidden="true">
-                  ›
-                </span>
-                <span className="sessions-directory-name">{group.label}</span>
-                <span className="sessions-directory-count">{group.sessions.length}</span>
-              </button>
+              <div className="sessions-directory-heading">
+                <button
+                  type="button"
+                  className="sessions-directory-toggle"
+                  aria-expanded={!isCollapsed}
+                  title={group.cwd}
+                  onClick={() =>
+                    setCollapsed((current) => ({ ...current, [group.cwd]: !current[group.cwd] }))
+                  }
+                >
+                  <span className="sessions-directory-chevron" aria-hidden="true">
+                    ›
+                  </span>
+                  <span className="sessions-directory-name">{group.label}</span>
+                  <span className="sessions-directory-count">{group.sessions.length}</span>
+                </button>
+                <button
+                  type="button"
+                  className="sessions-directory-archive"
+                  aria-label={`archive project: ${group.label}`}
+                  title="archive project from sidebar"
+                  onClick={() => void actions.archiveWorkingDirectory(group.cwd)}
+                >
+                  <svg viewBox="0 0 20 20" aria-hidden="true">
+                    <path d="M4 7h12v9H4zM3 4h14v3H3zM8 10h4" />
+                  </svg>
+                </button>
+              </div>
               {isCollapsed ? null : (
                 <ul>
                   {group.sessions.map((session) => {

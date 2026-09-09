@@ -42,12 +42,24 @@ export class SettingsStore {
     return this.settings;
   }
 
-  /** Persists a chooser-selected directory without replacing the whole settings object. */
+  /** Persists a chooser-selected directory without reordering known projects. */
   rememberWorkingDirectory(cwd: string): AppSettings {
     this.settings = {
       ...this.settings,
       cwd,
-      workingDirectories: prependDirectory(this.settings.workingDirectories, cwd),
+      workingDirectories: appendDirectory(this.settings.workingDirectories, cwd),
+    };
+    this.write();
+    return this.settings;
+  }
+
+  /** Removes GUI-owned references without touching the project or Pi session files. */
+  archiveWorkingDirectory(cwd: string): AppSettings {
+    this.settings = {
+      ...this.settings,
+      cwd: this.settings.cwd === cwd ? null : this.settings.cwd,
+      workingDirectories: this.settings.workingDirectories.filter((directory) => directory !== cwd),
+      recentSessions: this.settings.recentSessions.filter((session) => session.cwd !== cwd),
     };
     this.write();
     return this.settings;
@@ -106,7 +118,7 @@ export class SettingsStore {
     this.settings = {
       ...this.settings,
       workingDirectories: ref.cwd
-        ? prependDirectory(this.settings.workingDirectories, ref.cwd)
+        ? appendDirectory(this.settings.workingDirectories, ref.cwd)
         : this.settings.workingDirectories,
       recentSessions: recentSessions.slice(0, MAX_RECENT_SESSIONS),
     };
@@ -231,11 +243,9 @@ function readDirectories(value: unknown): string[] {
     : [];
 }
 
-function prependDirectory(directories: string[], cwd: string): string[] {
-  return [cwd, ...directories.filter((directory) => directory !== cwd)].slice(
-    0,
-    MAX_WORKING_DIRECTORIES,
-  );
+function appendDirectory(directories: string[], cwd: string): string[] {
+  if (directories.includes(cwd)) return directories;
+  return [...directories, cwd].slice(0, MAX_WORKING_DIRECTORIES);
 }
 
 function mergeScopedModels(value: unknown): Record<RuntimeKind, string[]> {

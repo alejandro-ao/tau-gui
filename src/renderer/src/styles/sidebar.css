@@ -147,9 +147,15 @@
   border-top: 1px solid color-mix(in srgb, var(--border) 65%, transparent);
 }
 
+.sessions-directory-heading {
+  display: flex;
+  align-items: stretch;
+}
+
 .sessions-directory-toggle {
   display: flex;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
@@ -166,6 +172,34 @@
 .sessions-directory-toggle:focus-visible {
   background: color-mix(in srgb, var(--panel-alt) 45%, transparent);
   color: var(--text);
+}
+
+.sessions-directory-archive {
+  display: inline-flex;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+
+.sessions-directory-archive svg {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.5;
+}
+
+.sessions-directory-archive:hover,
+.sessions-directory-archive:focus-visible {
+  background: color-mix(in srgb, var(--panel-alt) 45%, transparent);
+  color: var(--role-error);
 }
 
 .sessions-directory-chevron {

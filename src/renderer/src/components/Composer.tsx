@@ -86,6 +86,7 @@ export function Composer(): ReactNode {
   const retainingQueue = Boolean(state.snapshot.recoveryTarget && !state.snapshot.state?.sessionId);
   const viewedSession = useRef(sessionKey);
   viewedSession.current = sessionKey;
+  const previousDraftSession = useRef(state.draftSessionKey);
   const sessionTransitioning = useRef(state.sessionTransitioning);
   sessionTransitioning.current = state.sessionTransitioning;
   const shellMode = draft.startsWith('!');
@@ -131,6 +132,26 @@ export function Composer(): ReactNode {
     },
     [actions],
   );
+
+  // Editing history is session-local too: undo in one transcript must never
+  // reveal text that was drafted in another transcript.
+  useEffect(() => {
+    if (previousDraftSession.current === state.draftSessionKey) return;
+    previousDraftSession.current = state.draftSessionKey;
+    draftRevision.current += 1;
+    undoStack.current = [];
+    redoStack.current = [];
+    lastUserEdit.current = null;
+    recalledQueue.current = null;
+    // Avoid scheduling a caret reset when startup merely assigns an empty
+    // draft to the first session; that reset could race the user's first key.
+    if (draft !== draftRef.current) {
+      draftRef.current = draft;
+      selection.current = { start: draft.length, end: draft.length };
+      pendingSelection.current = { start: draft.length, end: draft.length };
+      setCursor(draft.length);
+    }
+  }, [draft, state.draftSessionKey]);
 
   // Modal selections and asynchronous prefills dispatch to the shared store
   // directly. Treat those replacements as edits and invalidate stale redo.

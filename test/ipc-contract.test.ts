@@ -84,6 +84,18 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'settings.rememberWorkingDirectory' }).success).toBe(
       false,
     );
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.archiveWorkingDirectory',
+        payload: { cwd: '/work/project' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'settings.archiveWorkingDirectory',
+        payload: { cwd: '', deleteFiles: true },
+      }).success,
+    ).toBe(false);
   });
 
   it('never lets the renderer choose the probed binary', () => {

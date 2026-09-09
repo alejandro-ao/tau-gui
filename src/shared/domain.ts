@@ -401,7 +401,7 @@ export interface AppSettings {
   turnNotification: TurnNotification;
   showThinking: boolean;
   cwd: string | null;
-  /** GUI-managed directories shown in the sessions rail, newest first. */
+  /** GUI-managed directories shown in stable insertion order in the sessions rail. */
   workingDirectories: string[];
   /** Additional directories scanned by Pi for executable skill packages. */
   customSkillDirectories: string[];

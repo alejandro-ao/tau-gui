@@ -19,21 +19,16 @@ describe('working directory grouping', () => {
       cwd: '/work/current',
       workingDirectories: ['/work/saved', '/work/current'],
       recentSessions: [
-        session('saved-new', '/work/saved', 3),
-        session('other', '/work/other', 2),
         session('saved-old', '/work/saved', 1),
+        session('other', '/work/other', 2),
+        session('saved-new', '/work/saved', 3),
         session('unknown', null, 0),
       ],
     });
 
-    expect(groups.map((group) => group.cwd)).toEqual([
-      '/work/saved',
-      '/work/current',
-      '/work/other',
-    ]);
+    expect(groups.map((group) => group.cwd)).toEqual(['/work/saved', '/work/other']);
     expect(groups.map((group) => group.sessions.map((item) => item.id))).toEqual([
       ['saved-new', 'saved-old'],
-      [],
       ['other'],
     ]);
   });
