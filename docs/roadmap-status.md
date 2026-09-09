@@ -190,7 +190,9 @@ claims.
   discovered while walking up from the session working directory. Discovery
   stays in the main process; only bounded labels and paths cross IPC.
 - App-owned recent-session picker with per-entry forget (no runtime index
-  parsing); the UI states that cross-session listing needs `list_sessions`.
+  parsing); the project rail keeps project order stable, sorts each project's
+  sessions newest-first, hides empty projects, and archives only GUI metadata.
+  The UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the
   composer), compaction, HTML export, settings and diagnostics modals.
 - Concurrent live sessions through a main-process runtime pool: selecting a

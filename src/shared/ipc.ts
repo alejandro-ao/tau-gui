@@ -150,6 +150,10 @@ export const requestSchema = z.discriminatedUnion('action', [
     action: z.literal('settings.rememberWorkingDirectory'),
     payload: z.object({ cwd: z.string().min(1) }).strict(),
   }),
+  z.object({
+    action: z.literal('settings.archiveWorkingDirectory'),
+    payload: z.object({ cwd: z.string().min(1) }).strict(),
+  }),
   z.object({ action: z.literal('settings.forgetSession'), payload: z.object({ id: z.string() }) }),
 
   z.object({
@@ -332,6 +336,7 @@ export interface IpcResultMap {
   'settings.addResourceDirectory': AppSettings | null;
   'settings.removeResourceDirectory': AppSettings;
   'settings.rememberWorkingDirectory': AppSettings;
+  'settings.archiveWorkingDirectory': AppSettings;
   'settings.forgetSession': AppSettings;
   'runtime.start': RuntimeSnapshot;
   'runtime.openSession': RuntimeSnapshot;

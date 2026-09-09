@@ -19,14 +19,18 @@ export function groupSessionsByWorkingDirectory(settings: AppSettings): WorkingD
     .filter((cwd): cwd is string => Boolean(cwd))
     .filter((cwd, index, all) => all.indexOf(cwd) === index);
 
-  return directories.map((cwd) => ({
-    cwd,
-    label: directoryLabel(cwd),
-    sessions: settings.recentSessions.filter(
-      (session) =>
-        session.cwd === cwd && session.messageCount !== 0 && sessionLabel(session) !== null,
-    ),
-  }));
+  return directories
+    .map((cwd) => ({
+      cwd,
+      label: directoryLabel(cwd),
+      sessions: settings.recentSessions
+        .filter(
+          (session) =>
+            session.cwd === cwd && session.messageCount !== 0 && sessionLabel(session) !== null,
+        )
+        .sort((left, right) => right.lastSeen - left.lastSeen),
+    }))
+    .filter((group) => group.sessions.length > 0);
 }
 
 export function directoryLabel(cwd: string): string {
