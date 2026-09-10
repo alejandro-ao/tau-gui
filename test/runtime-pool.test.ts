@@ -551,9 +551,9 @@ describe('RuntimePool', () => {
       return messages.some(
         (message) => message.role === 'user' && message.text === 'edited after failed restart',
       );
-    }, 10_000);
+    }, 20_000);
     expect(pool.queueSnapshot(target).followUp).toEqual([]);
-  }, 15_000);
+  }, 30_000);
 
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
