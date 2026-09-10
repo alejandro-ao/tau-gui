@@ -72,12 +72,18 @@ export function BlockView({
 
     case 'error':
       return (
-        <BlockFrame kind="error" label="error">
+        <article className="block-error">
+          <div className="block-label">
+            <span className="error-marker" aria-hidden="true">
+              ×
+            </span>
+            <span>error</span>
+          </div>
           <pre className="block-text">{block.text}</pre>
           <div className="block-actions">
             <CopyButton text={block.text} label="error" />
           </div>
-        </BlockFrame>
+        </article>
       );
 
     case 'custom':

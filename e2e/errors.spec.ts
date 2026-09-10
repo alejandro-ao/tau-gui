@@ -27,6 +27,8 @@ test('a runtime error renders an error block and leaves the composer usable', as
   await expect(error).toHaveCount(1);
   await expect(error).toContainText('provider unavailable (503)');
   await expect(error.locator('.block-label')).toContainText('error');
+  await expect(error.locator('.error-marker')).toHaveText('×');
+  await expect(error.locator('.role-bar')).toHaveCount(0);
 
   // The partial answer is still shown next to the failure.
   await expect(page.locator('.block-assistant')).toContainText('I could not reach the provider.');
