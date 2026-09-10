@@ -387,10 +387,6 @@
   background: var(--role-compaction);
 }
 
-.block-shell > .role-bar {
-  background: var(--shell-prompt);
-}
-
 .block-tool[data-state='running'] > .role-bar {
   background: var(--tool-running);
 }
@@ -767,11 +763,50 @@
   user-select: text;
 }
 
-.shell-command {
-  margin: 0;
-  color: var(--shell-prompt);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+/* User-initiated shell commands reuse the tool-block language: a stateful
+   rail, a status marker, and code-styled boxes for command and output. */
+.block-shell > .role-bar {
+  background: var(--shell-prompt);
+}
+
+.block-shell[data-state='running'] > .role-bar {
+  background: var(--tool-running);
+}
+
+.block-shell[data-state='error'] > .role-bar {
+  background: var(--tool-failure);
+}
+
+.shell-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.block-shell .tool-marker {
+  color: var(--text-faint);
+}
+
+.block-shell[data-state='running'] .tool-marker {
+  color: var(--tool-running);
+}
+
+.block-shell[data-state='success'] .tool-marker {
+  color: var(--tool-success);
+}
+
+.block-shell[data-state='error'] .tool-marker {
+  color: var(--tool-failure);
+}
+
+.shell-flag {
+  color: var(--text-faint);
+}
+
+.shell-exit {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: var(--font-size-xs);
 }
 
 .shell-exit[data-ok='false'] {
@@ -780,6 +815,36 @@
 
 .shell-exit[data-ok='true'] {
   color: var(--tool-success);
+}
+
+.shell-command {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  color: var(--code-text);
+  font-size: var(--font-size-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.shell-prompt {
+  color: var(--shell-prompt);
+  user-select: none;
+}
+
+.block-shell .block-actions {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.block-shell:hover .block-actions,
+.block-shell:focus-within .block-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .summary-detail {

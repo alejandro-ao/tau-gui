@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import { Markdown } from '../markdown.js';
 import type { ShellBlock, TranscriptBlock } from '../state/types.js';
 import { CopyButton } from './CopyButton.js';
@@ -134,21 +135,40 @@ function BlockFrame({
   );
 }
 
+/**
+ * A command the user ran from the composer (`!cmd`). It shares the tool-block
+ * visual language: a stateful rail, a status marker, a quiet lowercase label,
+ * and code-styled boxes for command and output.
+ */
 function ShellBlockView({ block }: { block: ShellBlock }): ReactNode {
+  const failed = block.exitCode !== null && block.exitCode !== 0;
+  const state = block.running ? 'running' : failed ? 'error' : 'success';
+  const elapsed = useElapsedSeconds(block.timestamp, block.running);
+
   return (
-    <article className="block block-shell" data-running={block.running}>
+    <article className="block block-shell" data-state={state} data-running={block.running}>
       <div className="role-bar" aria-hidden="true" />
       <div className="block-body">
-        <div className="block-label">
-          <span>shell</span>
-          {block.excludeFromContext ? <span className="faint">excluded from context</span> : null}
-          {block.exitCode !== null ? (
+        <div className="shell-header">
+          <span className="tool-marker" aria-hidden="true">
+            {state === 'running' ? '◐' : state === 'error' ? '✕' : '●'}
+          </span>
+          <span className="block-label">shell</span>
+          {block.excludeFromContext ? <span className="shell-flag">excluded from context</span> : null}
+          {block.running ? (
+            <span className="tool-elapsed">{elapsed}s</span>
+          ) : block.exitCode !== null ? (
             <span className="shell-exit" data-ok={block.exitCode === 0}>
               exit {block.exitCode}
             </span>
           ) : null}
         </div>
-        <pre className="shell-command">$ {block.command}</pre>
+        <pre className="shell-command">
+          <span className="shell-prompt" aria-hidden="true">
+            ${' '}
+          </span>
+          {block.command}
+        </pre>
         {block.output.trim().length > 0 ? (
           looksLikeDiff(block.output) ? (
             <Diff text={block.output} />
