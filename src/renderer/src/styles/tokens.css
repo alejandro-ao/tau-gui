@@ -10,7 +10,7 @@
   --screen: #0d1117;
   --panel: #161b22;
   --panel-alt: #11161d;
-  --user-message-bg: var(--panel);
+  --user-message-bg: #182431;
   --border: #2b333d;
   --border-strong: #3a444f;
 
@@ -85,6 +85,7 @@
   --screen: #fbfbfa;
   --panel: #f1f2ef;
   --panel-alt: #e9eae6;
+  --user-message-bg: #e9f1fa;
   --border: #d5d7d1;
   --border-strong: #bcbfb8;
 
@@ -137,7 +138,7 @@
   --screen: #000000;
   --panel: #000000;
   --panel-alt: #000000;
-  --user-message-bg: #121212;
+  --user-message-bg: #111b28;
   --border: #242a31;
   --border-strong: #3a444f;
   --code-bg: #000000;
@@ -150,6 +151,7 @@
   --screen: #000000;
   --panel: #0a0a0a;
   --panel-alt: #131313;
+  --user-message-bg: #10202b;
   --border: #6b6b6b;
   --border-strong: #ffffff;
 
