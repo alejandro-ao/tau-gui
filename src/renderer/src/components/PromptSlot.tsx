@@ -26,14 +26,6 @@ export function PromptSlot(): ReactNode {
       )}
       {queued.length > 0 ? (
         <section className="queued-messages" aria-label="Queued messages">
-          <div className="queued-messages-header">
-            <span>
-              Queued prompts <span className="queued-count">{queued.length}</span>
-            </span>
-            <span className="queued-edit-hint">
-              <kbd>↑</kbd> edit latest
-            </span>
-          </div>
           <ol className="queued-message-list">
             {queued.map((entry) => (
               <li

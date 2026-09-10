@@ -253,8 +253,6 @@ describe('app shell', () => {
     ]);
     expect(texts(queue, '.queued-message-label')).toEqual(['steering', 'steering', 'follow up']);
     expect(queue.textContent).not.toContain('do not show this line');
-    expect(query(queue, '.queued-count').textContent).toBe('3');
-    expect(query(queue, '.queued-edit-hint').textContent).toContain('edit latest');
     expect(queue.querySelectorAll('li.queued-message')).toHaveLength(3);
     expect(query(queue, '[data-latest="true"]').textContent).toContain('then lint');
     expect(query(view.container, '.prompt-slot').nextElementSibling?.classList).toContain(
