@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
-import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { CredentialSynchronizationError, type ModelRuntime } from '@earendil-works/pi-coding-agent';
 import {
   AUTH_LIMITS,
   authFlowSchema,
   authProviderListSchema,
   type AuthFlow,
+  type AuthLogoutResult,
   type AuthProvider,
   type AuthType,
 } from '../../shared/auth.js';
@@ -47,32 +48,41 @@ export class PiAuthService {
     const providers = runtime
       .getProviders()
       .slice(0, AUTH_LIMITS.providers)
-      .map((provider) => ({
-        id: provider.id,
-        name: provider.name,
-        methods: [
-          ...(provider.auth.oauth
-            ? [
-                {
-                  type: 'oauth' as const,
-                  label: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name,
-                  interactive: true,
-                },
-              ]
-            : []),
-          ...(provider.auth.apiKey
-            ? [
-                {
-                  type: 'api_key' as const,
-                  label: provider.auth.apiKey.name,
-                  interactive: typeof provider.auth.apiKey.login === 'function',
-                },
-              ]
-            : []),
-        ],
-        configured: runtime.getProviderAuthStatus(provider.id).configured,
-        storedCredential: credentials.get(provider.id) ?? null,
-      }))
+      .map((provider) => {
+        const storedCredential = credentials.get(provider.id) ?? null;
+        const authStatus = runtime.getProviderAuthStatus(provider.id);
+        return {
+          id: provider.id,
+          name: provider.name,
+          methods: [
+            ...(provider.auth.oauth
+              ? [
+                  {
+                    type: 'oauth' as const,
+                    label: provider.auth.oauth.loginLabel ?? provider.auth.oauth.name,
+                    interactive: true,
+                  },
+                ]
+              : []),
+            ...(provider.auth.apiKey
+              ? [
+                  {
+                    type: 'api_key' as const,
+                    label: provider.auth.apiKey.name,
+                    interactive: typeof provider.auth.apiKey.login === 'function',
+                  },
+                ]
+              : []),
+          ],
+          // A synchronization failure can leave Pi's stored snapshot stale even
+          // though listCredentials() already reflects the committed mutation.
+          configured:
+            authStatus.source === 'stored'
+              ? storedCredential !== null
+              : authStatus.configured || storedCredential !== null,
+          storedCredential,
+        };
+      })
       .filter((provider) => provider.methods.length > 0)
       .sort((left, right) => left.name.localeCompare(right.name));
     return authProviderListSchema.parse(providers);
@@ -127,19 +137,26 @@ export class PiAuthService {
     this.update({ status: 'cancelled', prompt: null, message: 'Login cancelled' });
   }
 
-  async logout(providerId: string): Promise<AuthProvider[]> {
+  async logout(providerId: string): Promise<AuthLogoutResult> {
     const runtime = this.runtime();
     const providerName = runtime.getProvider(providerId)?.name ?? providerId;
     const stored = await runtime.listCredentials({ signal: AbortSignal.timeout(15_000) });
     if (!stored.some((credential) => credential.providerId === providerId)) {
       throw new Error(`No stored credential exists for ${providerName}`);
     }
+    let warning: string | null = null;
     try {
       await runtime.logout(providerId, { signal: AbortSignal.timeout(15_000) });
-    } catch {
-      throw new Error(`Could not remove the stored credential for ${providerName}`);
+    } catch (error) {
+      if (!committedSynchronizationError(error, providerId, 'logout')) {
+        throw new Error(`Could not remove the stored credential for ${providerName}`);
+      }
+      await refreshAfterSynchronizationError(runtime, providerId);
+      warning = bounded(
+        `Removed the stored credential for ${providerName}, but local model state could not synchronize. Restart the session if models remain stale.`,
+      );
     }
-    return this.listProviders();
+    return { providers: await this.listProviders(), warning };
   }
 
   private async runLogin(runtime: ModelRuntime, initial: AuthFlow): Promise<void> {
@@ -179,9 +196,20 @@ export class PiAuthService {
             ? `Logged in to ${initial.providerName}`
             : `Saved API key for ${initial.providerName}`,
       });
-    } catch {
+    } catch (error) {
       if (this.flow?.id !== initial.id || this.flow.status === 'cancelled') return;
       this.rejectPending(new Error('Login cancelled'));
+      if (committedSynchronizationError(error, initial.providerId, 'login')) {
+        await refreshAfterSynchronizationError(runtime, initial.providerId);
+        this.update({
+          status: 'succeeded',
+          prompt: null,
+          message: bounded(
+            `Saved the credential for ${initial.providerName}, but local model state could not synchronize. Restart the session if models remain unavailable.`,
+          ),
+        });
+        return;
+      }
       this.update({
         status: 'failed',
         prompt: null,
@@ -256,6 +284,34 @@ export class PiAuthService {
 
 function bounded(value: string, limit: number = AUTH_LIMITS.messageCharacters): string {
   return value.slice(0, limit);
+}
+
+function committedSynchronizationError(
+  error: unknown,
+  providerId: string,
+  operation: 'login' | 'logout',
+): error is CredentialSynchronizationError {
+  return (
+    error instanceof CredentialSynchronizationError &&
+    error.providerId === providerId &&
+    error.operation === operation
+  );
+}
+
+async function refreshAfterSynchronizationError(
+  runtime: ModelRuntime,
+  providerId: string,
+): Promise<void> {
+  try {
+    await runtime.refresh({
+      allowNetwork: false,
+      providers: [providerId],
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch {
+    // The mutation is already committed. Keep success semantics and let the
+    // bounded warning tell the user how to recover from another refresh failure.
+  }
 }
 
 function safeWebUrl(value: string): string | null {

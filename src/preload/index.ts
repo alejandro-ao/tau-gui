@@ -8,6 +8,7 @@ import type {
 } from '../shared/ipc.js';
 import {
   authFlowSchema,
+  authLogoutResultSchema,
   authProviderListSchema,
   bashResultSchema,
   contextFilesSchema,
@@ -76,8 +77,11 @@ const bridge: TauBridge = {
     if (action === 'shell.run') {
       return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
-    if (action === 'auth.providers' || action === 'auth.logout') {
+    if (action === 'auth.providers') {
       return authProviderListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'auth.logout') {
+      return authLogoutResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
     if (action === 'auth.login.start') {
       return authFlowSchema.parse(response.value) as IpcResult<typeof action>;

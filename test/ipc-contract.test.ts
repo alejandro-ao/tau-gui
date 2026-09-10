@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   authFlowSchema,
+  authLogoutResultSchema,
   authProviderListSchema,
   bashResultSchema,
   contextFilesSchema,
@@ -345,6 +346,12 @@ describe('IPC request validation', () => {
           credential: 'must-not-cross',
         },
       ]).success,
+    ).toBe(false);
+    expect(
+      authLogoutResultSchema.safeParse({
+        providers: [],
+        warning: 'x'.repeat(2_049),
+      }).success,
     ).toBe(false);
     expect(
       authFlowSchema.safeParse({

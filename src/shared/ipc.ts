@@ -8,8 +8,10 @@ import { z } from 'zod';
 import {
   AUTH_LIMITS,
   authFlowSchema,
+  authLogoutResultSchema,
   authProviderListSchema,
   type AuthFlow,
+  type AuthLogoutResult,
   type AuthProvider,
 } from './auth.js';
 import {
@@ -317,6 +319,7 @@ export const requestSchema = z.discriminatedUnion('action', [
 
 export {
   authFlowSchema,
+  authLogoutResultSchema,
   authProviderListSchema,
   resourceCatalogSchema,
   entrySnapshotSchema,
@@ -428,7 +431,7 @@ export interface IpcResultMap {
   'auth.login.start': AuthFlow;
   'auth.login.respond': null;
   'auth.login.cancel': null;
-  'auth.logout': AuthProvider[];
+  'auth.logout': AuthLogoutResult;
   'resources.list': ResourceCatalog;
   'resources.reload': ResourceReloadResult;
   'agent.inspectSystemPrompt': SystemPromptInspection;

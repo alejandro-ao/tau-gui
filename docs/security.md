@@ -97,8 +97,10 @@
 
 ## Secrets
 
-- Credentials are owned by Pi's main-process model runtime and standard agent
-  configuration. The renderer never reads, stores, or forwards provider keys.
+- Stored credentials are owned by Pi's main-process model runtime and standard
+  agent configuration; they are never returned to or read by the renderer. A
+  newly entered key or authorization code is forwarded once through the bounded
+  `auth.login.respond` IPC action, then cleared without being retained or echoed.
 - `process.env` is passed to the child process but never sent to the renderer or
   written to logs.
 - Settings persisted by the GUI contain only binary paths, provider/model names,

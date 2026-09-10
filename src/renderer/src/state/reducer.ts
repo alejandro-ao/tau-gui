@@ -1,3 +1,4 @@
+import type { AuthFlow } from '../../../shared/auth.js';
 import type { AgentEvent, AgentMessage, AppSettings } from '../../../shared/domain.js';
 import { DEFAULT_CAPABILITIES, DEFAULT_SETTINGS } from '../../../shared/domain.js';
 import type { RuntimeSnapshot, SessionTarget } from '../../../shared/ipc.js';
@@ -27,6 +28,19 @@ function sameTarget(left: SessionTarget | undefined, right: SessionTarget): bool
 
 function sessionDraftKey(target: SessionTarget | undefined): string | null {
   return target ? `${target.runtime}:${target.sessionId}` : null;
+}
+
+function applyAuthFlow(current: AuthFlow | null, incoming: AuthFlow | null): AuthFlow | null {
+  if (!current || !incoming || current.id !== incoming.id) return incoming;
+  if (
+    current.status === 'succeeded' ||
+    current.status === 'failed' ||
+    current.status === 'cancelled'
+  ) {
+    return current;
+  }
+  if (current.status === 'prompt' && incoming.status === 'running') return current;
+  return incoming;
 }
 
 /** Saves the outgoing draft and restores the draft owned by the next session. */
@@ -216,8 +230,10 @@ export function reducer(state: AppState, action: Action): AppState {
         : state;
     case 'authProviders':
       return { ...state, authProviders: action.providers };
-    case 'authFlow':
-      return { ...state, authFlow: action.flow };
+    case 'authFlow': {
+      const authFlow = applyAuthFlow(state.authFlow, action.flow);
+      return authFlow === state.authFlow ? state : { ...state, authFlow };
+    }
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.

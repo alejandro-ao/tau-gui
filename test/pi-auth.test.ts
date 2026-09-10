@@ -1,4 +1,4 @@
-import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { CredentialSynchronizationError, type ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { describe, expect, it, vi } from 'vitest';
 import { PiAuthService } from '../src/main/services/pi-auth.js';
 import type { AuthFlow } from '../src/shared/auth.js';
@@ -10,6 +10,10 @@ interface FakeInteraction {
 
 function fakeRuntime() {
   let credential: 'api_key' | 'oauth' | null = null;
+  let snapshotCredential: 'api_key' | 'oauth' | null = null;
+  let synchronizationFailure: 'login' | 'logout' | null = null;
+  let unknownFailure: 'login' | 'logout' | null = null;
+  const refreshCalls: string[][] = [];
   const provider = {
     id: 'fake',
     name: 'Fake Provider',
@@ -31,10 +35,13 @@ function fakeRuntime() {
   const runtime = {
     getProviders: () => [provider],
     getProvider: (id: string) => (id === provider.id ? provider : undefined),
-    getProviderAuthStatus: () => ({ configured: credential !== null }),
-    listCredentials: () =>
+    getProviderAuthStatus: () =>
+      snapshotCredential ? { configured: true, source: 'stored' as const } : { configured: false },
+    listCredentials: vi.fn(() =>
       Promise.resolve(credential ? [{ providerId: provider.id, type: credential }] : []),
+    ),
     login: vi.fn(async (_id: string, type: 'api_key' | 'oauth', interaction: FakeInteraction) => {
+      if (unknownFailure === 'login') throw new Error('secret provider detail');
       interaction.notify({ type: 'progress', message: 'Waiting safely' });
       const value = await interaction.prompt({
         type: type === 'api_key' ? 'secret' : 'manual_code',
@@ -42,16 +49,45 @@ function fakeRuntime() {
       });
       if (value !== 'one-use-secret') throw new Error('bad input');
       credential = type;
-      return type === 'api_key'
-        ? { type, key: value }
-        : { type, refresh: value, access: value, expires: Date.now() + 60_000 };
+      const result =
+        type === 'api_key'
+          ? { type, key: value }
+          : { type, refresh: value, access: value, expires: Date.now() + 60_000 };
+      if (synchronizationFailure === 'login') {
+        throw new CredentialSynchronizationError(provider.id, 'login', result, {
+          cause: new Error('fake refresh failed'),
+        });
+      }
+      snapshotCredential = credential;
+      return result;
     }),
     logout: vi.fn(() => {
+      if (unknownFailure === 'logout') throw new Error('secret logout detail');
       credential = null;
+      if (synchronizationFailure === 'logout') {
+        throw new CredentialSynchronizationError(provider.id, 'logout', undefined, {
+          cause: new Error('fake refresh failed'),
+        });
+      }
+      snapshotCredential = null;
       return Promise.resolve();
     }),
+    refresh: (options: { providers?: readonly string[] }) => {
+      refreshCalls.push([...(options.providers ?? [])]);
+      return Promise.reject(new Error('fake refresh still failing'));
+    },
   };
-  return { runtime: runtime as unknown as ModelRuntime, provider };
+  return {
+    runtime: runtime as unknown as ModelRuntime,
+    provider,
+    failSynchronization: (operation: 'login' | 'logout') => {
+      synchronizationFailure = operation;
+    },
+    failUnknown: (operation: 'login' | 'logout') => {
+      unknownFailure = operation;
+    },
+    refreshCalls,
+  };
 }
 
 async function waitFor(snapshots: AuthFlow[], status: AuthFlow['status']): Promise<AuthFlow> {
@@ -119,10 +155,88 @@ describe('PiAuthService', () => {
     service.respond(started.id, prompt.prompt!.id, 'one-use-secret');
     await waitFor(snapshots, 'succeeded');
 
-    await expect(service.logout('fake')).resolves.toEqual([
-      expect.objectContaining({ id: 'fake', storedCredential: null }),
-    ]);
+    await expect(service.logout('fake')).resolves.toEqual({
+      providers: [expect.objectContaining({ id: 'fake', storedCredential: null })],
+      warning: null,
+    });
     await expect(service.logout('fake')).rejects.toThrow('No stored credential');
+  });
+
+  it('preserves committed login success when Pi model synchronization fails', async () => {
+    const { runtime, failSynchronization, refreshCalls } = fakeRuntime();
+    const snapshots: AuthFlow[] = [];
+    const service = new PiAuthService(
+      () => runtime,
+      (flow) => snapshots.push(flow),
+    );
+    failSynchronization('login');
+
+    const started = service.startLogin('fake', 'api_key');
+    const prompt = await waitFor(snapshots, 'prompt');
+    service.respond(started.id, prompt.prompt!.id, 'one-use-secret');
+    const succeeded = await waitFor(snapshots, 'succeeded');
+
+    expect(succeeded.message).toContain('Saved the credential for Fake Provider');
+    expect(succeeded.message).toContain('local model state could not synchronize');
+    expect(succeeded.message!.length).toBeLessThanOrEqual(2_048);
+    expect(await service.listProviders()).toEqual([
+      expect.objectContaining({ id: 'fake', configured: true, storedCredential: 'api_key' }),
+    ]);
+    expect(refreshCalls).toEqual([['fake']]);
+  });
+
+  it('preserves committed logout success when Pi model synchronization fails', async () => {
+    const { runtime, failSynchronization, refreshCalls } = fakeRuntime();
+    const snapshots: AuthFlow[] = [];
+    const service = new PiAuthService(
+      () => runtime,
+      (flow) => snapshots.push(flow),
+    );
+    const started = service.startLogin('fake', 'oauth');
+    const prompt = await waitFor(snapshots, 'prompt');
+    service.respond(started.id, prompt.prompt!.id, 'one-use-secret');
+    await waitFor(snapshots, 'succeeded');
+    failSynchronization('logout');
+
+    const result = await service.logout('fake');
+
+    expect(result.warning).toContain('Removed the stored credential for Fake Provider');
+    expect(result.warning).toContain('local model state could not synchronize');
+    expect(result.warning!.length).toBeLessThanOrEqual(2_048);
+    expect(result.providers).toEqual([
+      expect.objectContaining({ id: 'fake', configured: false, storedCredential: null }),
+    ]);
+    expect(refreshCalls).toEqual([['fake']]);
+  });
+
+  it('keeps unknown login and logout errors generic', async () => {
+    const loginFake = fakeRuntime();
+    const snapshots: AuthFlow[] = [];
+    const loginService = new PiAuthService(
+      () => loginFake.runtime,
+      (flow) => snapshots.push(flow),
+    );
+    loginFake.failUnknown('login');
+
+    loginService.startLogin('fake', 'api_key');
+    const failed = await waitFor(snapshots, 'failed');
+    expect(failed.message).not.toContain('secret provider detail');
+
+    const logoutFake = fakeRuntime();
+    const logoutSnapshots: AuthFlow[] = [];
+    const logoutService = new PiAuthService(
+      () => logoutFake.runtime,
+      (flow) => logoutSnapshots.push(flow),
+    );
+    const started = logoutService.startLogin('fake', 'api_key');
+    const prompt = await waitFor(logoutSnapshots, 'prompt');
+    logoutService.respond(started.id, prompt.prompt!.id, 'one-use-secret');
+    await waitFor(logoutSnapshots, 'succeeded');
+    logoutFake.failUnknown('logout');
+
+    await expect(logoutService.logout('fake')).rejects.toThrow(
+      'Could not remove the stored credential for Fake Provider',
+    );
   });
 
   it('cancels a pending native login without exposing provider errors', async () => {

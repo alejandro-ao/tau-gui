@@ -37,6 +37,14 @@ export const authProviderListSchema = z.array(authProviderSchema).max(AUTH_LIMIT
 export type AuthProvider = z.infer<typeof authProviderSchema>;
 export type AuthType = z.infer<typeof authTypeSchema>;
 
+export const authLogoutResultSchema = z
+  .object({
+    providers: authProviderListSchema,
+    warning: z.string().max(AUTH_LIMITS.messageCharacters).nullable(),
+  })
+  .strict();
+export type AuthLogoutResult = z.infer<typeof authLogoutResultSchema>;
+
 const authPromptSchema = z
   .object({
     id: z.string().min(1).max(128),

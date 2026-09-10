@@ -801,18 +801,19 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         const previous = stateRef.current.authProviders.find(
           (provider) => provider.id === providerId,
         );
-        const providers = await attempt('auth.logout', { providerId }, notice);
-        if (!providers) return;
-        dispatch({ type: 'authProviders', providers });
+        const result = await attempt('auth.logout', { providerId }, notice);
+        if (!result) return;
+        dispatch({ type: 'authProviders', providers: result.providers });
         dispatch({
           type: 'localMessage',
           block: {
             kind: 'status',
             id: nextBlockId('auth'),
             text:
-              previous?.storedCredential === 'oauth'
+              result.warning ??
+              (previous?.storedCredential === 'oauth'
                 ? `Logged out of ${previous.name}`
-                : `Removed stored API key for ${previous?.name ?? providerId}. Environment and model configuration are unchanged.`,
+                : `Removed stored API key for ${previous?.name ?? providerId}. Environment and model configuration are unchanged.`),
             tone: 'info',
             timestamp: Date.now(),
           },

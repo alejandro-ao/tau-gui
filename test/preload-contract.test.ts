@@ -92,6 +92,17 @@ describe('preload response validation', () => {
     await expect(mocks.exposed!.invoke('auth.providers')).rejects.toThrow();
   });
 
+  it('rejects malformed logout warnings returned by main', async () => {
+    mocks.invoke.mockResolvedValueOnce({
+      ok: true,
+      value: { providers: [], warning: 'x'.repeat(2_049) },
+    });
+
+    await expect(
+      mocks.exposed!.invoke('auth.logout', { providerId: 'anthropic' }),
+    ).rejects.toThrow();
+  });
+
   it('independently rejects an aggregate-invalid tool schema returned by main', async () => {
     mocks.invoke.mockResolvedValueOnce({
       ok: true,
