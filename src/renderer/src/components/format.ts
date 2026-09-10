@@ -20,11 +20,40 @@ export function toolPaths(args: Record<string, unknown>): string[] {
   return paths;
 }
 
+export interface SkillRead {
+  /** Skill directory name, e.g. `firecrawl-parse` for `…/skills/firecrawl-parse/SKILL.md`. */
+  name: string;
+  /** Full path of the SKILL.md file that was read. */
+  path: string;
+}
+
+/**
+ * Recognizes a `read` invocation that loads a skill definition. Skills are
+ * always `<name>/SKILL.md`, so the parent directory names the skill. Purely
+ * presentational: the underlying tool call stays untouched in state.
+ */
+export function skillRead(name: string, args: Record<string, unknown>): SkillRead | null {
+  if (name !== 'read') return null;
+  const path = args['path'];
+  if (typeof path !== 'string') return null;
+  const segments = path.split(/[/\\]/).filter((segment) => segment.length > 0);
+  const file = segments.at(-1);
+  if (!file || file.toUpperCase() !== 'SKILL.MD') return null;
+  const directory = segments.at(-2);
+  return directory ? { name: directory, path } : null;
+}
+
 /** Collapsed-state intent line: what the call is doing, never its output. */
 export function toolIntent(name: string, args: Record<string, unknown>): string {
   const paths = toolPaths(args);
   switch (name) {
-    case 'read':
+    case 'read': {
+      const skill = skillRead(name, args);
+      if (skill) return skill.path;
+      if (paths.length === 0) return boundedArgs(args);
+      const first = paths[0] ?? '';
+      return paths.length === 1 ? first : `${first} +${paths.length - 1} more`;
+    }
     case 'edit':
     case 'write':
     case 'multiedit': {

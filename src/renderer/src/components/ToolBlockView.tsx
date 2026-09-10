@@ -4,7 +4,7 @@ import type { ToolBlock } from '../state/types.js';
 import { AnimatedCollapse } from './AnimatedCollapse.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
-import { boundedArgs, formatArgs, toolIntent, toolPaths } from './format.js';
+import { boundedArgs, formatArgs, skillRead, toolIntent, toolPaths } from './format.js';
 
 const MARKERS: Record<ToolBlock['state'], string> = {
   running: '◐',
@@ -24,14 +24,16 @@ export function ToolBlockView({
   compact?: boolean;
 }): ReactNode {
   const paths = toolPaths(block.args);
+  const skill = skillRead(block.name, block.args);
 
   if (compact) {
     return (
       <AnimatedCollapse open={expanded} className="tool-call-collapse">
         <article
-          className="block-tool block-tool-compact"
+          className={`block-tool block-tool-compact${skill ? ' block-tool-skill' : ''}`}
           data-state={block.state}
-          data-tool={block.name}
+          data-tool={skill ? 'skill' : block.name}
+          data-skill={skill?.name}
         >
           <ToolDetail block={block} compact />
         </article>
@@ -40,7 +42,12 @@ export function ToolBlockView({
   }
 
   return (
-    <article className="block block-tool" data-state={block.state} data-tool={block.name}>
+    <article
+      className={`block block-tool${skill ? ' block-tool-skill' : ''}`}
+      data-state={block.state}
+      data-tool={skill ? 'skill' : block.name}
+      data-skill={skill?.name}
+    >
       <div className="role-bar" aria-hidden="true" />
       <div className="block-body">
         <button
@@ -53,7 +60,8 @@ export function ToolBlockView({
           <span className="tool-marker" aria-hidden="true">
             {MARKERS[block.state]}
           </span>
-          <span className="tool-name">{block.name}</span>
+          <span className="tool-name">{skill ? 'skill' : block.name}</span>
+          {skill ? <span className="tool-skill-name">{skill.name}</span> : null}
           <span className="tool-intent">{toolIntent(block.name, block.args)}</span>
           <ToolElapsed block={block} />
         </button>
@@ -82,9 +90,11 @@ function ToolDetail({
   compact?: boolean;
 }): ReactNode {
   const command = typeof block.args['command'] === 'string' ? block.args['command'] : '';
+  const skill = skillRead(block.name, block.args);
   return (
     <div className={`tool-detail${compact ? ' tool-detail-compact' : ''}`}>
       <h4>invocation</h4>
+      {skill ? <p className="tool-skill-detail">{skill.name}</p> : null}
       <pre className="tool-args">{formatArgs(block.args)}</pre>
       <h4>output</h4>
       {block.output.trim().length === 0 ? (

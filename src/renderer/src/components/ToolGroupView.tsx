@@ -3,7 +3,7 @@ import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import type { AssistantBlock, ThinkingBlock, ToolBlock, ToolState } from '../state/types.js';
 import { AnimatedCollapse } from './AnimatedCollapse.js';
 import { ToolBlockView } from './ToolBlockView.js';
-import { toolIntent, toolPaths } from './format.js';
+import { skillRead, toolIntent, toolPaths } from './format.js';
 
 /**
  * Reasoning, intermediate narration, and tool calls share the rail. An
@@ -142,6 +142,7 @@ function ToolRow({
   const first = blocks[0];
   if (!first) return null;
 
+  const skill = skillRead(first.name, first.args);
   const clustered = blocks.length > 1;
   return (
     <div className="tool-run-row" data-state={aggregateState(blocks)}>
@@ -158,7 +159,8 @@ function ToolRow({
             onClick={() => onToggleBlock(first.id)}
             aria-expanded={isBlockExpanded(first.id)}
           >
-            <span className="tool-name">{first.name}</span>
+            <span className="tool-name">{skill ? 'skill' : first.name}</span>
+            {skill ? <span className="tool-skill-name">{skill.name}</span> : null}
             <span className="tool-intent">{toolIntent(first.name, first.args)}</span>
           </button>
         )}
@@ -212,7 +214,9 @@ function activityRows(activity: ActivityBlock[]): ActivityRow[] {
     if (
       previous?.kind === 'tools' &&
       FILE_TOOLS.has(block.name) &&
-      previous.blocks[0]?.name === block.name
+      !skillRead(block.name, block.args) &&
+      previous.blocks[0]?.name === block.name &&
+      !skillRead(previous.blocks[0].name, previous.blocks[0].args)
     ) {
       previous.blocks.push(block);
     } else {

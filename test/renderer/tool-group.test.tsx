@@ -33,6 +33,49 @@ describe('tool run rendering', () => {
     expect(groups[0]).toMatchObject({ kind: 'tools', settled: false });
   });
 
+  it('renders a skill read as its own skill row, outside the file cluster', async () => {
+    const skill = read('t4', '/home/u/.pi/agent/skills/firecrawl-parse/SKILL.md', 'skill body');
+    const view = await mount(
+      <ToolGroupView
+        blocks={[...blocks, skill] as ToolBlock[]}
+        activity={[...blocks, skill] as ToolBlock[]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled={false}
+      />,
+    );
+    const rows = view.container.querySelectorAll('.tool-run-row');
+    expect(rows).toHaveLength(2);
+    expect(view.container.textContent).toContain('read 3 files');
+    const skillRow = rows[1];
+    if (!skillRow) throw new Error('missing skill row');
+    expect(skillRow.querySelector('.tool-name')?.textContent).toBe('skill');
+    expect(skillRow.querySelector('.tool-skill-name')?.textContent).toBe('firecrawl-parse');
+    expect(skillRow.querySelector('.tool-cluster-label')).toBeNull();
+    view.unmount();
+  });
+
+  it('renders a lone skill read without clustering or file verbs', async () => {
+    const skill = read('t5', '/home/u/.tau/skills/deploy/SKILL.md', 'skill body');
+    const view = await mount(
+      <ToolGroupView
+        blocks={[skill] as ToolBlock[]}
+        activity={[skill] as ToolBlock[]}
+        expanded={false}
+        onToggle={() => {}}
+        isBlockExpanded={() => false}
+        onToggleBlock={() => {}}
+        settled={false}
+      />,
+    );
+    expect(view.container.querySelector('.tool-name')?.textContent).toBe('skill');
+    expect(view.container.querySelector('.tool-skill-name')?.textContent).toBe('deploy');
+    expect(view.container.textContent).not.toContain('reading');
+    view.unmount();
+  });
+
   it('shows compact calls during work instead of the final summary', async () => {
     const toggle = vi.fn();
     const view = await mount(

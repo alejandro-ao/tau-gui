@@ -121,4 +121,38 @@ describe('ToolBlockView', () => {
     expect(query(view.container, '.block-tool').getAttribute('data-state')).toBe('error');
     view.unmount();
   });
+
+  it('renders a skill read as a skill call with the skill name', async () => {
+    const view = await mount(
+      <ToolBlockView
+        block={toolBlock({
+          name: 'read',
+          args: { path: '/home/u/.pi/agent/skills/firecrawl-parse/SKILL.md' },
+        })}
+        expanded={false}
+        onToggle={() => {}}
+      />,
+    );
+    expect(query(view.container, '.tool-name').textContent).toBe('skill');
+    expect(query(view.container, '.tool-skill-name').textContent).toBe('firecrawl-parse');
+    expect(query(view.container, '.tool-intent').textContent).toBe(
+      '/home/u/.pi/agent/skills/firecrawl-parse/SKILL.md',
+    );
+    expect(query(view.container, '.block-tool').getAttribute('data-tool')).toBe('skill');
+    expect(query(view.container, '.block-tool').getAttribute('data-skill')).toBe('firecrawl-parse');
+    view.unmount();
+  });
+
+  it('keeps ordinary reads rendered as read calls', async () => {
+    const view = await mount(
+      <ToolBlockView
+        block={toolBlock({ name: 'read', args: { path: 'src/SKILL.notes.md' } })}
+        expanded={false}
+        onToggle={() => {}}
+      />,
+    );
+    expect(query(view.container, '.tool-name').textContent).toBe('read');
+    expect(view.container.querySelector('.tool-skill-name')).toBeNull();
+    view.unmount();
+  });
 });

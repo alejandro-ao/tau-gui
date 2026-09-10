@@ -726,6 +726,21 @@
   color: var(--text);
 }
 
+/* Skill loads render as their own call kind: `skill <name>` in accent. */
+.tool-skill-name {
+  color: var(--accent);
+}
+
+.tool-skill-name::before {
+  content: '/';
+  color: var(--accent-dim);
+}
+
+.tool-skill-detail {
+  margin: 0 0 var(--space-1);
+  color: var(--accent);
+}
+
 .tool-intent {
   color: var(--text-dim);
   overflow: hidden;
