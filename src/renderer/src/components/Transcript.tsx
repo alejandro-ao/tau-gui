@@ -6,6 +6,7 @@ import { useStore } from '../state/store.js';
 import type { TranscriptBlock } from '../state/types.js';
 import { BlockView } from './BlockView.js';
 import { ToolGroupView } from './ToolGroupView.js';
+import { Welcome } from './Welcome.js';
 
 export function Transcript(): ReactNode {
   const { state, dispatch } = useStore();
@@ -104,7 +105,7 @@ export function Transcript(): ReactNode {
         {state.sessionTransitioning ? (
           <ConversationSkeleton />
         ) : groups.length === 0 ? (
-          <p className="transcript-empty">No messages yet. Type a prompt to start the session.</p>
+          <Welcome />
         ) : null}
 
         {mounted.map((group, offset) => {

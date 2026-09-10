@@ -12,6 +12,68 @@
   padding: var(--space-5) 0;
 }
 
+/* Empty-transcript welcome panel. It fills the transcript viewport so the
+   content is vertically centered without disturbing scroll behavior. */
+.welcome {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-4);
+  padding: var(--space-8) var(--space-5);
+  text-align: center;
+}
+
+.welcome-mark {
+  font-size: 28px;
+  color: var(--accent);
+  margin: 0;
+}
+
+.welcome-mark-rest {
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+}
+
+.welcome-title {
+  margin: 0;
+  font-size: var(--font-size);
+  font-weight: 500;
+  color: var(--text);
+}
+
+.welcome-context {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+
+.welcome-context-item + .welcome-context-item::before {
+  content: '·';
+  margin-right: var(--space-3);
+  color: var(--text-faint);
+}
+
+.welcome-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.welcome-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--text-faint);
+}
+
 .pinned-user-message {
   position: absolute;
   z-index: 4;

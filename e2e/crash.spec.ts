@@ -44,7 +44,7 @@ test('a killed runtime shows the disconnected state and restarts cleanly', async
   await waitForConnected(page);
   await expect(notice).toHaveCount(0);
   await expect(composer(page)).toHaveValue('draft to keep across the crash');
-  await expect(transcript(page)).toContainText('No messages yet');
+  await expect(transcript(page)).toContainText('Type a prompt below to begin');
 
   // The restarted runtime accepts prompts again.
   await composer(page).press('Enter');

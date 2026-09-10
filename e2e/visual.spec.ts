@@ -184,14 +184,14 @@ const LONG_SCRIPT: AgentEvent[] = [
 
 async function play(handle: AppHandle, script: AgentEvent[]): Promise<void> {
   for (const event of script) await injectAgentEvent(handle.app, event);
-  await expect(transcript(handle.page)).not.toContainText('No messages yet');
+  await expect(transcript(handle.page)).not.toContainText('Type a prompt below to begin');
   // Let the transcript settle (auto-scroll + height measurement) before capture.
   await handle.page.waitForTimeout(250);
 }
 
 async function clearTranscript(page: Page): Promise<void> {
   await page.keyboard.press('Control+n');
-  await expect(transcript(page)).toContainText('No messages yet');
+  await expect(transcript(page)).toContainText('Type a prompt below to begin');
 }
 
 async function shot(handle: AppHandle, name: string): Promise<void> {

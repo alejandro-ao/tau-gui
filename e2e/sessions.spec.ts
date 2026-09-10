@@ -53,7 +53,7 @@ test('/new from the composer clears the transcript too', async () => {
   await expect(page.getByTestId('completion-slash')).toBeVisible();
   await composer(page).press('Enter');
 
-  await expect(transcript(page)).toContainText('No messages yet');
+  await expect(transcript(page)).toContainText('Type a prompt below to begin');
   await expect(composer(page)).toHaveValue('');
 });
 

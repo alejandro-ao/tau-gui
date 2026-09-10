@@ -138,7 +138,7 @@ test.describe('sessions rail', () => {
     await expect(page.getByRole('status', { name: 'Loading conversation' })).toBeVisible();
     await expect(page.getByTestId('connection-notice')).toHaveCount(0);
     await expect(page.getByRole('status', { name: 'Model working' })).toHaveCount(0);
-    await expect(transcript(page)).not.toContainText('No messages yet');
+    await expect(transcript(page)).not.toContainText('Type a prompt below to begin');
     await expect(transcript(page)).not.toContainText('src/index.ts');
     await expect(page.locator('.block-tool')).toHaveCount(0);
     await expect(other).toHaveCount(0);

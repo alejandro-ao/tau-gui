@@ -37,7 +37,9 @@ test('hidden window loads, connects to the runtime, and reports session context'
   await expect(status.getByRole('button', { name: /fake-large/ })).toBeVisible();
 
   await expect(page.getByTestId('composer')).toHaveAttribute('data-status', 'idle');
-  await expect(page.getByRole('log', { name: 'transcript' })).toContainText('No messages yet');
+  await expect(page.getByRole('log', { name: 'transcript' })).toContainText(
+    'Type a prompt below to begin',
+  );
 });
 
 test('the runtime is idle and the composer is focused for typing', async () => {

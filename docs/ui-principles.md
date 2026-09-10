@@ -1,6 +1,7 @@
 # UI principles
 
 - Preserve Tau's transcript-first design: no conventional permanent header or shortcut footer.
+- Show an in-transcript welcome panel (session context and starter actions) for empty transcripts instead of a blank surface; the composer stays visible and typing is never blocked.
 - Keep the multiline composer at the bottom and the session sidebar on the right by default.
 - Use vertical role bars rather than boxed chat bubbles; render errors as compact inline notices so they do not compete with conversation turns.
 - Use Tau's dark, light, and high-contrast palettes, plus a true-black theme with subtly differentiated user turns.

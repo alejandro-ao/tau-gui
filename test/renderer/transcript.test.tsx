@@ -80,6 +80,80 @@ async function scroll(element: HTMLElement): Promise<void> {
   });
 }
 
+describe('welcome panel', () => {
+  async function renderWelcome(): Promise<{
+    view: Mounted;
+    dispatch: (action: Action) => void;
+    captured: { dispatch: ((action: Action) => void) | null; modal: string | null };
+  }> {
+    installFakeBridge({ status: 'idle' });
+    const { StoreProvider, useStore } = await import('../../src/renderer/src/state/store.js');
+    const { Transcript } = await import('../../src/renderer/src/components/Transcript.js');
+
+    const captured: { dispatch: ((action: Action) => void) | null; modal: string | null } = {
+      dispatch: null,
+      modal: null,
+    };
+
+    function Capture(): ReactNode {
+      const store = useStore();
+      captured.dispatch = store.dispatch;
+      captured.modal = store.state.modal;
+      return null;
+    }
+
+    const view = await mount(
+      <StoreProvider>
+        <Capture />
+        <Transcript />
+      </StoreProvider>,
+    );
+    mounted = view;
+    await view.flush();
+    if (!captured.dispatch) throw new Error('store dispatch was not captured');
+    return { view, dispatch: captured.dispatch, captured };
+  }
+
+  it('shows session context and starter actions for an empty transcript', async () => {
+    const { view } = await renderWelcome();
+
+    const welcome = view.container.querySelector('.welcome');
+    expect(welcome).not.toBeNull();
+    expect(welcome?.textContent).toContain('New session');
+    expect(welcome?.textContent).toContain('/work/project');
+    expect(welcome?.textContent).toContain('main');
+    expect(welcome?.textContent).toContain('tau 9.9.9-fake');
+    expect(welcome?.textContent).toContain('Type a prompt below to begin');
+    const labels = [...welcome!.querySelectorAll('button')].map((button) => button.textContent);
+    expect(labels).toEqual(['pick a model', 'skills', 'prompts', 'change directory']);
+  });
+
+  it('opens the model picker from a starter action', async () => {
+    const { view, captured } = await renderWelcome();
+    const { click } = await import('./ui.js');
+
+    const pickModel = view.container.querySelector<HTMLButtonElement>('.welcome button');
+    expect(pickModel?.textContent).toBe('pick a model');
+    await click(pickModel!);
+
+    // openModal is local UI state; the modal host is not mounted here, so the
+    // captured store state is the observable result.
+    expect(captured.modal).toBe('model');
+  });
+
+  it('hides once the first transcript block arrives', async () => {
+    const { view, dispatch } = await renderWelcome();
+
+    await act(async () => {
+      dispatch({ type: 'localMessage', block: assistant(0) });
+      await Promise.resolve();
+    });
+
+    expect(view.container.querySelector('.welcome')).toBeNull();
+    expect(view.container.textContent).toContain('message 0');
+  });
+});
+
 describe('transcript virtualization', () => {
   it('mounts only nearby blocks without boundary markers', async () => {
     const { view, viewport } = await renderTranscript(200);

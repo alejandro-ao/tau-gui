@@ -159,7 +159,7 @@ describe('session hydration routing', () => {
     expect(view.container.querySelector('.thread-loading-spinner')).toBeNull();
     expect(view.container.querySelector('.connection-notice')).toBeNull();
     expect(view.container.textContent).not.toContain('Starting runtime');
-    expect(view.container.textContent).not.toContain('No messages yet');
+    expect(view.container.textContent).not.toContain('Type a prompt below to begin');
 
     await act(async () => {
       resolveSwitch?.();
