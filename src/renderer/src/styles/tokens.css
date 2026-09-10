@@ -76,6 +76,9 @@
   --space-4: 12px;
   --space-5: 16px;
   --space-6: 24px;
+  /* Max width of the main reading column (transcript, composer, notices).
+     Keeps lines at a comfortable length on large windows. */
+  --content-width: 52rem;
   --bar-width: 2px;
   --radius: 3px;
 }

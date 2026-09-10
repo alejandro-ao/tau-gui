@@ -1,6 +1,9 @@
 .transcript {
   flex: 1 1 auto;
   min-height: 0;
+  width: 100%;
+  max-width: var(--content-width);
+  margin-inline: auto;
   overflow-y: auto;
   overflow-x: hidden;
   padding: var(--space-4) var(--space-5) var(--space-3);
@@ -121,6 +124,8 @@
   top: var(--space-2);
   right: var(--space-5);
   left: var(--space-5);
+  max-width: calc(var(--content-width) - 2 * var(--space-5));
+  margin-inline: auto;
   overflow: hidden;
   padding: var(--space-2) var(--space-5) var(--space-3) var(--space-4);
   border: 1px solid color-mix(in srgb, var(--text-faint) 32%, transparent);
@@ -169,7 +174,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
-  width: min(100%, 760px);
+  width: 100%;
   padding-top: var(--space-2);
   pointer-events: none;
 }
@@ -238,7 +243,8 @@
    transcript; highlighted while unread output is waiting below. */
 .new-output {
   position: absolute;
-  right: var(--space-5);
+  /* Track the reading column's right edge once the window is wider than it. */
+  right: max(var(--space-5), calc((100% - var(--content-width)) / 2 + var(--space-5)));
   bottom: var(--space-3);
   z-index: 3;
   height: 22px;
