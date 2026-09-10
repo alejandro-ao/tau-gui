@@ -241,6 +241,67 @@
   white-space: pre-wrap;
 }
 
+/* ------------------------------------------------------------- provider auth */
+
+.auth-flow,
+.auth-options,
+.auth-prompt,
+.auth-notice {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.auth-flow p,
+.auth-notice p {
+  margin: 0;
+}
+
+.auth-notice {
+  border-bottom: 1px solid var(--border);
+  color: var(--text-dim);
+  padding-bottom: var(--space-2);
+}
+
+.auth-device-code {
+  color: var(--accent);
+  user-select: text;
+}
+
+.auth-message.failed {
+  color: var(--role-error);
+}
+
+.auth-message.succeeded {
+  color: var(--role-status);
+}
+
+.auth-option {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-2);
+  text-align: left;
+}
+
+.auth-option span,
+.auth-prompt label {
+  color: var(--text-dim);
+  font-size: var(--font-size-xs);
+}
+
+.auth-prompt input {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font: inherit;
+  outline: none;
+  padding: var(--space-2);
+}
+
+.auth-prompt input:focus-visible {
+  border-color: var(--accent-dim);
+}
+
 /* ---------------------------------------------------------------- settings */
 
 .modal-field,

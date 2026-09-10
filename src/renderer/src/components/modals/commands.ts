@@ -99,13 +99,6 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
 
   const gate = (supported: boolean, reason: string): string | null => (supported ? null : reason);
 
-  /**
-   * Reason for a command the GUI has no implementation for: the capability gap
-   * when the runtime lacks the surface, otherwise the missing-GUI work.
-   */
-  const missing = (supported: boolean, capabilityReason: string): string =>
-    supported ? 'this is not implemented in the desktop app yet' : capabilityReason;
-
   /* ------------------------------------------------------------- sessions */
 
   add({
@@ -461,20 +454,35 @@ export function buildCommands(state: AppState, actions: Actions): AppCommand[] {
       ? { unavailable: null, run: () => void actions.reloadResources() }
       : { unavailable: 'resource reload is not exposed by the desktop application contract' }),
   });
-  for (const action of ['login', 'logout'] as const) {
-    add({
-      id: `runtime.${action}`,
-      title: `/${action}`,
-      description: `Provider ${action}`,
-      group: 'runtime',
-      origin: 'backend',
-      slash: `/${action}`,
-      unavailable: missing(
-        capabilities.providerLogin,
-        'provider credential management is not exposed by the desktop application contract',
-      ),
-    });
-  }
+  add({
+    id: 'runtime.login',
+    title: '/login',
+    description: 'Configure a provider with Pi authentication',
+    group: 'runtime',
+    origin: 'backend',
+    slash: '/login',
+    ...(capabilities.providerLogin
+      ? {
+          unavailable: null,
+          run: (invocation) => void actions.openLogin(commandArgs(invocation) || undefined),
+        }
+      : {
+          unavailable: 'provider credential management is unavailable for this runtime',
+        }),
+  });
+  add({
+    id: 'runtime.logout',
+    title: '/logout',
+    description: 'Remove a credential saved by Pi',
+    group: 'runtime',
+    origin: 'backend',
+    slash: '/logout',
+    ...(capabilities.providerLogin
+      ? { unavailable: null, run: () => void actions.openLogout() }
+      : {
+          unavailable: 'provider credential management is unavailable for this runtime',
+        }),
+  });
   /* ------------------------------------------------- runtime-discovered */
 
   const registeredSlashes = new Set(

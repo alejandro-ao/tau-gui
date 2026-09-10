@@ -1,4 +1,5 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ModelRuntime } from '@earendil-works/pi-coding-agent';
 import type { ContextFile } from '../../shared/ipc.js';
 import type {
   ResourceReloadResult,
@@ -83,6 +84,8 @@ export interface AgentRuntime {
   inspectSystemPrompt?(): Promise<SystemPromptInspection>;
   listTools?(): Promise<ToolCatalog>;
   reloadResources?(): Promise<ResourceReloadResult>;
+  /** Main-process-only Pi auth authority; never exposed through IPC. */
+  authModelRuntime?(): ModelRuntime;
 }
 
 /**
@@ -103,7 +106,7 @@ export const CAPABILITY_RUNTIME_METHODS = {
   sessionClone: null,
   sessionList: null,
   extensionDialogs: null,
-  providerLogin: null,
+  providerLogin: ['authModelRuntime'],
   resourceReload: ['reloadResources'],
   systemPromptInspection: ['inspectSystemPrompt'],
   toolCatalog: ['listTools'],

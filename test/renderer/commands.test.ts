@@ -109,6 +109,20 @@ describe('command registry', () => {
     expect(calls).toEqual(['inspectTools:', 'inspectSystemPrompt:', 'reloadResources:']);
   });
 
+  it('routes enabled auth commands and forwards a login provider argument', () => {
+    const { actions, calls } = stubActions();
+    const commands = buildCommands(stateWith({ providerLogin: true }), actions);
+
+    const login = commands.find((command) => command.id === 'runtime.login');
+    const logout = commands.find((command) => command.id === 'runtime.logout');
+    expect(login?.unavailable).toBeNull();
+    expect(logout?.unavailable).toBeNull();
+    login?.run('/login anthropic');
+    logout?.run();
+
+    expect(calls).toEqual(['openLogin:anthropic', 'openLogout:']);
+  });
+
   it('passes TUI-style arguments to command actions', () => {
     const state: AppState = {
       ...stateWith({}),

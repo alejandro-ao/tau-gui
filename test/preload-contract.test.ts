@@ -74,6 +74,24 @@ describe('preload response validation', () => {
     await expect(mocks.exposed!.invoke('shell.run', { command: 'huge' })).rejects.toThrow();
   });
 
+  it('rejects auth results containing secret-shaped extra fields', async () => {
+    mocks.invoke.mockResolvedValueOnce({
+      ok: true,
+      value: [
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          methods: [{ type: 'api_key', label: 'API key', interactive: true }],
+          configured: true,
+          storedCredential: 'api_key',
+          key: 'must-not-cross',
+        },
+      ],
+    });
+
+    await expect(mocks.exposed!.invoke('auth.providers')).rejects.toThrow();
+  });
+
   it('independently rejects an aggregate-invalid tool schema returned by main', async () => {
     mocks.invoke.mockResolvedValueOnce({
       ok: true,

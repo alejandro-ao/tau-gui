@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { useStore } from '../../state/store.js';
+import { AuthModal } from './AuthModal.js';
 import { CommandsModal } from './CommandsModal.js';
 import { DetailsModal } from './DetailsModal.js';
 import { DiagnosticsModal } from './DiagnosticsModal.js';
@@ -58,5 +59,9 @@ export function ModalHost(): ReactNode {
       return <ToolsModal />;
     case 'reload':
       return <ReloadModal />;
+    case 'login':
+      return <AuthModal mode="login" />;
+    case 'logout':
+      return <AuthModal mode="logout" />;
   }
 }

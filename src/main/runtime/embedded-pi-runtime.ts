@@ -73,7 +73,7 @@ export const EMBEDDED_PI_CAPABILITIES: RuntimeCapabilities = {
   sessionClone: false,
   sessionList: false,
   extensionDialogs: false,
-  providerLogin: false,
+  providerLogin: true,
   resourceReload: true,
   systemPromptInspection: true,
   toolCatalog: true,
@@ -221,6 +221,10 @@ export class EmbeddedPiRuntime implements AgentRuntime {
 
   private get session(): AgentSession {
     return this.host.session;
+  }
+
+  authModelRuntime(): AgentSession['modelRuntime'] {
+    return this.session.modelRuntime;
   }
 
   async prompt(input: PromptInput): Promise<void> {

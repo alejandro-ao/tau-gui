@@ -56,6 +56,8 @@ export const INITIAL_STATE: AppState = {
   systemPromptInspection: null,
   toolCatalog: { tools: [], total: 0, truncated: false, diagnostics: [] },
   resourceReload: null,
+  authProviders: [],
+  authFlow: null,
   blocks: [],
   streamingAssistantId: null,
   streamingThinkingId: null,
@@ -212,6 +214,10 @@ export function reducer(state: AppState, action: Action): AppState {
       return sameTarget(snapshotTarget(state.snapshot), action.target)
         ? { ...state, resourceReload: action.result }
         : state;
+    case 'authProviders':
+      return { ...state, authProviders: action.providers };
+    case 'authFlow':
+      return { ...state, authFlow: action.flow };
     case 'hydrate':
       // Authoritative reads are session-scoped too: a response that describes
       // another transcript must never replace the rendered one.

@@ -8,6 +8,7 @@ import {
   useRef,
   type ReactNode,
 } from 'react';
+import type { AuthType } from '../../../shared/auth.js';
 import type {
   AppSettings,
   ModelRef,
@@ -89,6 +90,12 @@ export interface Actions {
   inspectSystemPrompt: () => Promise<void>;
   inspectTools: () => Promise<void>;
   reloadResources: () => Promise<void>;
+  openLogin: (providerRef?: string) => Promise<void>;
+  openLogout: () => Promise<void>;
+  startLogin: (providerId: string, authType: AuthType) => Promise<void>;
+  respondLogin: (flowId: string, promptId: string, value: string) => Promise<void>;
+  cancelLogin: (flowId: string) => Promise<void>;
+  logoutProvider: (providerId: string) => Promise<void>;
   completePaths: (query: string) => Promise<FileCompletion[]>;
   relativize: (paths: string[]) => Promise<string[]>;
   setDraft: (text: string) => void;
@@ -258,13 +265,25 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         case 'diagnostic':
           dispatch({ type: 'diagnostic', message: event.message });
           break;
+        case 'auth':
+          dispatch({ type: 'authFlow', flow: event.flow });
+          if (event.flow.status === 'succeeded') {
+            void Promise.all([
+              attempt('auth.providers', undefined, notice),
+              attempt('models.list', undefined, notice, viewed()),
+            ]).then(([providers, models]) => {
+              if (providers) dispatch({ type: 'authProviders', providers });
+              if (models) dispatch({ type: 'models', models });
+            });
+          }
+          break;
         case 'focus':
           dispatch({ type: 'focus', focused: event.focused });
           break;
       }
     });
     return unsubscribe;
-  }, [refresh]);
+  }, [notice, refresh, viewed]);
 
   // Bootstrap exactly once. React development StrictMode replays effects;
   // without this guard both passes can race two runtime.start requests and
@@ -727,6 +746,79 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         dispatch({ type: 'resourceReload', result, target: operation.target });
         await refresh(operation.target);
         if (scopedOperationIsCurrent(operation)) dispatch({ type: 'modal', modal: 'reload' });
+      },
+      openLogin: async (providerRef) => {
+        dispatch({ type: 'authFlow', flow: null });
+        const providers = await attempt('auth.providers', undefined, notice);
+        if (!providers) return;
+        const normalized = providerRef?.trim().toLowerCase();
+        const matches = normalized
+          ? providers.filter(
+              (provider) =>
+                provider.id.toLowerCase() === normalized ||
+                provider.name.toLowerCase() === normalized,
+            )
+          : providers;
+        dispatch({
+          type: 'authProviders',
+          providers: normalized && matches.length > 0 ? matches : providers,
+        });
+        if (normalized && matches.length === 1) {
+          const provider = matches[0];
+          const interactive = provider?.methods.filter((method) => method.interactive) ?? [];
+          if (provider && interactive.length === 1) {
+            const flow = await attempt(
+              'auth.login.start',
+              { providerId: provider.id, authType: interactive[0]?.type },
+              notice,
+            );
+            if (flow) dispatch({ type: 'authFlow', flow });
+          }
+        }
+        dispatch({ type: 'modal', modal: 'login' });
+      },
+      openLogout: async () => {
+        const providers = await attempt('auth.providers', undefined, notice);
+        if (!providers) return;
+        dispatch({ type: 'authProviders', providers });
+        dispatch({ type: 'modal', modal: 'logout' });
+      },
+      startLogin: async (providerId, authType) => {
+        const flow = await attempt('auth.login.start', { providerId, authType }, notice);
+        if (flow) dispatch({ type: 'authFlow', flow });
+      },
+      respondLogin: async (flowId, promptId, value) => {
+        try {
+          await invoke('auth.login.respond', { flowId, promptId, value });
+        } catch (error) {
+          notice((error as Error).message);
+        }
+      },
+      cancelLogin: async (flowId) => {
+        await attempt('auth.login.cancel', { flowId }, notice);
+      },
+      logoutProvider: async (providerId) => {
+        const previous = stateRef.current.authProviders.find(
+          (provider) => provider.id === providerId,
+        );
+        const providers = await attempt('auth.logout', { providerId }, notice);
+        if (!providers) return;
+        dispatch({ type: 'authProviders', providers });
+        dispatch({
+          type: 'localMessage',
+          block: {
+            kind: 'status',
+            id: nextBlockId('auth'),
+            text:
+              previous?.storedCredential === 'oauth'
+                ? `Logged out of ${previous.name}`
+                : `Removed stored API key for ${previous?.name ?? providerId}. Environment and model configuration are unchanged.`,
+            tone: 'info',
+            timestamp: Date.now(),
+          },
+        });
+        const models = await attempt('models.list', undefined, notice, viewed());
+        if (models) dispatch({ type: 'models', models });
       },
       completePaths: async (query) => (await attempt('fs.complete', { query }, notice)) ?? [],
       relativize: async (paths) => (await attempt('fs.relativize', { paths }, notice)) ?? paths,

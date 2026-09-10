@@ -8,6 +8,7 @@ import { envelopeSchema, IPC_EVENT_CHANNEL, IPC_INVOKE_CHANNEL } from '../shared
 import { handleRequest } from './ipc.js';
 import { JsonlAgentRuntime } from './runtime/agent-runtime.js';
 import { EmbeddedPiRuntime } from './runtime/embedded-pi-runtime.js';
+import { PiAuthService } from './services/pi-auth.js';
 import { RuntimePool } from './services/runtime-pool.js';
 import { SettingsStore } from './services/settings.js';
 
@@ -38,6 +39,7 @@ const CSP = buildCsp(isDev);
 let mainWindow: BrowserWindow | null = null;
 let settings: SettingsStore;
 let manager: RuntimePool;
+let auth: PiAuthService;
 
 function broadcast(event: BridgeEvent): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -131,6 +133,15 @@ void app.whenReady().then(() => {
           }),
     probeExecutable: useTestRpcRuntime,
   });
+  auth = new PiAuthService(
+    () => {
+      const runtime = manager.active;
+      if (!runtime.authModelRuntime) throw new Error('Provider authentication is unavailable');
+      return runtime.authModelRuntime();
+    },
+    (flow) => broadcast({ type: 'auth', flow }),
+    (url) => shell.openExternal(url),
+  );
 
   ipcMain.handle(IPC_INVOKE_CHANNEL, async (_event, raw: unknown): Promise<IpcResponse> => {
     const parsed = envelopeSchema.safeParse(raw);
@@ -139,7 +150,7 @@ void app.whenReady().then(() => {
     }
     try {
       const value = await handleRequest(
-        { settings, manager, window: () => mainWindow },
+        { settings, manager, auth, window: () => mainWindow },
         parsed.data,
       );
       return { ok: true, value };

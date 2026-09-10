@@ -1,3 +1,4 @@
+import type { AuthFlow, AuthProvider } from '../../../shared/auth.js';
 import type {
   AgentEvent,
   AgentMessage,
@@ -131,7 +132,9 @@ export type ModalKind =
   | 'prompts'
   | 'system'
   | 'tools'
-  | 'reload';
+  | 'reload'
+  | 'login'
+  | 'logout';
 
 export interface AppState {
   snapshot: RuntimeSnapshot;
@@ -147,6 +150,9 @@ export interface AppState {
   systemPromptInspection: SystemPromptInspection | null;
   toolCatalog: ToolCatalog;
   resourceReload: ResourceReloadResult | null;
+  /** Sanitized auth metadata only; prompt response values never enter application state. */
+  authProviders: AuthProvider[];
+  authFlow: AuthFlow | null;
   blocks: TranscriptBlock[];
   /** Ids of the provisional assistant/thinking blocks for the active stream. */
   streamingAssistantId: string | null;
@@ -208,6 +214,8 @@ export type Action =
     }
   | { type: 'toolCatalog'; catalog: ToolCatalog; target: SessionTarget }
   | { type: 'resourceReload'; result: ResourceReloadResult; target: SessionTarget }
+  | { type: 'authProviders'; providers: AuthProvider[] }
+  | { type: 'authFlow'; flow: AuthFlow | null }
   | {
       type: 'hydrate';
       messages: AgentMessage[];

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  authFlowSchema,
+  authProviderListSchema,
   bashResultSchema,
   contextFilesSchema,
   entrySnapshotSchema,
@@ -56,6 +58,19 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'runtime.restart' }).success).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
+    ).toBe(true);
+    expect(requestSchema.safeParse({ action: 'auth.providers' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.start',
+        payload: { providerId: 'anthropic', authType: 'api_key' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'ephemeral-secret' },
+      }).success,
     ).toBe(true);
   });
 
@@ -302,6 +317,46 @@ describe('IPC request validation', () => {
           description: null,
           origin: '~/.tau/prompts',
         })),
+      }).success,
+    ).toBe(false);
+  });
+
+  it('bounds one-way auth responses and sanitized auth results', () => {
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'x'.repeat(16_385) },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'secret', echo: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      authProviderListSchema.safeParse([
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          methods: [{ type: 'api_key', label: 'API key', interactive: true }],
+          configured: true,
+          storedCredential: 'api_key',
+          credential: 'must-not-cross',
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      authFlowSchema.safeParse({
+        id: 'flow',
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+        authType: 'api_key',
+        status: 'prompt',
+        prompt: { id: 'prompt', type: 'secret', message: 'Enter key' },
+        notices: [],
+        message: null,
+        value: 'must-not-cross',
       }).success,
     ).toBe(false);
   });
