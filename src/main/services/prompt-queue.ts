@@ -50,6 +50,11 @@ export class PromptQueueService {
     return this.toSnapshot(target, this.queue(target));
   }
 
+  hasPending(target: SessionTarget): boolean {
+    const queue = this.queue(target);
+    return queue.steering.length > 0 || queue.followUp.length > 0;
+  }
+
   /**
    * Claims the newest follow-up first, otherwise newest steering cue. The item
    * remains main-owned until the renderer explicitly accepts or restores it.
@@ -85,20 +90,22 @@ export class PromptQueueService {
   async dispatchNext(
     target: SessionTarget,
     dispatch: (text: string) => Promise<void>,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const queue = this.queue(target);
-    if (queue.dispatching) return;
+    if (queue.dispatching) return false;
     const item = queue.steering.shift() ?? queue.followUp.shift();
-    if (!item) return;
+    if (!item) return false;
     queue.dispatching = true;
     this.emit(target, queue);
     try {
       await dispatch(item.text);
+      return true;
     } catch (error) {
       queue[item.kind === 'steering' ? 'steering' : 'followUp'].unshift(item);
       const message = `Queued ${item.kind} prompt was retained after dispatch failed: ${(error as Error).message}`;
       this.diagnostic(message);
       this.emit(target, queue);
+      return false;
     } finally {
       queue.dispatching = false;
     }
