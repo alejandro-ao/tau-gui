@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { marked, type Token, type Tokens } from 'marked';
-import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
 import { invoke } from './bridge.js';
 
 /**
@@ -18,9 +18,10 @@ interface Reveal {
 const MAX_REVEAL_CHARACTERS = 24;
 
 /**
- * Renders every stream update immediately and marks only its newly appended
- * tail for animation. The runtime supplies cumulative text rather than DOM
- * tokens, so the Markdown renderer adds the one transient wrapper CSS needs.
+ * Renders every stream update immediately and keeps a short trailing reveal
+ * visible. Stream chunks often arrive faster than one CSS animation, so a
+ * bounded cumulative tail prevents the animated node disappearing after only
+ * a few milliseconds while avoiding persistent per-token DOM elements.
  */
 export function StreamingMarkdown({
   text,
@@ -29,22 +30,10 @@ export function StreamingMarkdown({
   text: string;
   streaming: boolean;
 }): ReactNode {
-  const previousText = useRef('');
-  const appended =
-    streaming && text.startsWith(previousText.current)
-      ? text.length - previousText.current.length
-      : 0;
-
-  // Advance the baseline only after this text is committed. This keeps render
-  // retries safe and makes a skipped React render reveal the aggregate suffix.
-  useLayoutEffect(() => {
-    previousText.current = text;
-  }, [text]);
-
   return (
     <Markdown
       text={text}
-      revealCharacters={Math.min(appended, MAX_REVEAL_CHARACTERS)}
+      revealCharacters={streaming ? Math.min(text.length, MAX_REVEAL_CHARACTERS) : 0}
       revealRevision={text.length}
     />
   );

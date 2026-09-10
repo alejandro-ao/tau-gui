@@ -21,7 +21,7 @@ async function renderMarkdown(text: string): Promise<{ view: Mounted; bridge: Fa
 }
 
 describe('streaming markdown', () => {
-  it('renders every update immediately and reveals only its appended tail', async () => {
+  it('renders every update immediately and keeps a visible trailing reveal', async () => {
     const { StreamingMarkdown } = await import('../../src/renderer/src/markdown.js');
     const view = await mount(<StreamingMarkdown text="Hello" streaming />);
     mounted = view;
@@ -32,14 +32,16 @@ describe('streaming markdown', () => {
       await Promise.resolve();
     });
     expect(view.container.textContent).toBe('Hello, streamed');
-    expect(view.container.querySelector('.stream-token')?.textContent).toBe(', streamed');
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe('Hello, streamed');
 
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming />);
       await Promise.resolve();
     });
     expect(view.container.textContent).toBe('Hello, streamed output');
-    expect(view.container.querySelector('.stream-token')?.textContent).toBe(' output');
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe(
+      'Hello, streamed output',
+    );
 
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming={false} />);

@@ -3,17 +3,17 @@
   overflow-wrap: anywhere;
 }
 
-/* Only the newest streamed text tail gets a short compositor animation. */
+/* Keep a bounded streaming tail visible long enough to read the arrival motion. */
 .stream-token {
-  animation: stream-token-arrive 120ms ease-out both;
+  animation: stream-token-arrive 300ms ease-out both;
   display: inline-block;
   will-change: opacity, transform;
 }
 
 @keyframes stream-token-arrive {
   from {
-    opacity: 0.35;
-    transform: translateY(2px);
+    opacity: 0.2;
+    transform: translateY(3px);
   }
 
   to {
