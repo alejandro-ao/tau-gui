@@ -68,6 +68,19 @@ export class PromptQueueService {
     return this.toItem(entry);
   }
 
+  /** Removes one queued item by stable identity without affecting duplicate text. */
+  remove(target: SessionTarget, id: string): boolean {
+    const queue = this.queue(target);
+    for (const entries of [queue.steering, queue.followUp]) {
+      const index = entries.findIndex((entry) => entry.id === id);
+      if (index < 0) continue;
+      entries.splice(index, 1);
+      this.emit(target, queue);
+      return true;
+    }
+    return false;
+  }
+
   /** Resolves one recall claim without relying on text, which may be duplicated. */
   resolveRecall(target: SessionTarget, id: string, outcome: 'accept' | 'restore'): boolean {
     const queue = this.queue(target);

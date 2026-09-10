@@ -7,7 +7,7 @@ import { useStore } from '../state/store.js';
  * per-tool markers can stay static.
  */
 export function PromptSlot(): ReactNode {
-  const { state } = useStore();
+  const { state, actions } = useStore();
   const running = isRunning(state);
   const status = state.snapshot.status;
   const queued = [...state.queue.steering, ...state.queue.followUp];
@@ -39,6 +39,15 @@ export function PromptSlot(): ReactNode {
                 <span className="queued-message-label">
                   {entry.kind === 'follow-up' ? 'follow up' : 'steering'}
                 </span>
+                <button
+                  type="button"
+                  className="queued-message-remove"
+                  aria-label={`Remove queued ${entry.kind} prompt`}
+                  title="Remove from queue"
+                  onClick={() => void actions.removeQueued(entry.id)}
+                >
+                  ×
+                </button>
               </li>
             ))}
           </ol>

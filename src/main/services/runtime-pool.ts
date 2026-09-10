@@ -124,6 +124,10 @@ export class RuntimePool {
     return this.queues.pop(this.queueTarget(target).target);
   }
 
+  removePrompt(id: string, target?: SessionTarget | null): boolean {
+    return this.queues.remove(this.queueTarget(target).target, id);
+  }
+
   resolvePromptRecall(
     id: string,
     outcome: 'accept' | 'restore',

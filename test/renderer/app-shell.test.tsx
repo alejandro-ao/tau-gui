@@ -255,6 +255,18 @@ describe('app shell', () => {
     expect(queue.textContent).not.toContain('do not show this line');
     expect(queue.querySelectorAll('li.queued-message')).toHaveLength(3);
     expect(query(queue, '[data-latest="true"]').textContent).toContain('then lint');
+    const removeButtons = queue.querySelectorAll<HTMLButtonElement>('.queued-message-remove');
+    expect(removeButtons).toHaveLength(3);
+    expect(removeButtons[1]?.getAttribute('aria-label')).toBe('Remove queued steering prompt');
+    await act(async () => {
+      removeButtons[1]!.click();
+      await Promise.resolve();
+    });
+    expect(bridge.calls.at(-1)).toMatchObject({
+      action: 'queue.remove',
+      payload: { id: 'prompt-2' },
+      session: { runtime: 'tau', sessionId: AGENT.sessionId },
+    });
     expect(query(view.container, '.prompt-slot').nextElementSibling?.classList).toContain(
       'composer-shell',
     );

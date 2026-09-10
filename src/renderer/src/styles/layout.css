@@ -124,6 +124,40 @@
   text-transform: lowercase;
 }
 
+.queued-message-remove {
+  display: inline-grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin-left: calc(-1 * var(--space-2));
+  padding: 0;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity 100ms ease,
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.queued-message:hover .queued-message-remove,
+.queued-message-remove:focus-visible {
+  opacity: 1;
+}
+
+.queued-message-remove:hover,
+.queued-message-remove:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  outline: none;
+}
+
 .status-row {
   display: flex;
   align-items: center;

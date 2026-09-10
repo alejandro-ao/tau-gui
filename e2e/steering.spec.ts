@@ -56,6 +56,17 @@ test('popped follow-up is removed and edited text runs only after explicit resub
   expect(composerBounds).not.toBeNull();
   expect(queueBounds!.y + queueBounds!.height).toBeLessThanOrEqual(composerBounds!.y);
 
+  const removable = rows.nth(1);
+  const removeButton = removable.locator('.queued-message-remove');
+  await expect(removeButton).toHaveCSS('opacity', '0');
+  await removable.hover();
+  await expect(removeButton).toHaveCSS('opacity', '1');
+  await removeButton.click();
+  await expect(queue.locator('.queued-message-preview')).toHaveText([
+    'priority first',
+    'remove this follow-up',
+  ]);
+
   // Empty-composer Up performs an atomic main-process pop, not a visual copy.
   await composer(page).press('ArrowUp');
   await expect(composer(page)).toHaveValue('remove this follow-up');
@@ -70,12 +81,12 @@ test('popped follow-up is removed and edited text runs only after explicit resub
 
   // Steering-priority FIFO drains as fresh prompts after each settled turn.
   await expect(page.locator('.block-user', { hasText: 'priority first' })).toBeVisible();
-  await expect(page.locator('.block-user', { hasText: 'priority second' })).toBeVisible();
   await expect(page.locator('.block-user', { hasText: 'edited and requeued' })).toBeVisible();
   await waitForSettled(page);
 
   const text = await transcript(page).innerText();
   expect(text).not.toContain('remove this follow-up');
-  await expect(page.locator('.block-user')).toHaveCount(4);
+  expect(text).not.toContain('priority second');
+  await expect(page.locator('.block-user')).toHaveCount(3);
   await expect(page.getByTestId('prompt-slot').locator('.queued-message')).toHaveCount(0);
 });
