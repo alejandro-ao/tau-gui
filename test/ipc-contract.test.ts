@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { AUTH_LIMITS } from '../src/shared/auth.js';
 import {
   authFlowSchema,
   authLogoutResultSchema,
@@ -359,6 +360,7 @@ describe('IPC request validation', () => {
         providerId: 'anthropic',
         providerName: 'Anthropic',
         authType: 'api_key',
+        revision: 0,
         status: 'prompt',
         prompt: { id: 'prompt', type: 'secret', message: 'Enter key' },
         notices: [],
@@ -366,6 +368,24 @@ describe('IPC request validation', () => {
         value: 'must-not-cross',
       }).success,
     ).toBe(false);
+    const boundedFlow = {
+      id: 'flow',
+      providerId: 'anthropic',
+      providerName: 'Anthropic',
+      authType: 'api_key',
+      revision: AUTH_LIMITS.flowRevision,
+      status: 'running',
+      prompt: null,
+      notices: [],
+      message: 'Starting',
+    };
+    expect(authFlowSchema.safeParse(boundedFlow).success).toBe(true);
+    expect(
+      authFlowSchema.safeParse({ ...boundedFlow, revision: AUTH_LIMITS.flowRevision + 1 }).success,
+    ).toBe(false);
+    const missingRevision: Record<string, unknown> = { ...boundedFlow };
+    delete missingRevision['revision'];
+    expect(authFlowSchema.safeParse(missingRevision).success).toBe(false);
   });
 
   it('rejects unknown actions', () => {

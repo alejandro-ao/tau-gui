@@ -92,6 +92,29 @@ describe('preload response validation', () => {
     await expect(mocks.exposed!.invoke('auth.providers')).rejects.toThrow();
   });
 
+  it('requires main-owned auth revisions in login results', async () => {
+    mocks.invoke.mockResolvedValueOnce({
+      ok: true,
+      value: {
+        id: 'flow',
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+        authType: 'api_key',
+        status: 'running',
+        prompt: null,
+        notices: [],
+        message: 'Starting',
+      },
+    });
+
+    await expect(
+      mocks.exposed!.invoke('auth.login.start', {
+        providerId: 'anthropic',
+        authType: 'api_key',
+      }),
+    ).rejects.toThrow();
+  });
+
   it('rejects malformed logout warnings returned by main', async () => {
     mocks.invoke.mockResolvedValueOnce({
       ok: true,

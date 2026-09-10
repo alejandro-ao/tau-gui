@@ -136,6 +136,8 @@ describe('PiAuthService', () => {
     service.respond(started.id, prompt.prompt!.id, 'one-use-secret');
     const succeeded = await waitFor(snapshots, 'succeeded');
 
+    expect(started.revision).toBe(0);
+    expect(snapshots.map((snapshot) => snapshot.revision)).toEqual([1, 2, 3]);
     expect(succeeded.message).toBe('Saved API key for Fake Provider');
     expect(JSON.stringify(snapshots)).not.toContain('one-use-secret');
     expect(() => service.respond(started.id, prompt.prompt!.id, 'second')).toThrow(

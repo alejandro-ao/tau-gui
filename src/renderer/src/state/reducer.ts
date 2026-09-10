@@ -32,15 +32,7 @@ function sessionDraftKey(target: SessionTarget | undefined): string | null {
 
 function applyAuthFlow(current: AuthFlow | null, incoming: AuthFlow | null): AuthFlow | null {
   if (!current || !incoming || current.id !== incoming.id) return incoming;
-  if (
-    current.status === 'succeeded' ||
-    current.status === 'failed' ||
-    current.status === 'cancelled'
-  ) {
-    return current;
-  }
-  if (current.status === 'prompt' && incoming.status === 'running') return current;
-  return incoming;
+  return incoming.revision > current.revision ? incoming : current;
 }
 
 /** Saves the outgoing draft and restores the draft owned by the next session. */

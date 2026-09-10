@@ -107,6 +107,7 @@ export class PiAuthService {
       providerId: provider.id,
       providerName: provider.name,
       authType,
+      revision: 0,
       status: 'running',
       prompt: null,
       notices: [],
@@ -275,9 +276,16 @@ export class PiAuthService {
     pending.reject(error);
   }
 
-  private update(patch: Partial<AuthFlow>): void {
+  private update(patch: Partial<Omit<AuthFlow, 'id' | 'revision'>>): void {
     if (!this.flow) return;
-    this.flow = authFlowSchema.parse({ ...this.flow, ...patch });
+    if (this.flow.revision >= AUTH_LIMITS.flowRevision) {
+      throw new Error('Authentication flow update limit exceeded');
+    }
+    this.flow = authFlowSchema.parse({
+      ...this.flow,
+      ...patch,
+      revision: this.flow.revision + 1,
+    });
     this.publish(this.flow);
   }
 }

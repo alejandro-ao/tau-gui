@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 export const AUTH_LIMITS = {
+  flowRevision: Number.MAX_SAFE_INTEGER,
   providers: 128,
   providerIdCharacters: 128,
   labelCharacters: 256,
@@ -107,6 +108,7 @@ export const authFlowSchema = z
     providerId: z.string().min(1).max(AUTH_LIMITS.providerIdCharacters),
     providerName: boundedLabel,
     authType: authTypeSchema,
+    revision: z.number().int().nonnegative().max(AUTH_LIMITS.flowRevision),
     status: z.enum(['running', 'prompt', 'succeeded', 'failed', 'cancelled']),
     prompt: authPromptSchema.nullable(),
     notices: z.array(authNoticeSchema).max(AUTH_LIMITS.notices),

@@ -15,7 +15,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining session listing/clone/import/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+- Remaining session listing/clone/import/export UI, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
 
 ## Active desktop contract audit
 
