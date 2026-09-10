@@ -194,7 +194,9 @@ claims.
   sessions newest-first, hides empty projects, and archives only GUI metadata.
   The UI states that cross-session listing needs `list_sessions`.
 - New/switch/name, tree browser with fork (forked text is prefilled into the
-  composer), compaction, HTML export, settings and diagnostics modals.
+  composer), compaction, HTML export, settings and diagnostics modals. The tree
+  browser focuses on user/assistant turns, indents only diverged branches, and
+  lets users show or hide assistant tool calls.
 - Concurrent live sessions through a main-process runtime pool: selecting a
   session no longer switches or stops a running session process, and background
   stream events cannot leak into the active transcript.

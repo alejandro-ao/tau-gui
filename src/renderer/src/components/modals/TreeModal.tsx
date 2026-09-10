@@ -9,6 +9,11 @@ interface Row {
   depth: number;
 }
 
+interface VisibleNode {
+  entry: SessionEntry;
+  children: VisibleNode[];
+}
+
 /**
  * Session tree browser.
  *
@@ -20,6 +25,7 @@ export function TreeModal(): ReactNode {
   const { state, actions } = useStore();
   const [snapshot, setSnapshot] = useState<TreeSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showTools, setShowTools] = useState(true);
   const supported = state.snapshot.capabilities.sessionTree;
 
   useEffect(() => {
@@ -35,8 +41,14 @@ export function TreeModal(): ReactNode {
     };
   }, [actions, supported]);
 
-  const rows = useMemo<Row[]>(() => flatten(snapshot?.tree ?? [], 0), [snapshot]);
-  const leafId = snapshot?.leafId ?? null;
+  const rows = useMemo<Row[]>(
+    () => flatten(projectVisible(snapshot?.tree ?? [], showTools), 0),
+    [snapshot, showTools],
+  );
+  const activeId = useMemo(
+    () => activeVisibleEntry(snapshot, new Set(rows.map((row) => row.entry.id))),
+    [snapshot, rows],
+  );
 
   const items = useMemo<PickerItem[]>(
     () =>
@@ -47,10 +59,10 @@ export function TreeModal(): ReactNode {
         tone: prominence(row.entry),
         hint: timestamp(row.entry.timestamp),
         detail: `${row.entry.kind} · ${row.entry.id}`,
-        current: row.entry.id === leafId,
+        current: row.entry.id === activeId,
         keywords: `${row.entry.kind} ${row.entry.summary}`,
       })),
-    [rows, leafId],
+    [rows, activeId],
   );
 
   const subtitle = supported
@@ -64,7 +76,26 @@ export function TreeModal(): ReactNode {
       subtitle={error ?? subtitle}
       placeholder="search entries…"
       items={items}
-      emptyLabel={supported ? 'no entries yet' : 'unavailable for this runtime'}
+      emptyLabel={supported ? 'no user or assistant messages yet' : 'unavailable for this runtime'}
+      footer={
+        supported ? (
+          <button
+            type="button"
+            className="ghost-button"
+            aria-pressed={showTools}
+            title="Toggle tool calls (Ctrl+T)"
+            onClick={() => setShowTools((shown) => !shown)}
+          >
+            tools · {showTools ? 'shown' : 'hidden'}
+          </button>
+        ) : null
+      }
+      onPickerKeyDown={(event) => {
+        if (!(event.ctrlKey && event.key.toLowerCase() === 't')) return false;
+        event.preventDefault();
+        setShowTools((shown) => !shown);
+        return true;
+      }}
       onClose={() => actions.openModal(null)}
       onAccept={(item) => {
         if (!supported) {
@@ -80,34 +111,70 @@ export function TreeModal(): ReactNode {
   );
 }
 
-function flatten(nodes: TreeNode[], depth: number): Row[] {
-  const rows: Row[] = [];
+function projectVisible(nodes: TreeNode[], showTools: boolean): VisibleNode[] {
+  const visible: VisibleNode[] = [];
   for (const node of nodes) {
-    rows.push({ entry: node.entry, depth });
-    rows.push(...flatten(node.children, depth + 1));
+    const children = projectVisible(node.children, showTools);
+    if (isConversationEntry(node.entry) && (showTools || !isToolCall(node.entry))) {
+      visible.push({ entry: node.entry, children });
+    } else {
+      // Keep visible descendants connected when metadata or tools are hidden.
+      visible.push(...children);
+    }
   }
+  return visible;
+}
+
+/**
+ * Keep a linear conversation flush-left. Only a second (or later) child starts
+ * a visibly indented branch, and that branch keeps its indentation downstream.
+ */
+function flatten(nodes: VisibleNode[], parentDepth: number): Row[] {
+  const rows: Row[] = [];
+  const depths = nodes.map((_, index) => parentDepth + (index > 0 ? 1 : 0));
+  nodes.forEach((node, index) => rows.push({ entry: node.entry, depth: depths[index] ?? 0 }));
+  nodes.forEach((node, index) => rows.push(...flatten(node.children, depths[index] ?? 0)));
   return rows;
 }
 
+function isConversationEntry(entry: SessionEntry): boolean {
+  return entry.kind === 'message' && ['user', 'assistant'].includes(entry.message?.role ?? '');
+}
+
+function isToolCall(entry: SessionEntry): boolean {
+  return entry.message?.role === 'assistant' && entry.message.toolCalls.length > 0;
+}
+
+function activeVisibleEntry(snapshot: TreeSnapshot | null, visibleIds: Set<string>): string | null {
+  if (!snapshot?.leafId) return null;
+  const parents = new Map<string, string | null>();
+  const visit = (nodes: TreeNode[], parentId: string | null): void => {
+    for (const node of nodes) {
+      parents.set(node.entry.id, parentId);
+      visit(node.children, node.entry.id);
+    }
+  };
+  visit(snapshot.tree, null);
+
+  let candidate: string | null = snapshot.leafId;
+  while (candidate !== null) {
+    if (visibleIds.has(candidate)) return candidate;
+    candidate = parents.get(candidate) ?? null;
+  }
+  return null;
+}
+
 function prominence(entry: SessionEntry): 'primary' | 'muted' {
-  const role = entry.message?.role;
-  if (role === 'user') return 'primary';
-  if (entry.kind === 'compaction' || entry.kind === 'branch_summary') return 'primary';
-  return 'muted';
+  return entry.message?.role === 'user' ? 'primary' : 'muted';
 }
 
 function label(entry: SessionEntry): string {
-  const role = entry.message?.role;
-  const prefix =
-    role === 'user'
-      ? 'user'
-      : role === 'assistant'
-        ? 'assistant'
-        : role === 'toolResult'
-          ? 'tool'
-          : entry.kind.replaceAll('_', ' ');
+  const message = entry.message;
+  if (message?.role === 'assistant' && message.toolCalls.length > 0 && !message.text.trim()) {
+    return `tool call · ${message.toolCalls.map((call) => call.name).join(', ')}`;
+  }
   const preview = firstLine(entry.summary) || entry.summary;
-  return `${prefix} · ${truncate(preview, 90)}`;
+  return `${message?.role ?? 'message'} · ${truncate(preview, 90)}`;
 }
 
 function truncate(text: string, limit: number): string {
