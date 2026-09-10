@@ -18,13 +18,13 @@
   top: 0;
   right: var(--space-5);
   left: var(--space-5);
-  max-height: min(35%, 12rem);
-  overflow: auto;
+  overflow: hidden;
   padding: var(--space-2) var(--space-4) var(--space-3);
   border-bottom: 1px solid var(--border);
   border-radius: 0 0 var(--radius) var(--radius);
   background: var(--user-message-bg);
   box-shadow: 0 var(--space-2) var(--space-3) color-mix(in srgb, var(--screen) 75%, transparent);
+  animation: pinned-user-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .pinned-user-label {
@@ -35,10 +35,34 @@
 }
 
 .pinned-user-message pre {
+  display: -webkit-box;
   margin: var(--space-1) 0 0;
+  overflow: hidden;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   font-family: inherit;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.user-message-reveal .message-block-user {
+  animation: user-message-reveal 320ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes pinned-user-enter {
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.985);
+  }
+}
+
+@keyframes user-message-reveal {
+  from {
+    opacity: 0.45;
+    transform: translateY(-6px);
+    box-shadow: 0 0 0 1px var(--accent-dim);
+  }
 }
 
 .conversation-skeleton {
@@ -103,7 +127,9 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .skeleton-line {
+  .skeleton-line,
+  .pinned-user-message,
+  .user-message-reveal .message-block-user {
     animation: none;
   }
 }

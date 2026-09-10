@@ -51,6 +51,8 @@ export function Transcript(): ReactNode {
 
   const mounted = groups.slice(vwin.start, vwin.end);
   const [pinnedUserIndex, setPinnedUserIndex] = useState<number | null>(null);
+  const pinnedUserIndexRef = useRef<number | null>(null);
+  const [revealedUserIndex, setRevealedUserIndex] = useState<number | null>(null);
   const updatePinnedUser = useCallback(() => {
     const container = viewport.current;
     if (!container) return;
@@ -60,6 +62,11 @@ export function Transcript(): ReactNode {
       const index = Number(element.dataset.userGroupIndex);
       if (element.getBoundingClientRect().top < viewportTop - 1) candidate = index;
     }
+    const previous = pinnedUserIndexRef.current;
+    if (previous !== null && (candidate === null || candidate < previous)) {
+      setRevealedUserIndex(previous);
+    }
+    pinnedUserIndexRef.current = candidate;
     setPinnedUserIndex((current) => (current === candidate ? current : candidate));
   }, []);
 
@@ -72,12 +79,22 @@ export function Transcript(): ReactNode {
 
   useEffect(() => updatePinnedUser(), [groups, updatePinnedUser, vwin.end, vwin.start]);
 
+  useEffect(() => {
+    if (revealedUserIndex === null) return;
+    const timeout = window.setTimeout(() => setRevealedUserIndex(null), 360);
+    return () => window.clearTimeout(timeout);
+  }, [revealedUserIndex]);
+
   const pinnedUser = pinnedUserIndex === null ? null : userForGroup(groups[pinnedUserIndex]);
 
   return (
     <div className="transcript-wrap">
       {pinnedUser ? (
-        <aside className="pinned-user-message" aria-label="Current user message">
+        <aside
+          key={pinnedUser.id}
+          className="pinned-user-message"
+          aria-label="Current user message"
+        >
           <span className="pinned-user-label">prompt</span>
           <pre>{pinnedUser.text}</pre>
         </aside>
@@ -104,7 +121,10 @@ export function Transcript(): ReactNode {
             <div key={key ?? index} ref={(element) => vwin.measure(index, element)}>
               {group.kind === 'user-tools' ? (
                 <>
-                  <div data-user-group-index={index}>
+                  <div
+                    className={revealedUserIndex === index ? 'user-message-reveal' : undefined}
+                    data-user-group-index={index}
+                  >
                     <BlockView
                       block={group.user}
                       expanded={expandedFor(group.user.id)}
@@ -136,7 +156,12 @@ export function Transcript(): ReactNode {
                   settled={group.settled}
                 />
               ) : (
-                <div data-user-group-index={user ? index : undefined}>
+                <div
+                  className={
+                    user && revealedUserIndex === index ? 'user-message-reveal' : undefined
+                  }
+                  data-user-group-index={user ? index : undefined}
+                >
                   <BlockView
                     block={group.block}
                     expanded={expandedFor(group.block.id)}

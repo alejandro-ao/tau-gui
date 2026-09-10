@@ -163,7 +163,7 @@ The adopted rules are:
 - Keep that programmatic pin active while virtualized blocks receive delayed height measurements.
 - Compare against the browser-clamped maximum `scrollTop`; an unreachable estimated target can otherwise be misclassified as manual user scrolling.
 - Ensure the newly sent user message is fully visible above the composer before assistant output arrives.
-- Once a prompt scrolls above the viewport, pin it over its response and replace it at the next prompt boundary; scrolling upward restores the prompt for the earlier response.
+- Once a prompt scrolls above the viewport, pin an animated two-line preview over its response and replace it at the next prompt boundary; scrolling upward restores and animates the full prompt for the earlier response.
 - Keep the active turn's prompt mounted across virtual-window boundaries so the pinned context does not disappear in long responses.
 
 ### 2.7 Virtualize without changing history semantics

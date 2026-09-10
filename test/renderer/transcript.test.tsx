@@ -146,10 +146,12 @@ describe('sticky user prompt', () => {
     viewport.scrollTop = 250;
     await scroll(viewport);
     expect(query(view.container, '.pinned-user-message').textContent).toContain('first prompt');
+    expect(prompts[1]?.classList.contains('user-message-reveal')).toBe(true);
 
     viewport.scrollTop = 0;
     await scroll(viewport);
     expect(view.container.querySelector('.pinned-user-message')).toBeNull();
+    expect(prompts[0]?.classList.contains('user-message-reveal')).toBe(true);
   });
 });
 
