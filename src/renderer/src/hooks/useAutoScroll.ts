@@ -3,10 +3,12 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
 export interface AutoScroll {
   atBottom: boolean;
   hasNewOutput: boolean;
-  scrollToBottom: () => void;
+  scrollToBottom: (options?: { smooth?: boolean }) => void;
 }
 
 const BOTTOM_THRESHOLD_PX = 80;
+/** Length of the eased jump-to-bottom animation, in animation frames. */
+const SMOOTH_FRAMES = 18;
 
 /**
  * Scroll anchoring for streaming output: follow the tail only while the reader
@@ -22,6 +24,7 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
   const atBottomRef = useRef(true);
   const expectedScroll = useRef<number | null>(null);
   const settlingFrame = useRef<number | null>(null);
+  const animatingFrame = useRef<number | null>(null);
 
   /** Scrolls to the tail, tagging the clamped position before assigning it. */
   const pin = useCallback((element: HTMLElement): number => {
@@ -38,6 +41,12 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
     element?.ownerDocument.defaultView?.cancelAnimationFrame(settlingFrame.current);
     settlingFrame.current = null;
     expectedScroll.current = null;
+  }, []);
+
+  const stopAnimating = useCallback((element?: HTMLElement) => {
+    if (animatingFrame.current === null) return;
+    element?.ownerDocument.defaultView?.cancelAnimationFrame(animatingFrame.current);
+    animatingFrame.current = null;
   }, []);
 
   /** Virtual rows replace estimates with measured heights after the send render.
@@ -73,13 +82,51 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
     [pin, stopSettling],
   );
 
-  const scrollToBottom = useCallback(() => {
-    const element = viewport.current;
-    if (element) settleAtBottom(element);
-    atBottomRef.current = true;
-    setAtBottom(true);
-    setHasNewOutput(false);
-  }, [settleAtBottom, viewport]);
+  /** Eased scroll toward the tail for explicit jump affordances. The target is
+      recomputed every frame so virtualized height changes stay accounted for;
+      readers can interrupt at any moment with wheel, touch, or pointer input. */
+  const smoothToBottom = useCallback(
+    (element: HTMLElement): void => {
+      stopAnimating(element);
+      stopSettling(element);
+      const view = element.ownerDocument.defaultView;
+      const reducedMotion =
+        typeof view?.matchMedia === 'function' &&
+        view.matchMedia('(prefers-reduced-motion: reduce)').matches;
+      if (!view || typeof view.requestAnimationFrame !== 'function' || reducedMotion) {
+        settleAtBottom(element);
+        return;
+      }
+      const start = element.scrollTop;
+      let frame = 0;
+      const step = (): void => {
+        frame += 1;
+        const progress = frame / SMOOTH_FRAMES;
+        if (progress >= 1) {
+          animatingFrame.current = null;
+          settleAtBottom(element);
+          return;
+        }
+        const target = Math.max(0, element.scrollHeight - element.clientHeight);
+        const eased = 1 - Math.pow(1 - progress, 3);
+        element.scrollTop = start + (target - start) * eased;
+        animatingFrame.current = view.requestAnimationFrame(step);
+      };
+      animatingFrame.current = view.requestAnimationFrame(step);
+    },
+    [settleAtBottom, stopAnimating, stopSettling],
+  );
+
+  const scrollToBottom = useCallback(
+    (options?: { smooth?: boolean }) => {
+      const element = viewport.current;
+      if (element) (options?.smooth ? smoothToBottom : settleAtBottom)(element);
+      atBottomRef.current = true;
+      setAtBottom(true);
+      setHasNewOutput(false);
+    },
+    [settleAtBottom, smoothToBottom, viewport],
+  );
 
   useEffect(() => {
     const element = viewport.current;
@@ -88,6 +135,7 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
       const target = Math.max(0, element.scrollHeight - element.clientHeight);
       const expected = expectedScroll.current;
       if (
+        animatingFrame.current !== null ||
         settlingFrame.current !== null ||
         (expected !== null && (element.scrollTop === expected || element.scrollTop === target))
       ) {
@@ -106,12 +154,16 @@ export function useAutoScroll(viewport: RefObject<HTMLElement | null>, signal: s
       setAtBottom(near);
       if (near) setHasNewOutput(false);
     };
-    const stopForUserInput = (): void => stopSettling(element);
+    const stopForUserInput = (): void => {
+      stopAnimating(element);
+      stopSettling(element);
+    };
     element.addEventListener('scroll', onScroll, { passive: true });
     element.addEventListener('wheel', stopForUserInput, { passive: true });
     element.addEventListener('touchstart', stopForUserInput, { passive: true });
     element.addEventListener('pointerdown', stopForUserInput, { passive: true });
     return () => {
+      stopAnimating(element);
       stopSettling(element);
       element.removeEventListener('scroll', onScroll);
       element.removeEventListener('wheel', stopForUserInput);

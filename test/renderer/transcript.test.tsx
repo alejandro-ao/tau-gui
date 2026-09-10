@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, type ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installFakeBridge, mount, query, type Mounted } from './harness.js';
 import type { Action, TranscriptBlock } from '../../src/renderer/src/state/types.js';
 
@@ -9,6 +9,7 @@ let mounted: Mounted | null = null;
 afterEach(() => {
   mounted?.unmount();
   mounted = null;
+  vi.restoreAllMocks();
 });
 
 function assistant(index: number): TranscriptBlock {
@@ -80,7 +81,7 @@ async function scroll(element: HTMLElement): Promise<void> {
 }
 
 describe('transcript virtualization', () => {
-  it('mounts only nearby blocks and marks the hidden tail', async () => {
+  it('mounts only nearby blocks without boundary markers', async () => {
     const { view, viewport } = await renderTranscript(200);
 
     const rendered = view.container.querySelectorAll('.block-assistant');
@@ -88,10 +89,8 @@ describe('transcript virtualization', () => {
     expect(rendered.length).toBeLessThan(60);
     expect(view.container.textContent).toContain('message 0');
     expect(view.container.textContent).not.toContain('message 199');
-    expect(query(viewport, '.boundary[data-edge="bottom"]').textContent).toContain(
-      'newer output below',
-    );
-    expect(viewport.querySelector('.boundary[data-edge="top"]')).toBeNull();
+    expect(view.container.textContent).not.toContain('newer output below');
+    expect(viewport.querySelector('.boundary')).toBeNull();
   });
 
   it('keeps state so far-away blocks remount when scrolled into view', async () => {
@@ -102,9 +101,8 @@ describe('transcript virtualization', () => {
 
     expect(view.container.textContent).toContain('message 199');
     expect(view.container.textContent).not.toContain('message 0');
-    expect(query(viewport, '.boundary[data-edge="top"]').textContent).toContain(
-      'older output above',
-    );
+    expect(view.container.textContent).not.toContain('older output above');
+    expect(viewport.querySelector('.boundary')).toBeNull();
   });
 });
 
@@ -164,21 +162,46 @@ describe('transcript scroll anchoring', () => {
     setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
     await scroll(viewport);
 
+    // Scrolling away from the tail shows the plain (unhighlighted) arrow.
+    const affordance = query(view.container, '.new-output');
+    expect(affordance.textContent?.trim()).toBe('↓');
+    expect(affordance.getAttribute('aria-label')).toBe('Go to bottom');
+    expect(affordance.classList.contains('new-output-unread')).toBe(false);
+
+    // Incoming output while away marks the arrow as unread.
     await act(async () => {
       dispatch({ type: 'localMessage', block: assistant(999) });
       await Promise.resolve();
     });
+    expect(query(view.container, '.new-output').classList.contains('new-output-unread')).toBe(true);
 
-    const affordance = query(view.container, '.new-output');
-    expect(affordance.textContent?.trim()).toBe('↓');
-    expect(affordance.getAttribute('aria-label')).toBe('Go to bottom');
+    // Clicking the arrow hides it immediately, then scrolls smoothly toward
+    // the tail over a short eased animation driven by requestAnimationFrame.
+    const view_ = viewport.ownerDocument.defaultView!;
+    const pending: FrameRequestCallback[] = [];
+    vi.spyOn(view_, 'requestAnimationFrame').mockImplementation((callback) => {
+      pending.push(callback);
+      return pending.length;
+    });
 
     await act(async () => {
       affordance.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
+
+    // Mid-animation the scroll position is between the start and the tail.
+    const step = (): void => {
+      const callback = pending.shift();
+      callback?.(pending.length * 16);
+    };
+    step();
+    expect(viewport.scrollTop).toBeGreaterThan(0);
+    expect(viewport.scrollTop).toBeLessThan(4_600);
+
+    while (pending.length > 0) step();
     expect(viewport.scrollTop).toBe(4_600);
+    expect(view.container.querySelector('.new-output')).toBeNull();
   });
 
   it('jumps to the bottom when the user sends a message while scrolled up', async () => {
