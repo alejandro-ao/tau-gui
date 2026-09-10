@@ -36,6 +36,9 @@ test('tool blocks render with success state and reveal details on expansion', as
   await expect(page.locator('.block-assistant')).toHaveCount(1);
   await expect(page.locator('.block-assistant')).toContainText('Done: tests pass.');
   await summary.click();
+  const runDetail = page.locator('.tool-run-detail');
+  await expect(runDetail).toHaveAttribute('data-open', 'true');
+  await expect(runDetail).toHaveCSS('animation-name', 'disclosure-expand');
   await expect(page.locator('.tool-run-note')).toContainText('Inspecting the project.');
 
   const readRow = page.locator('.tool-run-row').filter({ hasText: 'read' }).first();
@@ -56,7 +59,10 @@ test('tool blocks render with success state and reveal details on expansion', as
   // Per-call expansion reveals the exact command and output.
   await bashRow.locator('.tool-run-item').click();
   const bash = bashRow.locator('.block-tool[data-tool="bash"]');
+  const bashDetail = bashRow.locator('.tool-call-collapse');
   await expect(bashRow.locator('.tool-run-item')).toHaveAttribute('aria-expanded', 'true');
+  await expect(bashDetail).toHaveAttribute('data-open', 'true');
+  await expect(bashDetail).toHaveCSS('animation-name', 'disclosure-expand');
   await expect(bash.locator('.tool-args')).toContainText('npm test');
   await expect(bash.locator('.tool-output')).toContainText('2 passed, 0 failed');
 
@@ -74,7 +80,9 @@ test('tool blocks render with success state and reveal details on expansion', as
   await expect(diff.locator('.diff-line[data-kind="del"]').last()).toContainText('-a');
   await expect(diff.locator('.diff-line[data-kind="hunk"]')).toContainText('@@');
 
-  // Ctrl+O toggles everything back to collapsed.
+  // Ctrl+O toggles everything back with the same collapse animation.
   await page.keyboard.press('Control+o');
+  await expect(runDetail).toHaveAttribute('data-open', 'false');
+  await expect(runDetail).toHaveCSS('animation-name', 'disclosure-collapse');
   await expect(page.locator('.tool-args')).toHaveCount(0);
 });

@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import type { ToolBlock } from '../state/types.js';
+import { AnimatedCollapse } from './AnimatedCollapse.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
 import { boundedArgs, formatArgs, toolIntent, toolPaths } from './format.js';
@@ -25,15 +26,17 @@ export function ToolBlockView({
   const paths = toolPaths(block.args);
 
   if (compact) {
-    return expanded ? (
-      <article
-        className="block-tool block-tool-compact"
-        data-state={block.state}
-        data-tool={block.name}
-      >
-        <ToolDetail block={block} compact />
-      </article>
-    ) : null;
+    return (
+      <AnimatedCollapse open={expanded} className="tool-call-collapse">
+        <article
+          className="block-tool block-tool-compact"
+          data-state={block.state}
+          data-tool={block.name}
+        >
+          <ToolDetail block={block} compact />
+        </article>
+      </AnimatedCollapse>
+    );
   }
 
   return (
@@ -63,7 +66,9 @@ export function ToolBlockView({
           </ul>
         ) : null}
 
-        {expanded ? <ToolDetail block={block} /> : null}
+        <AnimatedCollapse open={expanded} className="tool-call-collapse">
+          <ToolDetail block={block} />
+        </AnimatedCollapse>
       </div>
     </article>
   );

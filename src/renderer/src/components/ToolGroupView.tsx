@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import type { AssistantBlock, ThinkingBlock, ToolBlock, ToolState } from '../state/types.js';
+import { AnimatedCollapse } from './AnimatedCollapse.js';
 import { ToolBlockView } from './ToolBlockView.js';
 import { toolIntent, toolPaths } from './format.js';
 
@@ -43,22 +44,6 @@ export function ToolGroupView({
 }): ReactNode {
   const state = aggregateState(blocks);
   const running = state === 'running';
-  const wasSettled = useRef(settled);
-  const [collapsing, setCollapsing] = useState(false);
-  const justSettled = settled && !wasSettled.current;
-
-  useEffect(() => {
-    const beganSettling = settled && !wasSettled.current;
-    wasSettled.current = settled;
-
-    if (beganSettling && !expanded) {
-      setCollapsing(true);
-      const timer = window.setTimeout(() => setCollapsing(false), 180);
-      return () => window.clearTimeout(timer);
-    }
-    if (!settled || expanded) setCollapsing(false);
-    return undefined;
-  }, [expanded, settled]);
   const startedAt = turnStartedAt ?? spanStart(activity);
   const liveSeconds = useElapsedSeconds(
     Number.isFinite(startedAt) ? startedAt : Date.now(),
@@ -82,9 +67,6 @@ export function ToolGroupView({
     : Math.max(0, Math.floor((endedAt - startedAt) / 1000));
   const label = summaryLabel(elapsedSeconds, blocks, activity);
 
-  const animateCollapse = (justSettled || collapsing) && !expanded;
-  const showFeed = !settled || expanded || animateCollapse;
-
   return (
     <article
       className={`tool-run ${settled ? 'tool-run-settled' : 'tool-run-live'}${nested ? ' tool-run-nested' : ''}`}
@@ -105,13 +87,9 @@ export function ToolGroupView({
           </span>
         </button>
       ) : null}
-      {showFeed ? (
-        <div
-          className={`tool-run-feed${settled && expanded ? ' tool-run-detail' : ''}${animateCollapse ? ' tool-run-collapsing' : ''}`}
-        >
-          <div className="tool-run-feed-inner">{feed}</div>
-        </div>
-      ) : null}
+      <AnimatedCollapse open={!settled || expanded} className={settled ? 'tool-run-detail' : ''}>
+        {feed}
+      </AnimatedCollapse>
     </article>
   );
 }

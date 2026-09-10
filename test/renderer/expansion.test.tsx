@@ -77,6 +77,12 @@ async function pressCtrlO(): Promise<void> {
   });
 }
 
+async function finishAnimations(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => window.setTimeout(resolve, 200));
+  });
+}
+
 describe('tool expansion', () => {
   it('toggles one block on click and all blocks with Ctrl+O', async () => {
     const view = await renderAppWithTools(['tool-a', 'tool-b']);
@@ -101,6 +107,10 @@ describe('tool expansion', () => {
     expect(view.container.querySelectorAll('.tool-args')).toHaveLength(2);
 
     await pressCtrlO();
+    expect(view.container.querySelectorAll('.tool-call-collapse[data-open="false"]')).toHaveLength(
+      2,
+    );
+    await finishAnimations();
     expect(view.container.querySelectorAll('.tool-args')).toHaveLength(0);
   });
 });

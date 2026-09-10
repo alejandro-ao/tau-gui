@@ -98,8 +98,12 @@ textarea:focus-visible {
 @media (prefers-reduced-motion: reduce) {
   .activity-spinner-frame,
   .tool-run-settled .tool-run-header,
-  .tool-run-collapsing {
+  .animated-collapse {
     animation: none;
+  }
+
+  .animated-collapse[data-open='false'] {
+    display: none;
   }
 
   .activity-spinner-frame:first-child {
