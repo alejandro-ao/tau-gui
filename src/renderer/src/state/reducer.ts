@@ -335,7 +335,17 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
           (id): id is string => id !== null,
         ),
       );
-      const rendered = blocksFromMessage(message, now);
+      // Preserve provisional ids so React can let short-lived stream visuals
+      // finish when the authoritative block replaces the same content.
+      const rendered = blocksFromMessage(message, now).map((block) => {
+        if (block.kind === 'assistant' && state.streamingAssistantId) {
+          return { ...block, id: state.streamingAssistantId };
+        }
+        if (block.kind === 'thinking' && state.streamingThinkingId) {
+          return { ...block, id: state.streamingThinkingId };
+        }
+        return block;
+      });
       const firstIndex = state.blocks.findIndex((block) => provisional.has(block.id));
       const kept = state.blocks.filter((block) => !provisional.has(block.id));
       const at =

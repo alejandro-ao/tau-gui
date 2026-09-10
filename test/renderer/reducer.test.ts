@@ -132,14 +132,17 @@ describe('streaming assembly', () => {
   });
 
   it('replaces provisional state with the authoritative message_end payload', () => {
-    const state = replay([
+    const streaming = replay([
       { type: 'agent_start' },
       { type: 'message_delta', kind: 'text', delta: 'partial', message: assistant('partial') },
-      { type: 'message_end', message: assistant('final answer') },
     ]);
+    const provisionalId = streaming.blocks[0]?.id;
+    const state = replay([{ type: 'message_end', message: assistant('final answer') }], streaming);
+
     expect(state.blocks).toHaveLength(1);
     expect(state.blocks[0]).toMatchObject({
       kind: 'assistant',
+      id: provisionalId,
       text: 'final answer',
       streaming: false,
     });

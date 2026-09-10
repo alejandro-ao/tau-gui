@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { marked, type Token, type Tokens } from 'marked';
-import { Fragment, memo, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from './bridge.js';
 
 /**
@@ -16,6 +16,7 @@ interface Reveal {
 }
 
 const MAX_REVEAL_CHARACTERS = 24;
+const STREAM_REVEAL_SETTLE_MS = 320;
 
 /**
  * Renders every stream update immediately and keeps a short trailing reveal
@@ -30,10 +31,29 @@ export function StreamingMarkdown({
   text: string;
   streaming: boolean;
 }): ReactNode {
+  const [settling, setSettling] = useState(false);
+  const wasStreaming = useRef(streaming);
+  const justSettled = wasStreaming.current && !streaming;
+
+  useEffect(() => {
+    const stopped = wasStreaming.current && !streaming;
+    wasStreaming.current = streaming;
+    if (streaming) {
+      setSettling(false);
+      return;
+    }
+    if (!stopped) return;
+
+    setSettling(true);
+    const timeout = window.setTimeout(() => setSettling(false), STREAM_REVEAL_SETTLE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [streaming]);
+
+  const reveal = streaming || settling || justSettled;
   return (
     <Markdown
       text={text}
-      revealCharacters={streaming ? Math.min(text.length, MAX_REVEAL_CHARACTERS) : 0}
+      revealCharacters={reveal ? Math.min(text.length, MAX_REVEAL_CHARACTERS) : 0}
       revealRevision={text.length}
     />
   );

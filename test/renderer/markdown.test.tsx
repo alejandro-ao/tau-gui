@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installFakeBridge, mount, type FakeBridge, type Mounted } from './harness.js';
 import { click } from './ui.js';
 
@@ -9,6 +9,7 @@ let mounted: Mounted | null = null;
 afterEach(() => {
   mounted?.unmount();
   mounted = null;
+  vi.useRealTimers();
 });
 
 async function renderMarkdown(text: string): Promise<{ view: Mounted; bridge: FakeBridge }> {
@@ -22,6 +23,7 @@ async function renderMarkdown(text: string): Promise<{ view: Mounted; bridge: Fa
 
 describe('streaming markdown', () => {
   it('renders every update immediately and keeps a visible trailing reveal', async () => {
+    vi.useFakeTimers();
     const { StreamingMarkdown } = await import('../../src/renderer/src/markdown.js');
     const view = await mount(<StreamingMarkdown text="Hello" streaming />);
     mounted = view;
@@ -47,6 +49,9 @@ describe('streaming markdown', () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming={false} />);
       await Promise.resolve();
     });
+    expect(view.container.querySelector('.stream-token')).not.toBeNull();
+
+    await act(async () => vi.advanceTimersByTimeAsync(320));
     expect(view.container.querySelector('.stream-token')).toBeNull();
   });
 
