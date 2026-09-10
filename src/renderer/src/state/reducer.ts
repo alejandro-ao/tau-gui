@@ -694,9 +694,12 @@ export type BlockGroup =
   | {
       kind: 'user-tools';
       user: UserTranscriptBlock;
+      id: string;
       blocks: ToolTranscriptBlock[];
       activity: ActivityTranscriptBlock[];
+      settled: boolean;
       startedAt: number;
+      endedAt?: number;
     };
 
 /**
@@ -705,8 +708,8 @@ export type BlockGroup =
  * A turn is everything between two user prompts. Reasoning, intermediate
  * narration, and tool calls form one activity feed; only the assistant message
  * that closes the turn is rendered as the answer. While work is active the feed
- * sits directly below the prompt. Once the answer arrives, the same feed becomes
- * a collapsed summary immediately before it.
+ * sits directly below the prompt. As soon as the answer starts streaming, the
+ * same feed becomes a collapsed summary immediately before it.
  */
 export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
@@ -760,32 +763,29 @@ function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): 
     activity,
   };
   const answer = answerAt === -1 ? null : body[answerAt];
-  // A streaming answer is still being written, so the feed stays live below it.
-  const settled = answer?.kind === 'assistant' && !answer.streaming;
+  // The first answer delta is enough to close the activity feed. Keeping the
+  // prompt and feed in the same stable group also lets the view animate the
+  // live rail into its summary instead of remounting it after message_end.
+  const settled = answer?.kind === 'assistant';
 
-  if (!settled) {
-    groups.push(
-      user
-        ? { kind: 'user-tools', user, ...feed, startedAt: user.timestamp }
-        : { kind: 'tools', ...feed, settled: false },
-    );
-    body.forEach((entry, entryIndex) => {
-      if (standalone(entry, entryIndex)) groups.push({ kind: 'single', block: entry });
-    });
-    return groups;
-  }
-
-  if (user) groups.push({ kind: 'single', block: user });
+  groups.push(
+    user
+      ? {
+          kind: 'user-tools',
+          user,
+          ...feed,
+          settled,
+          startedAt: user.timestamp,
+          endedAt: answer?.timestamp,
+        }
+      : {
+          kind: 'tools',
+          ...feed,
+          settled,
+          endedAt: answer?.timestamp,
+        },
+  );
   body.forEach((entry, entryIndex) => {
-    if (entryIndex === answerAt) {
-      groups.push({
-        kind: 'tools',
-        ...feed,
-        settled: true,
-        startedAt: user?.timestamp,
-        endedAt: entry.timestamp,
-      });
-    }
     if (standalone(entry, entryIndex)) groups.push({ kind: 'single', block: entry });
   });
   return groups;

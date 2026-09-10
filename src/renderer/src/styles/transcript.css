@@ -386,6 +386,52 @@
   line-height: 1.2;
 }
 
+.tool-run-settled .tool-run-header {
+  animation: tool-run-summary-in 180ms ease-out both;
+}
+
+.animated-collapse {
+  display: grid;
+  grid-template-rows: 1fr;
+  transform-origin: top;
+}
+
+.animated-collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.animated-collapse[data-open='true'] {
+  animation: disclosure-expand 180ms ease-out both;
+}
+
+.animated-collapse[data-open='false'] {
+  animation: disclosure-collapse 180ms ease-in both;
+}
+
+@keyframes disclosure-expand {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: scaleY(0.92);
+  }
+}
+
+@keyframes disclosure-collapse {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: scaleY(0.92);
+  }
+}
+
+@keyframes tool-run-summary-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
 .tool-run-header,
 .tool-run-item,
 .tool-cluster-path {
