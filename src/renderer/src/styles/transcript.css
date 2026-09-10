@@ -763,18 +763,11 @@
   user-select: text;
 }
 
-/* User-initiated shell commands reuse the tool-block language: a stateful
-   rail, a status marker, and code-styled boxes for command and output. */
+/* User-initiated shell commands read as quiet activity, not a block role:
+   no colored rail, just a status marker and code-styled boxes for command
+   and output. The bar element stays for grid alignment with other blocks. */
 .block-shell > .role-bar {
-  background: var(--shell-prompt);
-}
-
-.block-shell[data-state='running'] > .role-bar {
-  background: var(--tool-running);
-}
-
-.block-shell[data-state='error'] > .role-bar {
-  background: var(--tool-failure);
+  background: transparent;
 }
 
 .shell-header {

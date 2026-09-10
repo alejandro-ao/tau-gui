@@ -136,9 +136,10 @@ function BlockFrame({
 }
 
 /**
- * A command the user ran from the composer (`!cmd`). It shares the tool-block
- * visual language: a stateful rail, a status marker, a quiet lowercase label,
- * and code-styled boxes for command and output.
+ * A command the user ran from the composer (`!cmd`). It keeps the tool-block
+ * typography — status marker, quiet lowercase label, code-styled boxes for
+ * command and output — but without a colored rail, so it reads as quiet user
+ * activity rather than a model tool call.
  */
 function ShellBlockView({ block }: { block: ShellBlock }): ReactNode {
   const failed = block.exitCode !== null && block.exitCode !== 0;
