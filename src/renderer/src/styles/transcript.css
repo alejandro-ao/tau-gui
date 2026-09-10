@@ -131,35 +131,24 @@
   }
 }
 
-.boundary {
-  position: sticky;
-  z-index: 2;
-  color: var(--text-faint);
-  font-size: var(--font-size-xs);
-  background: var(--screen);
-  padding: var(--space-1) 0;
-  letter-spacing: 0.04em;
-}
-
-.boundary[data-edge='top'] {
-  top: 0;
-}
-
-.boundary[data-edge='bottom'] {
-  bottom: 0;
-}
-
+/* Jump-to-bottom affordance pinned to the bottom-right corner of the
+   transcript; highlighted while unread output is waiting below. */
 .new-output {
   position: absolute;
   right: var(--space-5);
   bottom: var(--space-3);
   z-index: 3;
-  background: var(--panel);
-  border-color: var(--accent-dim);
-  color: var(--accent);
   height: 22px;
   width: 22px;
   padding: 0;
+  background: var(--panel);
+  border-color: var(--border);
+  color: var(--text-faint);
+}
+
+.new-output-unread {
+  border-color: var(--accent-dim);
+  color: var(--accent);
 }
 
 /* Blocks use a vertical role bar, never a chat bubble; assistant output stays unadorned. */

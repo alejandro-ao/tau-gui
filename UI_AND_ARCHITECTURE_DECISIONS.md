@@ -173,7 +173,7 @@ Long coding sessions require transcript virtualization, but virtualization is pr
 - Never trim runtime context or durable history merely to reduce DOM size.
 - Key height measurements by stable block/group IDs, not array position.
 - Preserve measurements through filtering, insertions, and rail expansion.
-- Render explicit “older/newer output” boundaries around the mounted window.
+- Keep the mounted window seamless: no boundary markers; a jump-to-bottom arrow in the corner appears only while the reader is scrolled away from the tail, highlighted when unread output arrived.
 - Use a cheap tail fingerprint to trigger scroll anchoring without diffing the whole transcript.
 - Test delayed measurements, realistic scroll geometry, and long-running streams.
 

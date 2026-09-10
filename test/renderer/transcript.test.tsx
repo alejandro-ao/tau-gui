@@ -80,7 +80,7 @@ async function scroll(element: HTMLElement): Promise<void> {
 }
 
 describe('transcript virtualization', () => {
-  it('mounts only nearby blocks and marks the hidden tail', async () => {
+  it('mounts only nearby blocks without boundary markers', async () => {
     const { view, viewport } = await renderTranscript(200);
 
     const rendered = view.container.querySelectorAll('.block-assistant');
@@ -88,10 +88,8 @@ describe('transcript virtualization', () => {
     expect(rendered.length).toBeLessThan(60);
     expect(view.container.textContent).toContain('message 0');
     expect(view.container.textContent).not.toContain('message 199');
-    expect(query(viewport, '.boundary[data-edge="bottom"]').textContent).toContain(
-      'newer output below',
-    );
-    expect(viewport.querySelector('.boundary[data-edge="top"]')).toBeNull();
+    expect(view.container.textContent).not.toContain('newer output below');
+    expect(viewport.querySelector('.boundary')).toBeNull();
   });
 
   it('keeps state so far-away blocks remount when scrolled into view', async () => {
@@ -102,9 +100,8 @@ describe('transcript virtualization', () => {
 
     expect(view.container.textContent).toContain('message 199');
     expect(view.container.textContent).not.toContain('message 0');
-    expect(query(viewport, '.boundary[data-edge="top"]').textContent).toContain(
-      'older output above',
-    );
+    expect(view.container.textContent).not.toContain('older output above');
+    expect(viewport.querySelector('.boundary')).toBeNull();
   });
 });
 
@@ -164,14 +161,18 @@ describe('transcript scroll anchoring', () => {
     setGeometry(viewport, { scrollTop: 0, clientHeight: 400, scrollHeight: 5_000 });
     await scroll(viewport);
 
+    // Scrolling away from the tail shows the plain (unhighlighted) arrow.
+    const affordance = query(view.container, '.new-output');
+    expect(affordance.textContent?.trim()).toBe('↓');
+    expect(affordance.getAttribute('aria-label')).toBe('Go to bottom');
+    expect(affordance.classList.contains('new-output-unread')).toBe(false);
+
+    // Incoming output while away marks the arrow as unread.
     await act(async () => {
       dispatch({ type: 'localMessage', block: assistant(999) });
       await Promise.resolve();
     });
-
-    const affordance = query(view.container, '.new-output');
-    expect(affordance.textContent?.trim()).toBe('↓');
-    expect(affordance.getAttribute('aria-label')).toBe('Go to bottom');
+    expect(query(view.container, '.new-output').classList.contains('new-output-unread')).toBe(true);
 
     await act(async () => {
       affordance.dispatchEvent(new MouseEvent('click', { bubbles: true }));

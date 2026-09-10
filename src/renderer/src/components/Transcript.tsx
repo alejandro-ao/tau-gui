@@ -28,7 +28,7 @@ export function Transcript(): ReactNode {
   );
   const vwin = useVirtualWindow(ids, viewport, userGroupIndices);
   const signal = useMemo(() => streamSignal(visible), [visible]);
-  const { hasNewOutput, scrollToBottom } = useAutoScroll(viewport, signal);
+  const { atBottom, hasNewOutput, scrollToBottom } = useAutoScroll(viewport, signal);
 
   // Sending a message (or shell command) always jumps to the tail, even when
   // the reader has scrolled up; incoming runtime output alone never does.
@@ -99,11 +99,6 @@ export function Transcript(): ReactNode {
         </aside>
       ) : null}
       <div className="transcript" ref={viewport} role="log" aria-label="transcript">
-        {vwin.start > 0 ? (
-          <div className="boundary" data-edge="top">
-            ── older output above ({vwin.start}) ──
-          </div>
-        ) : null}
         <div style={{ height: vwin.topPad }} aria-hidden="true" />
 
         {state.sessionTransitioning ? (
@@ -174,24 +169,21 @@ export function Transcript(): ReactNode {
         })}
 
         <div style={{ height: vwin.bottomPad }} aria-hidden="true" />
-        {vwin.end < groups.length ? (
-          <div className="boundary" data-edge="bottom">
-            ── newer output below ({groups.length - vwin.end}) ──
-          </div>
-        ) : null}
       </div>
 
-      {hasNewOutput ? (
+      {atBottom ? null : (
         <button
           type="button"
-          className="ghost-button new-output"
+          className={
+            hasNewOutput ? 'ghost-button new-output new-output-unread' : 'ghost-button new-output'
+          }
           aria-label="Go to bottom"
           title="Go to bottom"
           onClick={scrollToBottom}
         >
           <span aria-hidden="true">↓</span>
         </button>
-      ) : null}
+      )}
     </div>
   );
 }
