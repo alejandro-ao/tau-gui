@@ -87,7 +87,12 @@ const RECENTS: SessionRef[] = [
   },
 ];
 
-function entry(id: string, summary: string, role: 'user' | 'assistant'): SessionEntry {
+function entry(
+  id: string,
+  summary: string,
+  role: 'user' | 'assistant',
+  toolNames: string[] = [],
+): SessionEntry {
   return {
     id,
     parentId: null,
@@ -100,7 +105,11 @@ function entry(id: string, summary: string, role: 'user' | 'assistant'): Session
             role: 'assistant',
             text: summary,
             thinking: '',
-            toolCalls: [],
+            toolCalls: toolNames.map((name, index) => ({
+              id: `tool-${index}`,
+              name,
+              arguments: {},
+            })),
             provider: 'openai',
             model: 'gpt-5',
             usage: null,
@@ -117,12 +126,31 @@ const TREE: TreeSnapshot = {
     {
       entry: entry('e1', 'add jsonl framing tests', 'user'),
       children: [
-        { entry: entry('e2', 'sure, adding them now', 'assistant'), children: [] },
+        {
+          entry: {
+            id: 'metadata',
+            parentId: 'e1',
+            timestamp: '2026-01-02T03:04:05.000Z',
+            kind: 'model_change',
+            summary: 'model → openai:gpt-5',
+          },
+          children: [{ entry: entry('e2', 'sure, adding them now', 'assistant'), children: [] }],
+        },
         { entry: entry('e3', 'second branch reply', 'assistant'), children: [] },
       ],
     },
   ],
   leafId: 'e3',
+};
+
+const TOOL_TREE: TreeSnapshot = {
+  tree: [
+    {
+      entry: entry('user', 'inspect the files', 'user'),
+      children: [{ entry: entry('tool', '', 'assistant', ['read', 'grep']), children: [] }],
+    },
+  ],
+  leafId: 'tool',
 };
 
 describe('model picker', () => {
@@ -192,9 +220,11 @@ describe('tree modal', () => {
     expect(rows[0]!.textContent).toContain('user · add jsonl framing tests');
     expect(rows[0]!.getAttribute('data-tone')).toBe('primary');
     expect(rows[1]!.getAttribute('data-tone')).toBe('muted');
-    // Branch children are indented and the active leaf is marked.
-    expect(rows[1]!.getAttribute('style')).toContain('padding-left');
+    // A linear child stays flush-left; only the diverged branch is indented.
+    expect(rows[1]!.getAttribute('style')).toBeNull();
+    expect(rows[2]!.getAttribute('style')).toContain('padding-left');
     expect(rows[2]!.getAttribute('data-current')).toBe('true');
+    expect(dialog.textContent).not.toContain('model → openai:gpt-5');
 
     await click(rows[0]!);
     await view.flush();
@@ -203,6 +233,29 @@ describe('tree modal', () => {
 
     await press(composer(view), 'z', { ctrlKey: true });
     expect(composer(view).value).toBe('draft before fork');
+  });
+
+  it('shows assistant tool calls on demand and keeps hidden descendants connected', async () => {
+    const { view } = await renderApp({
+      agent: AGENT,
+      capabilities: { sessionTree: true },
+      results: { 'agent.tree': TOOL_TREE },
+    });
+    mounted = view;
+    await runComposerCommand(view, '/tree');
+
+    const dialog = query(view.container, '[data-modal-name="tree"]');
+    expect(options(dialog)).toHaveLength(2);
+    expect(options(dialog)[1]).toContain('tool call · read, grep');
+
+    const toggle = query<HTMLButtonElement>(dialog, 'button[aria-pressed="true"]');
+    await click(toggle);
+    expect(toggle.getAttribute('aria-pressed')).toBe('false');
+    expect(options(dialog)).toHaveLength(1);
+    expect(query(dialog, '[role="option"]').getAttribute('data-current')).toBe('true');
+
+    await press(query(dialog, '.picker-input'), 't', { ctrlKey: true });
+    expect(options(dialog)).toHaveLength(2);
   });
 
   it('reports when the runtime cannot expose the tree', async () => {

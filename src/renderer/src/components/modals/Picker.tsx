@@ -33,6 +33,8 @@ export interface PickerProps {
   onClose: () => void;
   /** Optional per-row controls, e.g. forgetting a recent session. */
   rowActions?: (item: PickerItem) => ReactNode;
+  /** Handle picker-specific shortcuts before standard list navigation. */
+  onPickerKeyDown?: (event: KeyboardEvent<HTMLDivElement>) => boolean;
   emptyLabel?: string;
   footer?: ReactNode;
 }
@@ -52,6 +54,7 @@ export function Picker({
   onAccept,
   onClose,
   rowActions,
+  onPickerKeyDown,
   emptyLabel = 'nothing to show',
   footer,
 }: PickerProps): ReactNode {
@@ -86,6 +89,7 @@ export function Picker({
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (onPickerKeyDown?.(event)) return;
     if (event.key === 'ArrowDown') {
       event.preventDefault();
       move(1);
