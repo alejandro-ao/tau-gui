@@ -95,7 +95,6 @@ export function Transcript(): ReactNode {
           className="pinned-user-message"
           aria-label="Current user message"
         >
-          <span className="pinned-user-label">prompt</span>
           <pre>{pinnedUser.text}</pre>
         </aside>
       ) : null}
