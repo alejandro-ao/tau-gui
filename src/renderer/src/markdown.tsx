@@ -186,8 +186,9 @@ function CodeBlock({ token }: { token: Tokens.Code }): ReactNode {
   }, [language, token.text]);
 
   const copy = (): void => {
-    void navigator.clipboard
-      .writeText(token.text)
+    // Route through the main-process clipboard: navigator.clipboard is
+    // unreliable in the sandboxed renderer (fails when the window is unfocused).
+    void invoke('ui.copyText', { text: token.text })
       .then(() => {
         setCopied(true);
         setTimeout(() => setCopied(false), 1200);
