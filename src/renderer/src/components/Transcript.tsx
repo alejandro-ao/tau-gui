@@ -179,7 +179,7 @@ export function Transcript(): ReactNode {
           }
           aria-label="Go to bottom"
           title="Go to bottom"
-          onClick={scrollToBottom}
+          onClick={() => scrollToBottom({ smooth: true })}
         >
           <span aria-hidden="true">↓</span>
         </button>

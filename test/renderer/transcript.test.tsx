@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, type ReactNode } from 'react';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installFakeBridge, mount, query, type Mounted } from './harness.js';
 import type { Action, TranscriptBlock } from '../../src/renderer/src/state/types.js';
 
@@ -9,6 +9,7 @@ let mounted: Mounted | null = null;
 afterEach(() => {
   mounted?.unmount();
   mounted = null;
+  vi.restoreAllMocks();
 });
 
 function assistant(index: number): TranscriptBlock {
@@ -174,12 +175,33 @@ describe('transcript scroll anchoring', () => {
     });
     expect(query(view.container, '.new-output').classList.contains('new-output-unread')).toBe(true);
 
+    // Clicking the arrow hides it immediately, then scrolls smoothly toward
+    // the tail over a short eased animation driven by requestAnimationFrame.
+    const view_ = viewport.ownerDocument.defaultView!;
+    const pending: FrameRequestCallback[] = [];
+    vi.spyOn(view_, 'requestAnimationFrame').mockImplementation((callback) => {
+      pending.push(callback);
+      return pending.length;
+    });
+
     await act(async () => {
       affordance.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
     });
     expect(view.container.querySelector('.new-output')).toBeNull();
+
+    // Mid-animation the scroll position is between the start and the tail.
+    const step = (): void => {
+      const callback = pending.shift();
+      callback?.(pending.length * 16);
+    };
+    step();
+    expect(viewport.scrollTop).toBeGreaterThan(0);
+    expect(viewport.scrollTop).toBeLessThan(4_600);
+
+    while (pending.length > 0) step();
     expect(viewport.scrollTop).toBe(4_600);
+    expect(view.container.querySelector('.new-output')).toBeNull();
   });
 
   it('jumps to the bottom when the user sends a message while scrolled up', async () => {
