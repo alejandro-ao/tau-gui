@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { marked, type Token, type Tokens } from 'marked';
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from './bridge.js';
 
 /**
@@ -10,44 +10,149 @@ import { invoke } from './bridge.js';
  * links are opened through the main-process allowlist, and the only HTML we
  * inject is highlight.js output, which escapes all source text itself.
  */
-export function Markdown({ text }: { text: string }): ReactNode {
+interface Reveal {
+  remaining: number;
+  revision: number;
+}
+
+interface RenderedStream {
+  text: string;
+  revealCharacters: number;
+  revision: number;
+}
+
+const MAX_REVEAL_CHARACTERS = 24;
+
+/**
+ * Batches rapidly arriving stream updates to one paint and animates only the
+ * newly appended tail. The complete text still goes through the safe Markdown
+ * renderer, so formatting can settle incrementally without a second layout.
+ */
+export function StreamingMarkdown({
+  text,
+  streaming,
+}: {
+  text: string;
+  streaming: boolean;
+}): ReactNode {
+  const latestText = useRef(text);
+  latestText.current = text;
+  const frameId = useRef<number | null>(null);
+  const [rendered, setRendered] = useState<RenderedStream>(() => ({
+    text,
+    revealCharacters: streaming ? Math.min(text.length, MAX_REVEAL_CHARACTERS) : 0,
+    revision: 0,
+  }));
+
+  useEffect(() => {
+    if (!streaming) {
+      if (frameId.current !== null) cancelRenderFrame(frameId.current);
+      frameId.current = null;
+      setRendered((previous) =>
+        previous.text === text && previous.revealCharacters === 0
+          ? previous
+          : { text, revealCharacters: 0, revision: previous.revision + 1 },
+      );
+      return;
+    }
+
+    if (frameId.current !== null) return;
+    frameId.current = requestRenderFrame(() => {
+      frameId.current = null;
+      setRendered((previous) => {
+        const nextText = latestText.current;
+        if (nextText === previous.text) return previous;
+        const appended = nextText.startsWith(previous.text)
+          ? nextText.length - previous.text.length
+          : 0;
+        return {
+          text: nextText,
+          revealCharacters: Math.min(appended, MAX_REVEAL_CHARACTERS),
+          revision: previous.revision + 1,
+        };
+      });
+    });
+  }, [streaming, text]);
+
+  useEffect(
+    () => () => {
+      if (frameId.current !== null) cancelRenderFrame(frameId.current);
+    },
+    [],
+  );
+
+  return (
+    <Markdown
+      text={rendered.text}
+      revealCharacters={rendered.revealCharacters}
+      revealRevision={rendered.revision}
+    />
+  );
+}
+
+export const Markdown = memo(function Markdown({
+  text,
+  revealCharacters = 0,
+  revealRevision = 0,
+}: {
+  text: string;
+  revealCharacters?: number;
+  revealRevision?: number;
+}): ReactNode {
   const tokens = useMemo(() => marked.lexer(text, { gfm: true, breaks: false }), [text]);
-  return <div className="markdown">{renderTokens(tokens)}</div>;
+  const reveal: Reveal | undefined =
+    revealCharacters > 0 ? { remaining: revealCharacters, revision: revealRevision } : undefined;
+  return <div className="markdown">{renderTokens(tokens, reveal)}</div>;
+});
+
+function renderTokens(tokens: Token[], reveal?: Reveal): ReactNode[] {
+  const rendered = new Array<ReactNode>(tokens.length);
+  // Rendering from the tail lets one small reveal budget cross inline Markdown
+  // boundaries while creating spans only for the newest visible characters.
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    rendered[index] = <Fragment key={index}>{renderToken(tokens[index]!, reveal)}</Fragment>;
+  }
+  return rendered;
 }
 
-function renderTokens(tokens: Token[]): ReactNode[] {
-  return tokens.map((token, index) => <Fragment key={index}>{renderToken(token)}</Fragment>);
-}
-
-function renderToken(token: Token): ReactNode {
+function renderToken(token: Token, reveal?: Reveal): ReactNode {
   switch (token.type) {
     case 'space':
       return null;
     case 'heading': {
       const heading = token as Tokens.Heading;
       const Tag = `h${Math.min(heading.depth, 6)}` as 'h1';
-      return <Tag>{renderInline(heading.tokens)}</Tag>;
+      return <Tag>{renderInline(heading.tokens, reveal)}</Tag>;
     }
     case 'paragraph':
-      return <p>{renderInline((token as Tokens.Paragraph).tokens ?? [])}</p>;
+      return <p>{renderInline((token as Tokens.Paragraph).tokens ?? [], reveal)}</p>;
     case 'text': {
       const text = token as Tokens.Text;
-      return text.tokens ? renderInline(text.tokens) : text.text;
+      return text.tokens ? renderInline(text.tokens, reveal) : revealText(text.text, reveal);
     }
     case 'blockquote':
-      return <blockquote>{renderTokens((token as Tokens.Blockquote).tokens ?? [])}</blockquote>;
+      return (
+        <blockquote>{renderTokens((token as Tokens.Blockquote).tokens ?? [], reveal)}</blockquote>
+      );
     case 'code':
+      // Highlighted code is a single escaped HTML subtree; do not split it into
+      // per-delta DOM nodes just to animate it.
+      discardReveal(reveal);
       return <CodeBlock token={token as Tokens.Code} />;
     case 'hr':
       return <hr />;
     case 'list': {
       const list = token as Tokens.List;
-      const items = list.items.map((item, index) => (
-        <li key={index} className={item.task ? 'task' : undefined}>
-          {item.task ? <input type="checkbox" checked={item.checked} readOnly /> : null}
-          {renderTokens(item.tokens ?? [])}
-        </li>
-      ));
+      const items = new Array<ReactNode>(list.items.length);
+      for (let index = list.items.length - 1; index >= 0; index -= 1) {
+        const item = list.items[index]!;
+        items[index] = (
+          <li key={index} className={item.task ? 'task' : undefined}>
+            {item.task ? <input type="checkbox" checked={item.checked} readOnly /> : null}
+            {renderTokens(item.tokens ?? [], reveal)}
+          </li>
+        );
+      }
       return list.ordered ? (
         <ol start={typeof list.start === 'number' ? list.start : 1}>{items}</ol>
       ) : (
@@ -56,72 +161,91 @@ function renderToken(token: Token): ReactNode {
     }
     case 'table': {
       const table = token as Tokens.Table;
+      const rows = new Array<ReactNode>(table.rows.length);
+      for (let rowIndex = table.rows.length - 1; rowIndex >= 0; rowIndex -= 1) {
+        const row = table.rows[rowIndex]!;
+        const cells = new Array<ReactNode>(row.length);
+        for (let cellIndex = row.length - 1; cellIndex >= 0; cellIndex -= 1) {
+          const cell = row[cellIndex]!;
+          cells[cellIndex] = (
+            <td key={cellIndex} style={alignStyle(table.align[cellIndex])}>
+              {renderInline(cell.tokens, reveal)}
+            </td>
+          );
+        }
+        rows[rowIndex] = <tr key={rowIndex}>{cells}</tr>;
+      }
+      const headers = new Array<ReactNode>(table.header.length);
+      for (let index = table.header.length - 1; index >= 0; index -= 1) {
+        const cell = table.header[index]!;
+        headers[index] = (
+          <th key={index} style={alignStyle(table.align[index])}>
+            {renderInline(cell.tokens, reveal)}
+          </th>
+        );
+      }
       return (
         <div className="table-scroll">
           <table>
             <thead>
-              <tr>
-                {table.header.map((cell, index) => (
-                  <th key={index} style={alignStyle(table.align[index])}>
-                    {renderInline(cell.tokens)}
-                  </th>
-                ))}
-              </tr>
+              <tr>{headers}</tr>
             </thead>
-            <tbody>
-              {table.rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {row.map((cell, cellIndex) => (
-                    <td key={cellIndex} style={alignStyle(table.align[cellIndex])}>
-                      {renderInline(cell.tokens)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
+            <tbody>{rows}</tbody>
           </table>
         </div>
       );
     }
     case 'html':
       // Raw HTML from the model is displayed as text and never executed.
-      return <pre className="raw-html">{(token as Tokens.HTML).raw}</pre>;
+      return <pre className="raw-html">{revealText((token as Tokens.HTML).raw, reveal)}</pre>;
     default:
-      return 'raw' in token ? <p>{String(token.raw)}</p> : null;
+      return 'raw' in token ? <p>{revealText(String(token.raw), reveal)}</p> : null;
   }
 }
 
-function renderInline(tokens: Token[]): ReactNode[] {
-  return tokens.map((token, index) => {
+function renderInline(tokens: Token[], reveal?: Reveal): ReactNode[] {
+  const rendered = new Array<ReactNode>(tokens.length);
+  for (let index = tokens.length - 1; index >= 0; index -= 1) {
+    const token = tokens[index]!;
     switch (token.type) {
       case 'text':
-        return <Fragment key={index}>{(token as Tokens.Text).text}</Fragment>;
+        rendered[index] = (
+          <Fragment key={index}>{revealText((token as Tokens.Text).text, reveal)}</Fragment>
+        );
+        break;
       case 'escape':
-        return <Fragment key={index}>{(token as Tokens.Escape).text}</Fragment>;
+        rendered[index] = (
+          <Fragment key={index}>{revealText((token as Tokens.Escape).text, reveal)}</Fragment>
+        );
+        break;
       case 'strong':
-        return <strong key={index}>{renderInline((token as Tokens.Strong).tokens)}</strong>;
+        rendered[index] = (
+          <strong key={index}>{renderInline((token as Tokens.Strong).tokens, reveal)}</strong>
+        );
+        break;
       case 'em':
-        return <em key={index}>{renderInline((token as Tokens.Em).tokens)}</em>;
+        rendered[index] = <em key={index}>{renderInline((token as Tokens.Em).tokens, reveal)}</em>;
+        break;
       case 'del':
-        return <del key={index}>{renderInline((token as Tokens.Del).tokens)}</del>;
+        rendered[index] = (
+          <del key={index}>{renderInline((token as Tokens.Del).tokens, reveal)}</del>
+        );
+        break;
       case 'codespan':
-        return <code key={index}>{(token as Tokens.Codespan).text}</code>;
+        rendered[index] = (
+          <code key={index}>{revealText((token as Tokens.Codespan).text, reveal)}</code>
+        );
+        break;
       case 'br':
-        return <br key={index} />;
+        rendered[index] = <br key={index} />;
+        break;
       case 'link': {
         const link = token as Tokens.Link;
         const href = safeHref(link.href);
         // Unsupported schemes (`file:`, `javascript:`, relative paths) never
         // reach the DOM as a navigable href: middle-click and drag cannot
         // bypass the click handler if there is nothing to navigate to.
-        if (!href) {
-          return (
-            <span key={index} className="inert-link" title={link.title ?? undefined}>
-              {renderInline(link.tokens)}
-            </span>
-          );
-        }
-        return (
+        rendered[index] = href ? (
           <a
             key={index}
             href={href}
@@ -131,25 +255,70 @@ function renderInline(tokens: Token[]): ReactNode[] {
               void invoke('ui.openExternal', { url: href }).catch(() => undefined);
             }}
           >
-            {renderInline(link.tokens)}
+            {renderInline(link.tokens, reveal)}
           </a>
+        ) : (
+          <span key={index} className="inert-link" title={link.title ?? undefined}>
+            {renderInline(link.tokens, reveal)}
+          </span>
         );
+        break;
       }
       case 'image': {
         const image = token as Tokens.Image;
+        discardReveal(reveal);
         // Remote images are not loaded; the alt text is shown instead.
-        return (
+        rendered[index] = (
           <span key={index} className="image-placeholder">
             [image: {image.text || image.href}]
           </span>
         );
+        break;
       }
       case 'html':
-        return <Fragment key={index}>{(token as Tokens.HTML).raw}</Fragment>;
+        rendered[index] = (
+          <Fragment key={index}>{revealText((token as Tokens.HTML).raw, reveal)}</Fragment>
+        );
+        break;
       default:
-        return <Fragment key={index}>{'raw' in token ? String(token.raw) : null}</Fragment>;
+        rendered[index] = (
+          <Fragment key={index}>
+            {'raw' in token ? revealText(String(token.raw), reveal) : null}
+          </Fragment>
+        );
     }
-  });
+  }
+  return rendered;
+}
+
+function revealText(text: string, reveal?: Reveal): ReactNode {
+  if (!reveal || reveal.remaining <= 0 || text.length === 0) return text;
+  const count = Math.min(text.length, reveal.remaining);
+  reveal.remaining -= count;
+  const split = text.length - count;
+  return (
+    <>
+      {text.slice(0, split)}
+      <span key={reveal.revision} className="stream-token">
+        {text.slice(split)}
+      </span>
+    </>
+  );
+}
+
+function discardReveal(reveal?: Reveal): void {
+  if (reveal) reveal.remaining = 0;
+}
+
+function requestRenderFrame(callback: FrameRequestCallback): number {
+  return typeof window.requestAnimationFrame === 'function'
+    ? window.requestAnimationFrame(callback)
+    : window.setTimeout(() => callback(performance.now()), 16);
+}
+
+function cancelRenderFrame(id: number): void {
+  if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id);
+  else window.clearTimeout(id);
 }
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'mailto:']);

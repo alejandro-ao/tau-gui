@@ -3,6 +3,31 @@
   overflow-wrap: anywhere;
 }
 
+/* Only the newest frame-batched stream tail gets a short compositor animation. */
+.stream-token {
+  animation: stream-token-arrive 120ms ease-out both;
+  display: inline-block;
+  will-change: opacity, transform;
+}
+
+@keyframes stream-token-arrive {
+  from {
+    opacity: 0.35;
+    transform: translateY(2px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream-token {
+    animation: none;
+  }
+}
+
 .markdown > *:first-child {
   margin-top: 0;
 }

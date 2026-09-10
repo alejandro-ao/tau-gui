@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Markdown } from '../markdown.js';
+import { Markdown, StreamingMarkdown } from '../markdown.js';
 import type { ShellBlock, TranscriptBlock } from '../state/types.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
@@ -48,7 +48,7 @@ export function BlockView({
             }
           >
             {/* An `errorMessage` renders once, as its own error block. */}
-            <Markdown text={block.text} />
+            <StreamingMarkdown text={block.text} streaming={block.streaming} />
           </BlockFrame>
           <div className="message-actions">
             <CopyButton text={block.text} label="message" />
