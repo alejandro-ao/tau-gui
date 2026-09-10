@@ -79,7 +79,7 @@ export function useCompletion(
         id: command.id,
         label: command.slash,
         detail: command.description,
-        badge: command.unavailable ? 'unavailable' : command.origin,
+        badge: command.unavailable ? 'unavailable' : null,
         reason: command.unavailable,
         insert: command.slash,
         section: 'Commands',

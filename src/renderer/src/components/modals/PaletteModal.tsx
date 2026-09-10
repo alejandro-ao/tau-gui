@@ -18,7 +18,7 @@ export function PaletteModal(): ReactNode {
         id: command.id,
         label: command.title,
         detail: command.description,
-        badge: command.unavailable ? 'unavailable' : command.origin,
+        badge: command.unavailable ? 'unavailable' : command.slash ? null : command.origin,
         reason: command.unavailable,
         keywords: `${command.group} ${command.description} ${command.slash ?? ''}`,
       })),
@@ -29,7 +29,7 @@ export function PaletteModal(): ReactNode {
     <Picker
       name="palette"
       title="command palette"
-      subtitle="backend entries need the runtime · frontend entries are local to this app"
+      subtitle="slash commands and quick settings in one place"
       placeholder="search commands, models, themes, sessions…"
       items={items}
       emptyLabel="no matching command"

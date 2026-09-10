@@ -179,6 +179,33 @@ describe('model picker', () => {
   });
 });
 
+describe('commands picker', () => {
+  it('omits command origins and keeps unavailable commands marked', async () => {
+    const { view } = await renderApp({
+      results: {
+        'commands.list': [
+          { name: 'model', description: 'Pick a model', source: 'runtime' },
+          { name: 'hotkeys', description: 'Keyboard shortcuts', source: 'frontend' },
+          { name: 'review', description: 'Review the working tree', source: 'runtime' },
+        ],
+      },
+    });
+    mounted = view;
+    await runComposerCommand(view, '/commands');
+
+    const dialog = query(view.container, '[data-modal-name="commands"]');
+    const rows = [...dialog.querySelectorAll('[role="option"]')];
+    const review = rows.find((row) => row.textContent?.startsWith('/review'));
+    expect(texts(dialog, '.picker-badge')).toEqual(['unavailable']);
+    expect(dialog.textContent).not.toContain('frontend');
+    expect(dialog.textContent).not.toContain('backend');
+    expect(review?.getAttribute('data-unavailable')).toBe('true');
+    expect(review?.textContent).toContain(
+      'desktop application contract does not expose its execution',
+    );
+  });
+});
+
 describe('session picker', () => {
   it('switches to an app-owned recent session and can forget one', async () => {
     const { view, bridge } = await renderApp({

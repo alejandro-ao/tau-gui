@@ -48,6 +48,20 @@ describe('slash command completion', () => {
     expect(texts(view.container, '.completion-label')).toContain('/review');
   });
 
+  it('hides origin badges but keeps unavailable indicators', async () => {
+    const { view, input } = await open();
+    await type(input, '/');
+    const popup = query(view.container, '[data-testid="completion-slash"]');
+    const hotkeys = optionByLabel(popup, '/hotkeys');
+    const review = optionByLabel(popup, '/review');
+
+    expect(hotkeys.querySelector('.completion-badge')).toBeNull();
+    expect(review.querySelector('.completion-badge')?.textContent).toBe('unavailable');
+    expect(texts(popup, '.completion-badge')).not.toContain('frontend');
+    expect(texts(popup, '.completion-badge')).not.toContain('backend');
+    expect(review.getAttribute('data-unavailable')).toBe('true');
+  });
+
   it('selects the top match as the slash query is refined', async () => {
     const { view, input } = await open();
     for (const value of ['/', '/t', '/tr', '/tre', '/tree']) await type(input, value);
@@ -219,6 +233,12 @@ describe('slash command completion', () => {
     expect(labels).not.toContain('/skill:security-review');
     // Custom prompts sit in their own section after the commands.
     expect(texts(popup, '.completion-section')).toEqual(['Commands', 'Custom prompts']);
+    expect(optionByLabel(popup, '/skill:').querySelector('.completion-badge')?.textContent).toBe(
+      'skill',
+    );
+    expect(
+      optionByLabel(popup, '/release-notes').querySelector('.completion-badge')?.textContent,
+    ).toBe('prompt');
     expect(labels.indexOf('/release-notes')).toBeGreaterThan(labels.indexOf('/skill:'));
   });
 

@@ -13,14 +13,18 @@ export function CommandsModal(): ReactNode {
 
   const items = useMemo<PickerItem[]>(
     () =>
-      state.commands.map((command) => ({
-        id: command.name,
-        label: `/${command.name}`,
-        detail: command.description,
-        badge: command.source === 'runtime' ? 'backend' : 'frontend',
-        keywords: command.description,
-      })),
-    [state.commands],
+      state.commands.map((command) => {
+        const registered = commands.find((candidate) => candidate.slash === `/${command.name}`);
+        return {
+          id: command.name,
+          label: `/${command.name}`,
+          detail: command.description,
+          badge: registered?.unavailable ? 'unavailable' : null,
+          reason: registered?.unavailable,
+          keywords: command.description,
+        };
+      }),
+    [commands, state.commands],
   );
 
   return (

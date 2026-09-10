@@ -17,7 +17,7 @@ const COMMANDS = [
 async function openPalette(capabilities: Record<string, boolean> = {}): Promise<Mounted> {
   const { view } = await renderApp({
     capabilities,
-    results: { 'commands.list': COMMANDS },
+    results: { 'commands.list': COMMANDS, 'thinking.list': ['medium'] },
   });
   mounted = view;
   await press(window, 'k', { ctrlKey: true });
@@ -38,21 +38,28 @@ describe('command palette', () => {
     expect(labels.some((label) => label.startsWith('sidebar: off'))).toBe(true);
   });
 
-  it('distinguishes backend, frontend-only, and unavailable entries', async () => {
+  it('hides origin badges on slash rows while preserving other badges', async () => {
     const view = await openPalette();
-    const rows = [...view.container.querySelectorAll('[role="option"]')];
-    const tools = rows.find((row) => row.textContent?.startsWith('/tools'));
+    const dialog = query(view.container, '[data-modal-name="palette"]');
+    const rows = [...dialog.querySelectorAll('[role="option"]')];
+    const rowStartingWith = (label: string): Element | undefined =>
+      rows.find((row) => row.textContent?.startsWith(label));
+    const badge = (row: Element | undefined): string | null | undefined =>
+      row?.querySelector('.picker-badge')?.textContent;
+
+    const tools = rowStartingWith('/tools');
     expect(tools?.getAttribute('data-unavailable')).toBe('true');
+    expect(badge(tools)).toBe('unavailable');
     expect(tools?.textContent).toContain(
       'tool catalog inspection is not exposed by the desktop application contract',
     );
-    const hotkeys = rows.find((row) => row.textContent?.startsWith('/hotkeys'));
-    expect(hotkeys?.textContent).toContain('frontend');
-    const review = rows.find((row) => row.textContent?.startsWith('/review'));
-    expect(review?.getAttribute('data-unavailable')).toBe('true');
-    expect(review?.textContent).toContain(
-      'desktop application contract does not expose its execution',
-    );
+
+    expect(badge(rowStartingWith('/hotkeys'))).toBeUndefined();
+    expect(badge(rowStartingWith('/new'))).toBeUndefined();
+    expect(badge(rowStartingWith('/review'))).toBe('unavailable');
+    expect(badge(rowStartingWith('theme: tau-light'))).toBe('frontend');
+    expect(badge(rowStartingWith('thinking: medium'))).toBe('backend');
+    expect(dialog.textContent).not.toContain('backend entries need the runtime');
   });
 
   it('refuses unavailable entries with the reason instead of failing silently', async () => {
