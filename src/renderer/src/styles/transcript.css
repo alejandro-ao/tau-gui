@@ -12,6 +12,35 @@
   padding: var(--space-5) 0;
 }
 
+.pinned-user-message {
+  position: absolute;
+  z-index: 4;
+  top: 0;
+  right: var(--space-5);
+  left: var(--space-5);
+  max-height: min(35%, 12rem);
+  overflow: auto;
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  border-radius: 0 0 var(--radius) var(--radius);
+  background: var(--user-message-bg);
+  box-shadow: 0 var(--space-2) var(--space-3) color-mix(in srgb, var(--screen) 75%, transparent);
+}
+
+.pinned-user-label {
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.pinned-user-message pre {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
 .conversation-skeleton {
   display: flex;
   flex-direction: column;

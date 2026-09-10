@@ -33,6 +33,7 @@ interface Range {
 export function useVirtualWindow(
   ids: string[],
   viewport: RefObject<HTMLElement | null>,
+  anchorIndices: number[] = [],
 ): VirtualWindow {
   const count = ids.length;
   const heights = useRef(new Map<string, number>());
@@ -80,6 +81,15 @@ export function useVirtualWindow(
       end = count;
     }
 
+    // Keep the closest preceding anchor mounted. Transcript callers use user
+    // prompts as anchors so a prompt remains available while its response is
+    // being read, even after normal overscan would have removed it.
+    const anchor = anchorIndices.findLast((index) => index <= start);
+    if (anchor !== undefined && anchor < start) {
+      for (let index = anchor; index < start; index += 1) topPad -= heightAt(index);
+      start = anchor;
+    }
+
     let bottomPad = 0;
     for (let index = end; index < count; index += 1) {
       bottomPad += heightAt(index);
@@ -93,7 +103,7 @@ export function useVirtualWindow(
         ? previous
         : { start, end, topPad, bottomPad },
     );
-  }, [count, heightAt, viewport]);
+  }, [anchorIndices, count, heightAt, viewport]);
 
   useEffect(() => {
     recompute();

@@ -108,6 +108,51 @@ describe('transcript virtualization', () => {
   });
 });
 
+describe('sticky user prompt', () => {
+  it('tracks the prompt for the response being read in both scroll directions', async () => {
+    const { view, viewport, dispatch } = await renderTranscript(0);
+    await act(async () => {
+      dispatch({
+        type: 'localMessage',
+        block: { kind: 'user', id: 'user-1', text: 'first prompt', timestamp: 1 },
+      });
+      dispatch({ type: 'localMessage', block: assistant(1) });
+      dispatch({
+        type: 'localMessage',
+        block: { kind: 'user', id: 'user-2', text: 'second prompt', timestamp: 2 },
+      });
+      dispatch({ type: 'localMessage', block: assistant(2) });
+      await Promise.resolve();
+    });
+
+    setGeometry(viewport, { scrollTop: 0, clientHeight: 300, scrollHeight: 800 });
+    viewport.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const prompts = [...viewport.querySelectorAll<HTMLElement>('[data-user-group-index]')];
+    expect(prompts).toHaveLength(2);
+    const documentTops = [100, 500];
+    prompts.forEach((prompt, index) => {
+      prompt.getBoundingClientRect = () =>
+        ({ top: (documentTops[index] ?? 0) - viewport.scrollTop }) as DOMRect;
+    });
+
+    viewport.scrollTop = 250;
+    await scroll(viewport);
+    expect(query(view.container, '.pinned-user-message').textContent).toContain('first prompt');
+
+    viewport.scrollTop = 650;
+    await scroll(viewport);
+    expect(query(view.container, '.pinned-user-message').textContent).toContain('second prompt');
+
+    viewport.scrollTop = 250;
+    await scroll(viewport);
+    expect(query(view.container, '.pinned-user-message').textContent).toContain('first prompt');
+
+    viewport.scrollTop = 0;
+    await scroll(viewport);
+    expect(view.container.querySelector('.pinned-user-message')).toBeNull();
+  });
+});
+
 describe('transcript scroll anchoring', () => {
   it('suppresses autoscroll and offers a jump affordance when scrolled up', async () => {
     const { view, viewport, dispatch } = await renderTranscript(20);
