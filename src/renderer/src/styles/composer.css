@@ -216,7 +216,9 @@
 }
 
 .completion {
-  margin: 0 var(--space-5) var(--space-2);
+  /* Align with the reading column's text edges, same as the composer box. */
+  width: min(100% - 2 * var(--space-5), calc(var(--content-width) - 2 * var(--space-5)));
+  margin: 0 auto var(--space-2);
   max-height: 34vh;
   overflow-y: auto;
   background: var(--panel-alt);
