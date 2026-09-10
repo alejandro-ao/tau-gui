@@ -51,6 +51,7 @@
 - Inbound events are shape-checked in the preload before reaching React.
 - Introspection and reload responses are independently parsed in both main and preload. Requests accept no renderer payload beyond the existing session address, so the renderer cannot supply a path, prompt, schema, or loader option.
 - Authentication has separate strict actions for catalog/start/respond/cancel/logout. A prompt response is capped at 16,384 characters, accepted only for the exact active flow/prompt IDs, consumed once, and resolves to `null`; its value is never copied to an event, result, error, diagnostic, reducer action, or GUI setting.
+- Empty prompt responses are forwarded to Pi so providers can apply native defaults, such as GitHub Copilot's public GitHub domain. Reopening `/login` after switching to the command palette restores any active login; closing the login dialog cancels it.
 
 ## Embedded agent safety
 

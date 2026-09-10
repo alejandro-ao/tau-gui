@@ -324,6 +324,13 @@ describe('IPC request validation', () => {
   });
 
   it('bounds one-way auth responses and sanitized auth results', () => {
+    // Native providers may request an empty answer to select a default.
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: '' },
+      }).success,
+    ).toBe(true);
     expect(
       requestSchema.safeParse({
         action: 'auth.login.respond',

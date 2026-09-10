@@ -32,6 +32,12 @@ test('login and logout use Pi native credential storage through desktop pickers'
 
   const secretInput = login.locator('input[type="password"]');
   await expect(secretInput).toBeVisible();
+  await secretInput.press('ControlOrMeta+k');
+  const palette = page.getByTestId('modal-palette');
+  await expect(palette).toBeVisible();
+  await palette.locator('input').fill('/login');
+  await palette.locator('.picker-option').filter({ hasText: '/login' }).click();
+  await expect(secretInput).toBeVisible();
   await secretInput.fill('e2e-native-pi-key');
   await login.getByRole('button', { name: 'submit' }).click();
   await expect(login).toContainText('Saved API key for Anthropic');

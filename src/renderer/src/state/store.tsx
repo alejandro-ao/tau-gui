@@ -748,6 +748,13 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
         if (scopedOperationIsCurrent(operation)) dispatch({ type: 'modal', modal: 'reload' });
       },
       openLogin: async (providerRef) => {
+        // The palette can replace the login modal without ending its native
+        // interaction. Restore that flow before allowing another provider login.
+        const flow = stateRef.current.authFlow;
+        if (flow && (flow.status === 'running' || flow.status === 'prompt')) {
+          dispatch({ type: 'modal', modal: 'login' });
+          return;
+        }
         dispatch({ type: 'authFlow', flow: null });
         const providers = await attempt('auth.providers', undefined, notice);
         if (!providers) return;

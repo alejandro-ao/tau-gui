@@ -272,7 +272,7 @@ export const requestSchema = z.discriminatedUnion('action', [
         .object({
           flowId: z.string().min(1).max(128),
           promptId: z.string().min(1).max(128),
-          value: z.string().min(1).max(AUTH_LIMITS.responseCharacters),
+          value: z.string().max(AUTH_LIMITS.responseCharacters),
         })
         .strict(),
     })

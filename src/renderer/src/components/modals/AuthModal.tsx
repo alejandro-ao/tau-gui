@@ -56,7 +56,7 @@ function LoginFlow({ flow, onClose }: { flow: AuthFlow; onClose: () => void }): 
     if (!element || !prompt) return;
     const value = element.value;
     element.value = '';
-    if (value) void actions.respondLogin(flow.id, prompt.id, value);
+    void actions.respondLogin(flow.id, prompt.id, value);
   };
 
   return (
