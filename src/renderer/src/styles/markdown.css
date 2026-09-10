@@ -5,15 +5,15 @@
 
 /* Keep a bounded streaming tail visible long enough to read the arrival motion. */
 .stream-token {
-  animation: stream-token-arrive 300ms ease-out both;
+  animation: stream-token-arrive 160ms ease-out both;
   display: inline-block;
   will-change: opacity, transform;
 }
 
 @keyframes stream-token-arrive {
   from {
-    opacity: 0.2;
-    transform: translateY(3px);
+    opacity: 0.4;
+    transform: translateY(1px);
   }
 
   to {

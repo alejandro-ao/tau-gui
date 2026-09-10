@@ -13,5 +13,5 @@
 - Keep exact commands, arguments, output, and patches available through expansion.
 - Optimize for keyboard use without sacrificing mouse selection, scrolling, links, and native clipboard behavior.
 - Virtualize long transcripts without changing runtime context or durable history.
-- Reveal newly streamed assistant text with subtle motion; render each update immediately, animate only the bounded tail, and honor reduced-motion preferences.
+- Reveal newly streamed assistant text with quick, subtle motion; render each update immediately, animate only a short bounded tail, and honor reduced-motion preferences.
 - Treat `agent_settled`, not `agent_end`, as the transition to idle.

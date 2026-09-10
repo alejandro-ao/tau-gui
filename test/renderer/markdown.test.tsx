@@ -34,16 +34,14 @@ describe('streaming markdown', () => {
       await Promise.resolve();
     });
     expect(view.container.textContent).toBe('Hello, streamed');
-    expect(view.container.querySelector('.stream-token')?.textContent).toBe('Hello, streamed');
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe('lo, streamed');
 
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming />);
       await Promise.resolve();
     });
     expect(view.container.textContent).toBe('Hello, streamed output');
-    expect(view.container.querySelector('.stream-token')?.textContent).toBe(
-      'Hello, streamed output',
-    );
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe('eamed output');
 
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming={false} />);
@@ -51,7 +49,7 @@ describe('streaming markdown', () => {
     });
     expect(view.container.querySelector('.stream-token')).not.toBeNull();
 
-    await act(async () => vi.advanceTimersByTimeAsync(320));
+    await act(async () => vi.advanceTimersByTimeAsync(180));
     expect(view.container.querySelector('.stream-token')).toBeNull();
   });
 

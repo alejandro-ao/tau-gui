@@ -15,8 +15,8 @@ interface Reveal {
   revision: number;
 }
 
-const MAX_REVEAL_CHARACTERS = 24;
-const STREAM_REVEAL_SETTLE_MS = 320;
+const MAX_REVEAL_CHARACTERS = 12;
+const STREAM_REVEAL_SETTLE_MS = 180;
 
 /**
  * Renders every stream update immediately and keeps a short trailing reveal
