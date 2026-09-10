@@ -66,9 +66,15 @@ export function BlockView({
 
     case 'status':
       return (
-        <BlockFrame kind="status" label={block.tone === 'warn' ? 'warning' : 'status'}>
-          <p className="block-text">{block.text}</p>
-        </BlockFrame>
+        <article className="block-notice" data-tone={block.tone}>
+          <div className="notice-head">
+            <span className="notice-marker" aria-hidden="true">
+              {block.tone === 'warn' ? '!' : '·'}
+            </span>
+            <span>{block.tone === 'warn' ? 'warning' : 'status'}</span>
+          </div>
+          <p className="notice-text">{block.text}</p>
+        </article>
       );
 
     case 'error':

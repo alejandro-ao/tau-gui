@@ -367,11 +367,44 @@
   pointer-events: auto;
 }
 
-.block-status > .role-bar {
-  background: var(--role-status);
+/* System notices (status lines, warnings) are compact quiet rows rather than
+   blocks: no rail, a tone marker, and dim text aligned with error notices. */
+.block-notice {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3) calc(var(--bar-width) + var(--space-4));
+  color: var(--text-dim);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
 }
 
-.block-status .block-text {
+.block-notice .notice-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  line-height: inherit;
+}
+
+.notice-marker {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+}
+
+.block-notice .notice-text {
+  margin: 0;
+  color: inherit;
+  line-height: inherit;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
+.block-notice[data-tone='warn'] .notice-head {
   color: var(--role-status);
 }
 
@@ -379,12 +412,9 @@
   background: var(--role-skill);
 }
 
-.block-branch > .role-bar {
-  background: var(--role-branch);
-}
-
+.block-branch > .role-bar,
 .block-compaction > .role-bar {
-  background: var(--role-compaction);
+  background: transparent;
 }
 
 .block-tool[data-state='running'] > .role-bar {
