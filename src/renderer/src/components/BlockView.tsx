@@ -161,7 +161,9 @@ function ShellBlockView({ block }: { block: ShellBlock }): ReactNode {
             {state === 'running' ? '◐' : state === 'error' ? '✕' : '●'}
           </span>
           <span className="block-label">shell</span>
-          {block.excludeFromContext ? <span className="shell-flag">excluded from context</span> : null}
+          <span className="shell-context" data-included={!block.excludeFromContext}>
+            {block.excludeFromContext ? 'not in context' : 'in context'}
+          </span>
           {block.running ? (
             <span className="tool-elapsed">{elapsed}s</span>
           ) : block.exitCode !== null ? (

@@ -822,8 +822,22 @@
   color: var(--tool-failure);
 }
 
-.shell-flag {
+/* Context-membership pill, following the picker/completion badge grammar.
+   Commands kept from the model stay quiet; excluded ones ("!!") get the
+   status tint so the exception is visible at a glance. */
+.shell-context {
+  flex: 0 0 auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
   color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  line-height: 1.4;
+  padding: 0 4px;
+}
+
+.shell-context[data-included='false'] {
+  border-color: color-mix(in srgb, var(--role-status) 55%, transparent);
+  color: var(--role-status);
 }
 
 .shell-exit {
