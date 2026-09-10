@@ -124,6 +124,10 @@ export class RuntimePool {
     return this.queues.pop(this.queueTarget(target).target);
   }
 
+  removePrompt(id: string, target?: SessionTarget | null): boolean {
+    return this.queues.remove(this.queueTarget(target).target, id);
+  }
+
   resolvePromptRecall(
     id: string,
     outcome: 'accept' | 'restore',
@@ -689,7 +693,7 @@ export class RuntimePool {
     ) {
       return;
     }
-    await this.queues.dispatchNext(target, async (text) => {
+    const dispatched = await this.queues.dispatchNext(target, async (text) => {
       const claimed = this.claimWorkStart(manager);
       try {
         await manager.active.prompt({ text });
@@ -702,6 +706,11 @@ export class RuntimePool {
         claimed.release();
       }
     });
+    // Embedded runtimes may resolve prompt() only after emitting their settle
+    // boundary. That boundary's scheduler sees dispatchNext() still in flight
+    // and yields. Re-request once the handoff unwinds so a remaining item does
+    // not wait forever for another lifecycle event.
+    if (dispatched && this.queues.hasPending(target)) this.requestSchedule(manager);
   }
 
   private claimWorkStart(manager: RuntimeManager): WorkClaim {

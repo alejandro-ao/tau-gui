@@ -7,10 +7,11 @@ import { useStore } from '../state/store.js';
  * per-tool markers can stay static.
  */
 export function PromptSlot(): ReactNode {
-  const { state } = useStore();
+  const { state, actions } = useStore();
   const running = isRunning(state);
   const status = state.snapshot.status;
   const queued = [...state.queue.steering, ...state.queue.followUp];
+  const latestQueued = state.queue.followUp.at(-1) ?? state.queue.steering.at(-1);
 
   return (
     <div className="prompt-slot" data-testid="prompt-slot">
@@ -24,16 +25,40 @@ export function PromptSlot(): ReactNode {
         <span className="faint">{status === 'idle' ? 'idle' : status}</span>
       )}
       {queued.length > 0 ? (
-        <div className="queued-messages" aria-label="Queued messages">
-          {queued.map((entry) => (
-            <div key={entry.id} className="queued-message" data-kind={entry.kind}>
-              {entry.kind}: {entry.text}
-            </div>
-          ))}
-        </div>
+        <section className="queued-messages" aria-label="Queued messages">
+          <ol className="queued-message-list">
+            {queued.map((entry) => (
+              <li
+                key={entry.id}
+                className="queued-message"
+                data-kind={entry.kind}
+                data-latest={entry.id === latestQueued?.id}
+                title={entry.text}
+              >
+                <span className="queued-message-preview">{firstLine(entry.text)}</span>
+                <span className="queued-message-label">
+                  {entry.kind === 'follow-up' ? 'follow up' : 'steering'}
+                </span>
+                <button
+                  type="button"
+                  className="queued-message-remove"
+                  aria-label={`Remove queued ${entry.kind} prompt`}
+                  title="Remove from queue"
+                  onClick={() => void actions.removeQueued(entry.id)}
+                >
+                  ×
+                </button>
+              </li>
+            ))}
+          </ol>
+        </section>
       ) : null}
     </div>
   );
+}
+
+function firstLine(text: string): string {
+  return text.split(/\r?\n/, 1)[0] ?? '';
 }
 
 function activityAriaLabel(status: string): string {

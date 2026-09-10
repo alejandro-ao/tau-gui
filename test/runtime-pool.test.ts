@@ -243,6 +243,58 @@ describe('RuntimePool', () => {
     ).toEqual(['slow initial', 'priority first', 'follow second']);
   });
 
+  it('keeps draining when an embedded prompt resolves after its settle boundary', async () => {
+    const settings = makeSettings();
+    pool = new RuntimePool(settings, () => undefined);
+    await pool.start();
+    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+    let resolveFirst: (() => void) | undefined;
+    const prompt = vi
+      .spyOn(pool.active, 'prompt')
+      .mockImplementationOnce(() => new Promise<void>((resolve) => (resolveFirst = resolve)))
+      .mockResolvedValue(undefined);
+    const internals = pool as unknown as { managers: Set<RuntimeManager> };
+    const manager = [...internals.managers][0]!;
+    const emit = (event: AgentEvent): void => {
+      (
+        manager as unknown as {
+          handleEvent: (event: AgentEvent) => void;
+        }
+      ).handleEvent(event);
+    };
+    const settleRun = (): void => {
+      emit({ type: 'agent_start' });
+      emit({ type: 'turn_start' });
+      emit({ type: 'turn_end' });
+      emit({ type: 'agent_end', willRetry: false });
+      emit({ type: 'agent_settled' });
+    };
+
+    emit({ type: 'agent_start' });
+    pool.enqueuePrompt('steering', 'priority first', target);
+    pool.enqueuePrompt('follow-up', 'follow second', target);
+    emit({ type: 'turn_start' });
+    emit({ type: 'turn_end' });
+    emit({ type: 'agent_end', willRetry: false });
+    emit({ type: 'agent_settled' });
+    await waitFor(() => prompt.mock.calls.length === 1);
+
+    // Pi's prompt promise can remain pending while its synchronous event stream
+    // announces that this queued run has already settled.
+    settleRun();
+    await Promise.resolve();
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(pool.queueSnapshot(target).followUp.map((item) => item.text)).toEqual(['follow second']);
+
+    resolveFirst?.();
+    await waitFor(() => prompt.mock.calls.length === 2);
+    expect(prompt.mock.calls.map(([request]) => request.text)).toEqual([
+      'priority first',
+      'follow second',
+    ]);
+    expect(pool.queueSnapshot(target).followUp).toEqual([]);
+  });
+
   it('ignores a delayed duplicate settle after the next queued run starts', async () => {
     const settings = makeSettings();
     pool = new RuntimePool(settings, () => undefined);

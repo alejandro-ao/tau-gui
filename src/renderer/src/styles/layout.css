@@ -43,8 +43,9 @@
 /* Prompt-adjacent slot: activity, queued messages and new-output affordance. */
 .prompt-slot {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: stretch;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-5);
   min-height: 20px;
@@ -60,24 +61,101 @@
 }
 
 .queued-messages {
+  overflow: hidden;
+  width: 100%;
+  background: rgba(105, 112, 121, 0.16);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: var(--radius);
+  color: #ffffff;
+  backdrop-filter: blur(12px) saturate(75%);
+}
+
+:root[data-theme='tau-light'] .queued-messages {
+  background: rgba(48, 53, 60, 0.82);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+.queued-message-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-width: min(100%, 60ch);
+  max-height: min(26vh, 208px);
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  overflow-y: auto;
+  list-style: none;
 }
 
 .queued-message {
+  display: flex;
+  flex: 0 0 28px;
+  align-items: center;
+  gap: var(--space-4);
+  height: 28px;
+  padding: var(--space-2) var(--space-1);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.queued-message + .queued-message {
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.queued-message[data-latest='true'] {
+  color: #ffffff;
+}
+
+.queued-message-preview {
+  min-width: 0;
+  flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.queued-message[data-kind='steering'] {
-  color: var(--accent);
+.queued-message-label {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  line-height: 1.1;
+  text-transform: lowercase;
 }
 
-.queued-message[data-kind='follow-up'] {
-  color: var(--role-status);
+.queued-message-remove {
+  display: inline-grid;
+  flex: 0 0 18px;
+  width: 18px;
+  height: 18px;
+  margin-left: calc(-1 * var(--space-2));
+  padding: 0;
+  place-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 50%;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0;
+  transition:
+    opacity 100ms ease,
+    background-color 100ms ease,
+    color 100ms ease;
+}
+
+.queued-message:hover .queued-message-remove,
+.queued-message-remove:focus-visible {
+  opacity: 1;
+}
+
+.queued-message-remove:hover,
+.queued-message-remove:focus-visible {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+  outline: none;
 }
 
 .status-row {

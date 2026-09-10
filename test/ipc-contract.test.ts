@@ -45,6 +45,9 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'queue.snapshot' }).success).toBe(true);
     expect(requestSchema.safeParse({ action: 'queue.pop' }).success).toBe(true);
     expect(
+      requestSchema.safeParse({ action: 'queue.remove', payload: { id: 'prompt-1' } }).success,
+    ).toBe(true);
+    expect(
       requestSchema.safeParse({
         action: 'queue.resolve',
         payload: { id: 'prompt-1', outcome: 'restore' },
@@ -326,6 +329,9 @@ describe('IPC request validation', () => {
     expect(
       requestSchema.safeParse({ action: 'queue.pop', payload: { id: 'forged' } }).success,
     ).toBe(false);
+    expect(requestSchema.safeParse({ action: 'queue.remove', payload: { id: '' } }).success).toBe(
+      false,
+    );
     expect(
       requestSchema.safeParse({
         action: 'queue.resolve',

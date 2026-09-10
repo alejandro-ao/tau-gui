@@ -183,6 +183,10 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('queue.snapshot') }).strict(),
   z.object({ action: z.literal('queue.pop') }).strict(),
   z.object({
+    action: z.literal('queue.remove'),
+    payload: z.object({ id: z.string().min(1) }).strict(),
+  }),
+  z.object({
     action: z.literal('queue.resolve'),
     payload: z.object({
       id: z.string().min(1),
@@ -349,6 +353,7 @@ export interface IpcResultMap {
   'agent.followUp': null;
   'queue.snapshot': PromptQueueSnapshot;
   'queue.pop': PromptQueueItem | null;
+  'queue.remove': boolean;
   'queue.resolve': boolean;
   'agent.abort': null;
   'agent.state': AgentState;
