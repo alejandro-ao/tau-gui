@@ -39,6 +39,7 @@ export function useCompletion(
   const [index, setIndex] = useState(0);
   const [dismissedFor, setDismissedFor] = useState<string | null>(null);
   const [paths, setPaths] = useState<FileCompletion[]>([]);
+  const selectedFor = useRef<string | null>(null);
   const selectedId = useRef<string | null>(null);
 
   const slash = slashQuery(draft, cursor);
@@ -143,8 +144,16 @@ export function useCompletion(
   const kind: 'slash' | 'path' | null =
     dismissed || items.length === 0 ? null : slash !== null ? 'slash' : path ? 'path' : null;
 
-  // Selection is kept by id so async refreshes do not move the highlight.
+  // A refined query gets a newly ranked list and therefore starts at its top
+  // match. Within one query, selection is kept by id so async refreshes do not
+  // move the highlight.
   useEffect(() => {
+    if (selectedFor.current !== token) {
+      selectedFor.current = token;
+      selectedId.current = items[0]?.id ?? null;
+      if (index !== 0) setIndex(0);
+      return;
+    }
     const current = selectedId.current;
     const found = current === null ? -1 : items.findIndex((item) => item.id === current);
     if (found >= 0) {
@@ -153,7 +162,7 @@ export function useCompletion(
     }
     if (index !== 0) setIndex(0);
     selectedId.current = items[0]?.id ?? null;
-  }, [items, index]);
+  }, [items, index, token]);
 
   const select = useCallback(
     (next: number) => {

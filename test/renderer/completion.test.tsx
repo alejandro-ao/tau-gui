@@ -48,6 +48,14 @@ describe('slash command completion', () => {
     expect(texts(view.container, '.completion-label')).toContain('/review');
   });
 
+  it('selects the top match as the slash query is refined', async () => {
+    const { view, input } = await open();
+    for (const value of ['/', '/t', '/tr', '/tre', '/tree']) await type(input, value);
+
+    expect(texts(view.container, '.completion-label')[0]).toBe('/tree');
+    expect(selectedOption(view.container)).toContain('/tree');
+  });
+
   it('navigates with Up/Down and accepts with Enter', async () => {
     const { view, input } = await open();
     await type(input, '/s');
