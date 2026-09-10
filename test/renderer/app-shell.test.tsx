@@ -213,7 +213,7 @@ describe('app shell', () => {
     expect(view.container.querySelector('textarea')).not.toBeNull();
   });
 
-  it('stacks queued steering and follow-ups plainly above the composer', async () => {
+  it('stacks polished one-line previews with labels above the composer', async () => {
     const bridge = installFakeBridge({
       status: 'running',
       capabilities: { steering: true },
@@ -235,20 +235,28 @@ describe('app shell', () => {
         snapshot: {
           runtime: 'tau',
           sessionId: AGENT.sessionId,
-          steering: [{ id: 'prompt-1', kind: 'steering', text: 'use vitest' }],
-          followUp: [{ id: 'prompt-2', kind: 'follow-up', text: 'then lint' }],
+          steering: [
+            { id: 'prompt-1', kind: 'steering', text: 'use vitest\ndo not show this line' },
+            { id: 'prompt-2', kind: 'steering', text: 'keep the output concise' },
+          ],
+          followUp: [{ id: 'prompt-3', kind: 'follow-up', text: 'then lint' }],
         },
       });
       await Promise.resolve();
     });
 
     const queue = query(view.container, '.queued-messages');
-    expect(texts(queue, '.queued-message')).toEqual([
-      'steering: use vitest',
-      'follow-up: then lint',
+    expect(texts(queue, '.queued-message-preview')).toEqual([
+      'use vitest',
+      'keep the output concise',
+      'then lint',
     ]);
-    expect(Array.from(queue.children).every((item) => item.tagName === 'DIV')).toBe(true);
-    expect(queue.querySelector('.chip')).toBeNull();
+    expect(texts(queue, '.queued-message-label')).toEqual(['steering', 'steering', 'follow up']);
+    expect(queue.textContent).not.toContain('do not show this line');
+    expect(query(queue, '.queued-count').textContent).toBe('3');
+    expect(query(queue, '.queued-edit-hint').textContent).toContain('edit latest');
+    expect(queue.querySelectorAll('li.queued-message')).toHaveLength(3);
+    expect(query(queue, '[data-latest="true"]').textContent).toContain('then lint');
     expect(query(view.container, '.prompt-slot').nextElementSibling?.classList).toContain(
       'composer-shell',
     );

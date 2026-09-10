@@ -26,11 +26,27 @@ test('popped follow-up is removed and edited text runs only after explicit resub
 
   await typeDraft(page, 'priority first');
   await composer(page).press('Enter');
+  await typeDraft(page, 'priority second\nhidden preview detail');
+  await composer(page).press('Enter');
   await typeDraft(page, 'remove this follow-up');
   await composer(page).press('Alt+Enter');
-  await expect(
-    page.getByTestId('prompt-slot').locator('.queued-message[data-kind="follow-up"]'),
-  ).toContainText('remove this follow-up');
+
+  const queue = page.getByTestId('prompt-slot').locator('.queued-messages');
+  await expect(queue.locator('.queued-message')).toHaveCount(3);
+  await expect(queue.locator('.queued-message-preview')).toHaveText([
+    'priority first',
+    'priority second',
+    'remove this follow-up',
+  ]);
+  await expect(queue.locator('.queued-message-label')).toHaveText([
+    'steering',
+    'steering',
+    'follow up',
+  ]);
+  await expect(queue).not.toContainText('hidden preview detail');
+  await expect(queue.locator('.queued-message[data-latest="true"]')).toContainText(
+    'remove this follow-up',
+  );
 
   // Empty-composer Up performs an atomic main-process pop, not a visual copy.
   await composer(page).press('ArrowUp');
@@ -46,11 +62,12 @@ test('popped follow-up is removed and edited text runs only after explicit resub
 
   // Steering-priority FIFO drains as fresh prompts after each settled turn.
   await expect(page.locator('.block-user', { hasText: 'priority first' })).toBeVisible();
+  await expect(page.locator('.block-user', { hasText: 'priority second' })).toBeVisible();
   await expect(page.locator('.block-user', { hasText: 'edited and requeued' })).toBeVisible();
   await waitForSettled(page);
 
   const text = await transcript(page).innerText();
   expect(text).not.toContain('remove this follow-up');
-  await expect(page.locator('.block-user')).toHaveCount(3);
+  await expect(page.locator('.block-user')).toHaveCount(4);
   await expect(page.getByTestId('prompt-slot').locator('.queued-message')).toHaveCount(0);
 });
