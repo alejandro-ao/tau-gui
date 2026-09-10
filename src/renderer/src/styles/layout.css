@@ -43,6 +43,7 @@
 /* Prompt-adjacent slot: activity, queued messages and new-output affordance. */
 .prompt-slot {
   display: flex;
+  flex: 0 0 auto;
   flex-direction: column;
   align-items: stretch;
   gap: var(--space-2);
@@ -86,9 +87,10 @@
 
 .queued-message {
   display: flex;
+  flex: 0 0 28px;
   align-items: center;
   gap: var(--space-4);
-  min-height: 28px;
+  height: 28px;
   padding: var(--space-2) var(--space-1);
   color: rgba(255, 255, 255, 0.92);
 }
@@ -111,11 +113,14 @@
 
 .queued-message-label {
   flex: 0 0 auto;
-  color: rgba(255, 255, 255, 0.48);
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.58);
   font-size: 9px;
   font-weight: 500;
   letter-spacing: 0.025em;
-  line-height: 1;
+  line-height: 1.1;
   text-transform: lowercase;
 }
 

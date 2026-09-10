@@ -47,6 +47,14 @@ test('popped follow-up is removed and edited text runs only after explicit resub
   await expect(queue.locator('.queued-message[data-latest="true"]')).toContainText(
     'remove this follow-up',
   );
+  const rows = queue.locator('.queued-message');
+  const rowBounds = await Promise.all([0, 1, 2].map((index) => rows.nth(index).boundingBox()));
+  expect(rowBounds.every((bounds) => bounds?.height === rowBounds[0]?.height)).toBe(true);
+  const queueBounds = await queue.boundingBox();
+  const composerBounds = await page.locator('.composer').boundingBox();
+  expect(queueBounds).not.toBeNull();
+  expect(composerBounds).not.toBeNull();
+  expect(queueBounds!.y + queueBounds!.height).toBeLessThanOrEqual(composerBounds!.y);
 
   // Empty-composer Up performs an atomic main-process pop, not a visual copy.
   await composer(page).press('ArrowUp');
