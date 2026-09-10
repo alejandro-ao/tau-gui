@@ -298,6 +298,40 @@
   line-height: 1.2;
 }
 
+.tool-run-settled .tool-run-header {
+  animation: tool-run-summary-in 180ms ease-out both;
+}
+
+.tool-run-feed {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+
+.tool-run-feed-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.tool-run-collapsing {
+  transform-origin: top;
+  animation: tool-run-minimize 180ms ease-in both;
+}
+
+@keyframes tool-run-minimize {
+  to {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transform: scaleY(0.92);
+  }
+}
+
+@keyframes tool-run-summary-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
 .tool-run-header,
 .tool-run-item,
 .tool-cluster-path {

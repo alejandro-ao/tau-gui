@@ -96,7 +96,9 @@ textarea:focus-visible {
 
 /* One run-wide activity animation; per-tool markers stay static. */
 @media (prefers-reduced-motion: reduce) {
-  .activity-spinner-frame {
+  .activity-spinner-frame,
+  .tool-run-settled .tool-run-header,
+  .tool-run-collapsing {
     animation: none;
   }
 

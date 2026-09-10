@@ -4,7 +4,9 @@ import { launchApp, submitPrompt, waitForSettled, type AppHandle } from './helpe
 let handle: AppHandle;
 
 test.beforeEach(async () => {
-  handle = await launchApp();
+  // Keep the closing response observable long enough to verify the handoff
+  // from live tool activity to the compact summary.
+  handle = await launchApp({ env: { FAKE_RUNTIME_DELAY_MS: '250' } });
 });
 
 test.afterEach(async () => {
@@ -14,10 +16,18 @@ test.afterEach(async () => {
 test('tool blocks render with success state and reveal details on expansion', async () => {
   const { page } = handle;
   await submitPrompt(page, 'use a tool to inspect the project');
+
+  // Collapse as soon as the closing response begins, without waiting for the
+  // runtime to settle or for the rest of the response to finish streaming.
+  const answer = page.locator('.block-assistant').filter({ hasText: 'Done:' });
+  await expect(answer.locator('.streaming-caret')).toBeVisible();
+  const summary = page.locator('.tool-run-header').last();
+  await expect(summary).toContainText('Worked for');
+  await expect(summary).toHaveCSS('animation-name', 'tool-run-summary-in');
+
   await waitForSettled(page);
 
-  // Settled calls collapse into one turn summary after the final answer.
-  const summary = page.locator('.tool-run-header').last();
+  // The summary remains available after the final answer completes.
   await expect(summary).toContainText('Worked for');
   await expect(page.locator('.block-tool')).toHaveCount(0);
 

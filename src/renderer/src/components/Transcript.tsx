@@ -79,12 +79,13 @@ export function Transcript(): ReactNode {
                     blocks={group.blocks}
                     activity={group.activity}
                     turnStartedAt={group.startedAt}
+                    turnEndedAt={group.endedAt}
                     expanded={expandedFor(`run-${group.user.id}`)}
                     onToggle={() => toggle(`run-${group.user.id}`)}
                     isBlockExpanded={expandedFor}
                     onToggleBlock={toggle}
-                    settled={false}
-                    nested
+                    settled={group.settled}
+                    nested={!group.settled}
                   />
                 </>
               ) : group.kind === 'tools' ? (
