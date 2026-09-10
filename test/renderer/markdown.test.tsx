@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act } from 'react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { installFakeBridge, mount, type FakeBridge, type Mounted } from './harness.js';
 import { click } from './ui.js';
 
@@ -9,7 +9,6 @@ let mounted: Mounted | null = null;
 afterEach(() => {
   mounted?.unmount();
   mounted = null;
-  vi.unstubAllGlobals();
 });
 
 async function renderMarkdown(text: string): Promise<{ view: Mounted; bridge: FakeBridge }> {
@@ -22,14 +21,7 @@ async function renderMarkdown(text: string): Promise<{ view: Mounted; bridge: Fa
 }
 
 describe('streaming markdown', () => {
-  it('coalesces updates to one animation frame and reveals only the appended tail', async () => {
-    let renderFrame: FrameRequestCallback | null = null;
-    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
-      renderFrame = callback;
-      return 1;
-    });
-    vi.stubGlobal('cancelAnimationFrame', vi.fn());
-
+  it('renders every update immediately and reveals only its appended tail', async () => {
     const { StreamingMarkdown } = await import('../../src/renderer/src/markdown.js');
     const view = await mount(<StreamingMarkdown text="Hello" streaming />);
     mounted = view;
@@ -39,20 +31,15 @@ describe('streaming markdown', () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed" streaming />);
       await Promise.resolve();
     });
+    expect(view.container.textContent).toBe('Hello, streamed');
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe(', streamed');
+
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming />);
       await Promise.resolve();
     });
-
-    expect(view.container.textContent).toBe('Hello');
-    expect(renderFrame).not.toBeNull();
-    act(() => {
-      const callback = renderFrame as FrameRequestCallback;
-      callback(16);
-    });
-
     expect(view.container.textContent).toBe('Hello, streamed output');
-    expect(view.container.querySelector('.stream-token')?.textContent).toBe(', streamed output');
+    expect(view.container.querySelector('.stream-token')?.textContent).toBe(' output');
 
     await act(async () => {
       view.root.render(<StreamingMarkdown text="Hello, streamed output" streaming={false} />);

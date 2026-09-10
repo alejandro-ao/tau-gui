@@ -1,6 +1,6 @@
 import hljs from 'highlight.js/lib/common';
 import { marked, type Token, type Tokens } from 'marked';
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { invoke } from './bridge.js';
 
 /**
@@ -15,18 +15,12 @@ interface Reveal {
   revision: number;
 }
 
-interface RenderedStream {
-  text: string;
-  revealCharacters: number;
-  revision: number;
-}
-
 const MAX_REVEAL_CHARACTERS = 24;
 
 /**
- * Batches rapidly arriving stream updates to one paint and animates only the
- * newly appended tail. The complete text still goes through the safe Markdown
- * renderer, so formatting can settle incrementally without a second layout.
+ * Renders every stream update immediately and marks only its newly appended
+ * tail for animation. The runtime supplies cumulative text rather than DOM
+ * tokens, so the Markdown renderer adds the one transient wrapper CSS needs.
  */
 export function StreamingMarkdown({
   text,
@@ -35,57 +29,23 @@ export function StreamingMarkdown({
   text: string;
   streaming: boolean;
 }): ReactNode {
-  const latestText = useRef(text);
-  latestText.current = text;
-  const frameId = useRef<number | null>(null);
-  const [rendered, setRendered] = useState<RenderedStream>(() => ({
-    text,
-    revealCharacters: streaming ? Math.min(text.length, MAX_REVEAL_CHARACTERS) : 0,
-    revision: 0,
-  }));
+  const previousText = useRef('');
+  const appended =
+    streaming && text.startsWith(previousText.current)
+      ? text.length - previousText.current.length
+      : 0;
 
-  useEffect(() => {
-    if (!streaming) {
-      if (frameId.current !== null) cancelRenderFrame(frameId.current);
-      frameId.current = null;
-      setRendered((previous) =>
-        previous.text === text && previous.revealCharacters === 0
-          ? previous
-          : { text, revealCharacters: 0, revision: previous.revision + 1 },
-      );
-      return;
-    }
-
-    if (frameId.current !== null) return;
-    frameId.current = requestRenderFrame(() => {
-      frameId.current = null;
-      setRendered((previous) => {
-        const nextText = latestText.current;
-        if (nextText === previous.text) return previous;
-        const appended = nextText.startsWith(previous.text)
-          ? nextText.length - previous.text.length
-          : 0;
-        return {
-          text: nextText,
-          revealCharacters: Math.min(appended, MAX_REVEAL_CHARACTERS),
-          revision: previous.revision + 1,
-        };
-      });
-    });
-  }, [streaming, text]);
-
-  useEffect(
-    () => () => {
-      if (frameId.current !== null) cancelRenderFrame(frameId.current);
-    },
-    [],
-  );
+  // Advance the baseline only after this text is committed. This keeps render
+  // retries safe and makes a skipped React render reveal the aggregate suffix.
+  useLayoutEffect(() => {
+    previousText.current = text;
+  }, [text]);
 
   return (
     <Markdown
-      text={rendered.text}
-      revealCharacters={rendered.revealCharacters}
-      revealRevision={rendered.revision}
+      text={text}
+      revealCharacters={Math.min(appended, MAX_REVEAL_CHARACTERS)}
+      revealRevision={text.length}
     />
   );
 }
@@ -308,17 +268,6 @@ function revealText(text: string, reveal?: Reveal): ReactNode {
 
 function discardReveal(reveal?: Reveal): void {
   if (reveal) reveal.remaining = 0;
-}
-
-function requestRenderFrame(callback: FrameRequestCallback): number {
-  return typeof window.requestAnimationFrame === 'function'
-    ? window.requestAnimationFrame(callback)
-    : window.setTimeout(() => callback(performance.now()), 16);
-}
-
-function cancelRenderFrame(id: number): void {
-  if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(id);
-  else window.clearTimeout(id);
 }
 
 const ALLOWED_SCHEMES = new Set(['http:', 'https:', 'mailto:']);

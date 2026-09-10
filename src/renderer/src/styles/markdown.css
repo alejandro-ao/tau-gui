@@ -3,7 +3,7 @@
   overflow-wrap: anywhere;
 }
 
-/* Only the newest frame-batched stream tail gets a short compositor animation. */
+/* Only the newest streamed text tail gets a short compositor animation. */
 .stream-token {
   animation: stream-token-arrive 120ms ease-out both;
   display: inline-block;
