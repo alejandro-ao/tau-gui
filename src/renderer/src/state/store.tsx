@@ -51,6 +51,7 @@ export interface Actions {
   steer: (text: string) => Promise<void>;
   followUp: (text: string) => Promise<void>;
   popQueued: () => Promise<QueueRecall | null>;
+  removeQueued: (id: string) => Promise<void>;
   abort: () => Promise<void>;
   runShell: (command: string, excludeFromContext: boolean) => Promise<void>;
   setModel: (ref: ModelRef) => Promise<void>;
@@ -427,6 +428,12 @@ export function StoreProvider({ children }: { children: ReactNode }): ReactNode 
             await attempt('queue.resolve', { id: item.id, outcome }, notice, target);
           },
         };
+      },
+      removeQueued: async (id) => {
+        if (stateRef.current.sessionTransitioning) return;
+        const target = viewed();
+        if (!target) return;
+        await attempt('queue.remove', { id }, notice, target);
       },
       abort: async () => {
         await attempt('agent.abort', undefined, notice, viewed());

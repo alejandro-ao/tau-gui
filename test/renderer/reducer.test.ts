@@ -314,7 +314,7 @@ describe('tools', () => {
     expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(4);
   });
 
-  it('shows tools below the prompt until the final answer has finished', () => {
+  it('collapses tools as soon as the final answer starts streaming', () => {
     const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
     const answer: TranscriptBlock = {
       kind: 'assistant',
@@ -329,13 +329,13 @@ describe('tools', () => {
     ]).blocks[0];
     if (!tool) throw new Error('expected tool');
 
-    expect(groupBlocks([user, tool, answer]).map((group) => group.kind)).toEqual([
-      'user-tools',
-      'single',
-    ]);
-    expect(
-      groupBlocks([user, tool, { ...answer, streaming: false }]).map((group) => group.kind),
-    ).toEqual(['single', 'tools', 'single']);
+    const streaming = groupBlocks([user, tool, answer]);
+    expect(streaming.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: true });
+
+    const finished = groupBlocks([user, tool, { ...answer, streaming: false }]);
+    expect(finished.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    expect(finished[0]).toMatchObject({ kind: 'user-tools', settled: true });
   });
 
   it('interleaves thinking with tools in the turn activity feed', () => {
@@ -439,9 +439,9 @@ describe('answer selection', () => {
       message('answer', 'Everything passes.', 5),
     ]);
 
-    expect(groups.map((group) => group.kind)).toEqual(['single', 'tools', 'single']);
-    const feed = groups[1];
-    expect(feed?.kind === 'tools' && feed.activity.map((entry) => entry.id)).toEqual([
+    expect(groups.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    const feed = groups[0];
+    expect(feed?.kind === 'user-tools' && feed.activity.map((entry) => entry.id)).toEqual([
       't1',
       'n1',
       first.id,
@@ -449,7 +449,7 @@ describe('answer selection', () => {
       'n2',
       second.id,
     ]);
-    expect(groups[2]).toMatchObject({ kind: 'single', block: { id: 'answer' } });
+    expect(groups[1]).toMatchObject({ kind: 'single', block: { id: 'answer' } });
   });
 
   it('collapses a reasoning turn that never called a tool', () => {
@@ -459,11 +459,11 @@ describe('answer selection', () => {
       message('a', 'Answer.', 2),
     ]);
 
-    expect(groups.map((group) => group.kind)).toEqual(['single', 'tools', 'single']);
-    const feed = groups[1];
-    expect(feed?.kind === 'tools' && feed.blocks).toHaveLength(0);
-    expect(feed?.kind === 'tools' && feed.activity.map((entry) => entry.id)).toEqual(['t1']);
-    expect(feed?.kind === 'tools' && feed.id).toBe('t1');
+    expect(groups.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    const feed = groups[0];
+    expect(feed?.kind === 'user-tools' && feed.blocks).toHaveLength(0);
+    expect(feed?.kind === 'user-tools' && feed.activity.map((entry) => entry.id)).toEqual(['t1']);
+    expect(feed?.kind === 'user-tools' && feed.id).toBe('t1');
   });
 
   it('leaves a plain answer standalone and keeps a streaming answer out of the rail', () => {
@@ -478,6 +478,7 @@ describe('answer selection', () => {
       { ...message('a', 'Partial', 2), streaming: true } as TranscriptBlock,
     ]);
     expect(streaming.map((group) => group.kind)).toEqual(['user-tools', 'single']);
+    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: true });
     expect(streaming[1]).toMatchObject({ block: { id: 'a', streaming: true } });
   });
 

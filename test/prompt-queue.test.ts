@@ -57,6 +57,20 @@ describe('PromptQueueService', () => {
     expect(queue.pop(beta)?.text).toBe('beta-only');
   });
 
+  it('removes an exact queued item without disturbing duplicates or other sessions', () => {
+    const { queue } = setup();
+    const first = queue.enqueue(alpha, 'steering', 'duplicate');
+    const removed = queue.enqueue(alpha, 'steering', 'duplicate');
+    const followUp = queue.enqueue(alpha, 'follow-up', 'later');
+    queue.enqueue(beta, 'steering', 'duplicate');
+
+    expect(queue.remove(alpha, removed.id)).toBe(true);
+    expect(queue.remove(alpha, removed.id)).toBe(false);
+    expect(queue.snapshot(alpha).steering).toEqual([first]);
+    expect(queue.snapshot(alpha).followUp).toEqual([followUp]);
+    expect(queue.snapshot(beta).steering).toHaveLength(1);
+  });
+
   it('restores the exact claimed duplicate in enqueue order and session', () => {
     const { queue } = setup();
     const first = queue.enqueue(alpha, 'follow-up', 'duplicate');

@@ -2,7 +2,7 @@
 
 - Preserve Tau's transcript-first design: no conventional permanent header or shortcut footer.
 - Keep the multiline composer at the bottom and the session sidebar on the right by default.
-- Use vertical role bars rather than boxed chat bubbles.
+- Use vertical role bars rather than boxed chat bubbles; render errors as compact inline notices so they do not compete with conversation turns.
 - Use Tau's dark, light, and high-contrast palettes, plus a true-black theme with subtly differentiated user turns.
 - Render tool activity semantically: orange running, green success, red failure.
 - Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.

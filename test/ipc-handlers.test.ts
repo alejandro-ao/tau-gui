@@ -59,6 +59,7 @@ interface Calls {
   entries: (string | undefined)[];
   queued: { kind: string; text: string; target: unknown }[];
   popped: number;
+  removed: { id: string; target: unknown }[];
   resolved: { id: string; outcome: string; target: unknown }[];
   openedDirectories: string[];
   prompts: { text: string; target: unknown }[];
@@ -81,6 +82,7 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
     entries: [],
     queued: [],
     popped: 0,
+    removed: [],
     resolved: [],
     openedDirectories: [],
     prompts: [],
@@ -184,6 +186,10 @@ function makeContext(settingsPatch: Partial<AppSettings> = {}): {
       popPrompt: () => {
         calls.popped += 1;
         return { id: 'prompt-1', kind: 'follow-up', text: 'edit me' };
+      },
+      removePrompt: (id: string, target: unknown) => {
+        calls.removed.push({ id, target });
+        return true;
       },
       resolvePromptRecall: (id: string, outcome: string, target: unknown) => {
         calls.resolved.push({ id, outcome, target });
@@ -464,6 +470,14 @@ describe('capability-gated and adapter-contract actions', () => {
       text: 'edit me',
     });
     expect(calls.popped).toBe(1);
+    expect(
+      await handleRequest(context, {
+        action: 'queue.remove',
+        payload: { id: 'prompt-2' },
+        session,
+      }),
+    ).toBe(true);
+    expect(calls.removed).toEqual([{ id: 'prompt-2', target: session }]);
     expect(
       await handleRequest(context, {
         action: 'queue.resolve',

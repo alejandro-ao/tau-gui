@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import type { AssistantBlock, ThinkingBlock, ToolBlock, ToolState } from '../state/types.js';
+import { AnimatedCollapse } from './AnimatedCollapse.js';
 import { ToolBlockView } from './ToolBlockView.js';
 import { toolIntent, toolPaths } from './format.js';
 
@@ -60,19 +61,6 @@ export function ToolGroupView({
     />
   );
 
-  if (!settled) {
-    return (
-      <article
-        className={`tool-run tool-run-live${nested ? ' tool-run-nested' : ''}`}
-        data-state={state}
-        data-tool-count={blocks.length}
-        aria-label="tool activity"
-      >
-        {feed}
-      </article>
-    );
-  }
-
   const endedAt = turnEndedAt ?? spanEnd(activity);
   const elapsedSeconds = running
     ? liveSeconds
@@ -81,17 +69,27 @@ export function ToolGroupView({
 
   return (
     <article
-      className={`tool-run tool-run-settled${nested ? ' tool-run-nested' : ''}`}
+      className={`tool-run ${settled ? 'tool-run-settled' : 'tool-run-live'}${nested ? ' tool-run-nested' : ''}`}
       data-state={state}
       data-tool-count={blocks.length}
+      aria-label={settled ? undefined : 'tool activity'}
     >
-      <button type="button" className="tool-run-header" onClick={onToggle} aria-expanded={expanded}>
-        <span>{label}</span>
-        <span className="tool-run-chevron" aria-hidden="true">
-          {expanded ? '▾' : '▸'}
-        </span>
-      </button>
-      {expanded ? <div className="tool-run-detail">{feed}</div> : null}
+      {settled ? (
+        <button
+          type="button"
+          className="tool-run-header"
+          onClick={onToggle}
+          aria-expanded={expanded}
+        >
+          <span>{label}</span>
+          <span className="tool-run-chevron" aria-hidden="true">
+            {expanded ? '▾' : '▸'}
+          </span>
+        </button>
+      ) : null}
+      <AnimatedCollapse open={!settled || expanded} className={settled ? 'tool-run-detail' : ''}>
+        {feed}
+      </AnimatedCollapse>
     </article>
   );
 }
