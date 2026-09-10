@@ -836,9 +836,9 @@
 }
 
 .shell-context[data-included='false'] {
-  border-color: color-mix(in srgb, var(--role-status) 24%, transparent);
-  background: color-mix(in srgb, var(--role-status) 7%, transparent);
-  color: color-mix(in srgb, var(--role-status) 70%, var(--text-dim));
+  border-color: color-mix(in srgb, var(--role-status) 15%, transparent);
+  background: color-mix(in srgb, var(--role-status) 4%, transparent);
+  color: color-mix(in srgb, var(--role-status) 45%, var(--text-dim));
 }
 
 .shell-exit {
