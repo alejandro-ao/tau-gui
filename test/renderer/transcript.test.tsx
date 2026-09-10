@@ -124,7 +124,9 @@ describe('welcome panel', () => {
     expect(welcome?.textContent).toContain('main');
     expect(welcome?.textContent).toContain('tau 9.9.9-fake');
     expect(welcome?.textContent).toContain('Type a prompt below to begin');
-    const labels = [...welcome!.querySelectorAll('button')].map((button) => button.textContent);
+    const labels = [...welcome!.querySelectorAll('.welcome-action-label')].map(
+      (label) => label.textContent,
+    );
     expect(labels).toEqual(['pick a model', 'skills', 'prompts', 'change directory']);
   });
 
@@ -132,8 +134,8 @@ describe('welcome panel', () => {
     const { view, captured } = await renderWelcome();
     const { click } = await import('./ui.js');
 
-    const pickModel = view.container.querySelector<HTMLButtonElement>('.welcome button');
-    expect(pickModel?.textContent).toBe('pick a model');
+    const pickModel = view.container.querySelector<HTMLButtonElement>('.welcome-action');
+    expect(pickModel?.querySelector('.welcome-action-label')?.textContent).toBe('pick a model');
     await click(pickModel!);
 
     // openModal is local UI state; the modal host is not mounted here, so the
