@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useAutoScroll } from '../hooks/useAutoScroll.js';
 import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
 import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
@@ -22,7 +22,11 @@ export function Transcript(): ReactNode {
 
   // Stable per-group ids so measured heights survive insertions and filtering.
   const ids = useMemo(() => groups.map(groupId), [groups]);
-  const vwin = useVirtualWindow(ids, viewport);
+  const userGroupIndices = useMemo(
+    () => groups.flatMap((group, index) => (userForGroup(group) === null ? [] : [index])),
+    [groups],
+  );
+  const vwin = useVirtualWindow(ids, viewport, userGroupIndices);
   const signal = useMemo(() => streamSignal(visible), [visible]);
   const { hasNewOutput, scrollToBottom } = useAutoScroll(viewport, signal);
 
@@ -46,9 +50,54 @@ export function Transcript(): ReactNode {
   const expandedFor = useCallback((id: string) => isExpanded(state, id), [state]);
 
   const mounted = groups.slice(vwin.start, vwin.end);
+  const [pinnedUserIndex, setPinnedUserIndex] = useState<number | null>(null);
+  const pinnedUserIndexRef = useRef<number | null>(null);
+  const [revealedUserIndex, setRevealedUserIndex] = useState<number | null>(null);
+  const updatePinnedUser = useCallback(() => {
+    const container = viewport.current;
+    if (!container) return;
+    const viewportTop = container.getBoundingClientRect().top;
+    let candidate: number | null = null;
+    for (const element of container.querySelectorAll<HTMLElement>('[data-user-group-index]')) {
+      const index = Number(element.dataset.userGroupIndex);
+      if (element.getBoundingClientRect().top < viewportTop - 1) candidate = index;
+    }
+    const previous = pinnedUserIndexRef.current;
+    if (previous !== null && (candidate === null || candidate < previous)) {
+      setRevealedUserIndex(previous);
+    }
+    pinnedUserIndexRef.current = candidate;
+    setPinnedUserIndex((current) => (current === candidate ? current : candidate));
+  }, []);
+
+  useEffect(() => {
+    const container = viewport.current;
+    if (!container) return;
+    container.addEventListener('scroll', updatePinnedUser, { passive: true });
+    return () => container.removeEventListener('scroll', updatePinnedUser);
+  }, [updatePinnedUser]);
+
+  useEffect(() => updatePinnedUser(), [groups, updatePinnedUser, vwin.end, vwin.start]);
+
+  useEffect(() => {
+    if (revealedUserIndex === null) return;
+    const timeout = window.setTimeout(() => setRevealedUserIndex(null), 360);
+    return () => window.clearTimeout(timeout);
+  }, [revealedUserIndex]);
+
+  const pinnedUser = pinnedUserIndex === null ? null : userForGroup(groups[pinnedUserIndex]);
 
   return (
     <div className="transcript-wrap">
+      {pinnedUser ? (
+        <aside
+          key={pinnedUser.id}
+          className="pinned-user-message"
+          aria-label="Current user message"
+        >
+          <pre>{pinnedUser.text}</pre>
+        </aside>
+      ) : null}
       <div className="transcript" ref={viewport} role="log" aria-label="transcript">
         {vwin.start > 0 ? (
           <div className="boundary" data-edge="top">
@@ -66,15 +115,21 @@ export function Transcript(): ReactNode {
         {mounted.map((group, offset) => {
           const index = vwin.start + offset;
           const key = ids[index];
+          const user = userForGroup(group);
           return (
             <div key={key ?? index} ref={(element) => vwin.measure(index, element)}>
               {group.kind === 'user-tools' ? (
                 <>
-                  <BlockView
-                    block={group.user}
-                    expanded={expandedFor(group.user.id)}
-                    onToggle={() => toggle(group.user.id)}
-                  />
+                  <div
+                    className={revealedUserIndex === index ? 'user-message-reveal' : undefined}
+                    data-user-group-index={index}
+                  >
+                    <BlockView
+                      block={group.user}
+                      expanded={expandedFor(group.user.id)}
+                      onToggle={() => toggle(group.user.id)}
+                    />
+                  </div>
                   <ToolGroupView
                     blocks={group.blocks}
                     activity={group.activity}
@@ -100,11 +155,18 @@ export function Transcript(): ReactNode {
                   settled={group.settled}
                 />
               ) : (
-                <BlockView
-                  block={group.block}
-                  expanded={expandedFor(group.block.id)}
-                  onToggle={() => toggle(group.block.id)}
-                />
+                <div
+                  className={
+                    user && revealedUserIndex === index ? 'user-message-reveal' : undefined
+                  }
+                  data-user-group-index={user ? index : undefined}
+                >
+                  <BlockView
+                    block={group.block}
+                    expanded={expandedFor(group.block.id)}
+                    onToggle={() => toggle(group.block.id)}
+                  />
+                </div>
               )}
             </div>
           );
@@ -154,6 +216,14 @@ function ConversationSkeleton(): ReactNode {
       </div>
     </div>
   );
+}
+
+function userForGroup(
+  group: BlockGroup | undefined,
+): Extract<TranscriptBlock, { kind: 'user' }> | null {
+  if (!group) return null;
+  if (group.kind === 'user-tools') return group.user;
+  return group.kind === 'single' && group.block.kind === 'user' ? group.block : null;
 }
 
 function groupId(group: BlockGroup, index: number): string {

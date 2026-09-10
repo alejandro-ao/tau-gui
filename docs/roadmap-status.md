@@ -105,7 +105,7 @@ claims.
 - Tool grouping, progress, previews, patch/diff rendering, expansion
   (global `Ctrl+O` plus per-block).
 - Sidebar and compact status row.
-- Transcript virtualization with scroll anchoring and a new-output affordance.
+- Transcript virtualization with scroll anchoring, a new-output affordance, and the active user prompt pinned while its response is read.
 - `tau-light` and `high-contrast` themes; responsive sidebar drawer.
 - Clipboard actions and external links: only `http`, `https`, and `mailto` hrefs
   are rendered as links (anything else becomes inert text), and opening goes

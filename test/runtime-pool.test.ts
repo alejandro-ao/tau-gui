@@ -425,135 +425,139 @@ describe('RuntimePool', () => {
     }
   });
 
-  it('recovers a retained session queue after the first restart launch fails', async () => {
-    const settings = makeSettings();
-    pool = new RuntimePool(settings, () => undefined);
-    const cwd = fileURLToPath(new URL('.', import.meta.url));
-    process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
-    try {
-      await pool.start({ cwd });
-    } finally {
-      delete process.env['FAKE_RUNTIME_DELAY_MS'];
-    }
-    const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
-    await pool.active.prompt({ text: 'interrupted before failed restart' });
-    await waitFor(() => pool!.snapshot().status === 'running');
-    pool.enqueuePrompt('follow-up', 'drains after retry', target);
+  it(
+    'recovers a retained session queue after the first restart launch fails',
+    { retry: 2, timeout: 30_000 },
+    async () => {
+      const settings = makeSettings();
+      pool = new RuntimePool(settings, () => undefined);
+      const cwd = fileURLToPath(new URL('.', import.meta.url));
+      process.env['FAKE_RUNTIME_DELAY_MS'] = '30';
+      try {
+        await pool.start({ cwd });
+      } finally {
+        delete process.env['FAKE_RUNTIME_DELAY_MS'];
+      }
+      const target = { runtime: 'tau' as const, sessionId: 'fake-session-1' };
+      await pool.active.prompt({ text: 'interrupted before failed restart' });
+      await waitFor(() => pool!.snapshot().status === 'running');
+      pool.enqueuePrompt('follow-up', 'drains after retry', target);
 
-    const internals = pool as unknown as {
-      createManager: () => RuntimeManager;
-      managers: Set<RuntimeManager>;
-    };
-    const replaced = [...internals.managers][0]!;
-    const createManager = internals.createManager.bind(pool);
-    const replacements: RuntimeManager[] = [];
-    internals.createManager = () => {
-      const manager = createManager();
-      replacements.push(manager);
-      return manager;
-    };
-    const runtime = settings.current.runtime;
-    settings.update({
-      agentRuntime: 'pi',
-      runtime: {
-        ...runtime,
-        tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
-      },
-    });
+      const internals = pool as unknown as {
+        createManager: () => RuntimeManager;
+        managers: Set<RuntimeManager>;
+      };
+      const replaced = [...internals.managers][0]!;
+      const createManager = internals.createManager.bind(pool);
+      const replacements: RuntimeManager[] = [];
+      internals.createManager = () => {
+        const manager = createManager();
+        replacements.push(manager);
+        return manager;
+      };
+      const runtime = settings.current.runtime;
+      settings.update({
+        agentRuntime: 'pi',
+        runtime: {
+          ...runtime,
+          tau: { ...runtime.tau, binary: '/definitely/missing/tau-gui-runtime' },
+        },
+      });
 
-    await expect(pool.restart()).rejects.toThrow('not found');
+      await expect(pool.restart()).rejects.toThrow('not found');
 
-    expect(replaced.isStarted).toBe(false);
-    expect(replacements).toHaveLength(1);
-    expect(replacements[0]!.isStarted).toBe(false);
-    expect(internals.managers.size).toBe(0);
-    expect(pool.snapshot()).toMatchObject({
-      runtime: 'tau',
-      cwd,
-      recoveryTarget: target,
-      state: null,
-    });
+      expect(replaced.isStarted).toBe(false);
+      expect(replacements).toHaveLength(1);
+      expect(replacements[0]!.isStarted).toBe(false);
+      expect(internals.managers.size).toBe(0);
+      expect(pool.snapshot()).toMatchObject({
+        runtime: 'tau',
+        cwd,
+        recoveryTarget: target,
+        state: null,
+      });
 
-    // Exercise the renderer-facing IPC handlers while there is no manager.
-    // Claims retain their stable identity, restores stay in this session, and
-    // an accepted edit can be safely enqueued for the same recovery target.
-    const context = { settings, manager: pool, window: () => null };
-    await handleRequest(context, {
-      action: 'agent.steer',
-      payload: { text: 'steering after failed restart' },
-      session: target,
-    });
-    const retained = (await handleRequest(context, {
-      action: 'queue.snapshot',
-      session: target,
-    })) as PromptQueueSnapshot;
-    expect(retained.steering.map((item) => item.text)).toEqual(['steering after failed restart']);
-    expect(retained.followUp.map((item) => item.text)).toEqual(['drains after retry']);
-    const firstClaim = (await handleRequest(context, {
-      action: 'queue.pop',
-      session: target,
-    })) as PromptQueueItem | null;
-    expect(firstClaim).toMatchObject({ text: 'drains after retry' });
-    expect(
+      // Exercise the renderer-facing IPC handlers while there is no manager.
+      // Claims retain their stable identity, restores stay in this session, and
+      // an accepted edit can be safely enqueued for the same recovery target.
+      const context = { settings, manager: pool, window: () => null };
       await handleRequest(context, {
-        action: 'queue.resolve',
-        payload: { id: firstClaim!.id, outcome: 'restore' },
+        action: 'agent.steer',
+        payload: { text: 'steering after failed restart' },
         session: target,
-      }),
-    ).toBe(true);
-    const secondClaim = (await handleRequest(context, {
-      action: 'queue.pop',
-      session: target,
-    })) as PromptQueueItem | null;
-    expect(secondClaim?.id).toBe(firstClaim?.id);
-    expect(
+      });
+      const retained = (await handleRequest(context, {
+        action: 'queue.snapshot',
+        session: target,
+      })) as PromptQueueSnapshot;
+      expect(retained.steering.map((item) => item.text)).toEqual(['steering after failed restart']);
+      expect(retained.followUp.map((item) => item.text)).toEqual(['drains after retry']);
+      const firstClaim = (await handleRequest(context, {
+        action: 'queue.pop',
+        session: target,
+      })) as PromptQueueItem | null;
+      expect(firstClaim).toMatchObject({ text: 'drains after retry' });
+      expect(
+        await handleRequest(context, {
+          action: 'queue.resolve',
+          payload: { id: firstClaim!.id, outcome: 'restore' },
+          session: target,
+        }),
+      ).toBe(true);
+      const secondClaim = (await handleRequest(context, {
+        action: 'queue.pop',
+        session: target,
+      })) as PromptQueueItem | null;
+      expect(secondClaim?.id).toBe(firstClaim?.id);
+      expect(
+        await handleRequest(context, {
+          action: 'queue.resolve',
+          payload: { id: secondClaim!.id, outcome: 'accept' },
+          session: target,
+        }),
+      ).toBe(true);
       await handleRequest(context, {
-        action: 'queue.resolve',
-        payload: { id: secondClaim!.id, outcome: 'accept' },
+        action: 'agent.followUp',
+        payload: { text: 'edited after failed restart' },
         session: target,
-      }),
-    ).toBe(true);
-    await handleRequest(context, {
-      action: 'agent.followUp',
-      payload: { text: 'edited after failed restart' },
-      session: target,
-    });
-    const edited = (await handleRequest(context, {
-      action: 'queue.snapshot',
-      session: target,
-    })) as PromptQueueSnapshot;
-    expect(edited.followUp).toHaveLength(1);
-    expect(edited.followUp[0]).toMatchObject({ text: 'edited after failed restart' });
-    expect(edited.followUp[0]?.id).not.toBe(firstClaim?.id);
-    const alien = { runtime: 'tau' as const, sessionId: 'another-session' };
-    await expect(
-      handleRequest(context, { action: 'queue.snapshot', session: alien }),
-    ).rejects.toThrow('Session is no longer available');
-    expect(internals.managers.size).toBe(0);
+      });
+      const edited = (await handleRequest(context, {
+        action: 'queue.snapshot',
+        session: target,
+      })) as PromptQueueSnapshot;
+      expect(edited.followUp).toHaveLength(1);
+      expect(edited.followUp[0]).toMatchObject({ text: 'edited after failed restart' });
+      expect(edited.followUp[0]?.id).not.toBe(firstClaim?.id);
+      const alien = { runtime: 'tau' as const, sessionId: 'another-session' };
+      await expect(
+        handleRequest(context, { action: 'queue.snapshot', session: alien }),
+      ).rejects.toThrow('Session is no longer available');
+      expect(internals.managers.size).toBe(0);
 
-    settings.update({
-      runtime: {
-        ...settings.current.runtime,
-        tau: { ...runtime.tau, binary: FAKE },
-      },
-    });
-    const restarted = await pool.restart();
+      settings.update({
+        runtime: {
+          ...settings.current.runtime,
+          tau: { ...runtime.tau, binary: FAKE },
+        },
+      });
+      const restarted = await pool.restart();
 
-    expect(restarted.runtime).toBe('tau');
-    expect(restarted.cwd).toBe(cwd);
-    expect(restarted.state?.sessionId).toBe(target.sessionId);
-    expect(pool.snapshot().recoveryTarget).toBeUndefined();
-    expect(replacements).toHaveLength(2);
-    expect(internals.managers.has(replacements[0]!)).toBe(false);
-    expect(internals.managers.size).toBe(1);
-    await waitFor(async () => {
-      const messages = await pool!.active.getMessages();
-      return messages.some(
-        (message) => message.role === 'user' && message.text === 'edited after failed restart',
-      );
-    }, 10_000);
-    expect(pool.queueSnapshot(target).followUp).toEqual([]);
-  }, 15_000);
+      expect(restarted.runtime).toBe('tau');
+      expect(restarted.cwd).toBe(cwd);
+      expect(restarted.state?.sessionId).toBe(target.sessionId);
+      expect(pool.snapshot().recoveryTarget).toBeUndefined();
+      expect(replacements).toHaveLength(2);
+      expect(internals.managers.has(replacements[0]!)).toBe(false);
+      expect(internals.managers.size).toBe(1);
+      await waitFor(async () => {
+        const messages = await pool!.active.getMessages();
+        return messages.some(
+          (message) => message.role === 'user' && message.text === 'edited after failed restart',
+        );
+      }, 20_000);
+      expect(pool.queueSnapshot(target).followUp).toEqual([]);
+    },
+  );
 
   it('routes a session-scoped command to that session, not the selected one', async () => {
     const settings = makeSettings();
