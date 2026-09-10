@@ -28,7 +28,7 @@ test('hidden window loads, connects to the runtime, and reports session context'
   await expect(sidebar).toBeVisible();
   await expect(sidebar.locator('.sidebar-title')).toContainText('untitled session');
   await expect(sidebar).toContainText('activity');
-  await expect(sidebar.locator('.version-mark')).toContainText('τ = 2π');
+  await expect(sidebar.locator('.version-mark')).toContainText('π');
   await expect(sidebar.locator('.version-mark')).toContainText('pi');
 
   // Status row reports the working directory and the active model.

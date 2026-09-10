@@ -83,7 +83,7 @@ export function Sidebar({ id }: { id?: string }): ReactNode {
       ) : null}
 
       <div className="version-mark">
-        <span>τ = 2π</span>
+        <span>π</span>
         <span>{versionLabel(snapshot.runtime, snapshot.runtimeVersion)}</span>
       </div>
     </aside>

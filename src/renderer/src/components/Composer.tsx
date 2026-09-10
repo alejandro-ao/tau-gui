@@ -448,7 +448,7 @@ export function Composer(): ReactNode {
           ) : running ? (
             <ActivitySpinner />
           ) : (
-            <span aria-hidden="true">τ</span>
+            <span aria-hidden="true">π</span>
           )}
         </span>
         <div className="composer-editor">

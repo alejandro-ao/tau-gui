@@ -91,7 +91,7 @@ describe('app shell', () => {
     expect(headers).not.toContain('open');
     expect(view.container.querySelector('.usage-bar')).toBeNull();
     // The version mark carries the runtime kind and probed version.
-    expect(query(view.container, '.version-mark').textContent).toContain('τ = 2π');
+    expect(query(view.container, '.version-mark').textContent).toContain('π');
     expect(query(view.container, '.version-mark').textContent).toContain('tau 9.9.9-fake');
     // `tau --version` prints "tau 0.3.12"; the footer must not double the name.
     expect(versionLabel('tau', 'tau 0.3.12')).toBe('tau 0.3.12');
