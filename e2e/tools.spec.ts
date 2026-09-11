@@ -6,7 +6,7 @@ let handle: AppHandle;
 test.beforeEach(async () => {
   // Keep the closing response observable long enough to verify the handoff
   // from live tool activity to the compact summary.
-  handle = await launchApp({ env: { FAKE_RUNTIME_DELAY_MS: '250' } });
+  handle = await launchApp({ env: { FAKE_RUNTIME_DELAY_MS: '500' } });
 });
 
 test.afterEach(async () => {
@@ -17,11 +17,16 @@ test('tool blocks render with success state and reveal details on expansion', as
   const { page } = handle;
   await submitPrompt(page, 'use a tool to inspect the project');
 
-  // Collapse as soon as the closing response begins, without waiting for the
-  // runtime to settle or for the rest of the response to finish streaming.
+  // Streaming text is still provisional: the activity rail remains live and
+  // no settled summary exists until message_end confirms there are no tools.
   const answer = page.locator('.block-assistant').filter({ hasText: 'Done:' });
-  await expect(answer.locator('.streaming-caret')).toBeVisible();
+  const caret = answer.locator('.streaming-caret');
   const summary = page.locator('.tool-run-header').last();
+  await expect(caret).toBeVisible();
+  await expect(page.locator('.tool-run-live')).toBeVisible();
+  await expect(summary).toHaveCount(0);
+
+  await expect(caret).toHaveCount(0);
   await expect(summary).toContainText('Worked for');
   await expect(summary).toHaveCSS('animation-name', 'tool-run-summary-in');
 
