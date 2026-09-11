@@ -198,6 +198,29 @@ describe('RuntimeManager state machine', () => {
     }
   });
 
+  it('refreshes an SDK metadata change even when the runtime is already idle', async () => {
+    const fixture = makeManager();
+    active = fixture.manager;
+    await fixture.manager.start();
+    const initial = fixture.manager.snapshot().state;
+    if (!initial) throw new Error('agent state missing');
+    fixture.manager.active.getState = vi.fn(() =>
+      Promise.resolve({ ...initial, sessionName: 'Late generated title', messageCount: 1 }),
+    );
+    const sink = (
+      fixture.manager.active as unknown as {
+        sink: { stateChanged?: () => void };
+      }
+    ).sink;
+
+    sink.stateChanged?.();
+
+    await vi.waitFor(() =>
+      expect(fixture.manager.snapshot().state?.sessionName).toBe('Late generated title'),
+    );
+    expect(fixture.manager.snapshot().status).toBe('idle');
+  });
+
   it('stays running on agent_end and only settles on agent_settled', async () => {
     const fixture = makeManager();
     active = fixture.manager;

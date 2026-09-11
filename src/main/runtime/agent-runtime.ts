@@ -44,6 +44,8 @@ export interface RuntimeSink {
   event(event: AgentEvent): void;
   status(status: RuntimeStatus, detail?: string | null): void;
   diagnostic(line: string): void;
+  /** Direct SDK metadata changed without a transcript-domain event. */
+  stateChanged?(): void;
 }
 
 export interface AgentRuntime {

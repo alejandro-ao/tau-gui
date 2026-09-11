@@ -161,6 +161,7 @@ export class RuntimeManager {
       event: (event) => this.handleEvent(event),
       status: (status, detail) => this.setStatus(status, detail ?? null),
       diagnostic: (line) => this.addDiagnostic(line),
+      stateChanged: () => void this.refreshState(),
     });
     this.runtime = runtime;
     this.launchProjectTrust = config.projectTrust;
@@ -333,11 +334,11 @@ export class RuntimeManager {
   }
 
   /**
-   * Tau generates the first-turn title with the active model while the agent
-   * run continues. Poll its authoritative state so that title reaches the UI
-   * as soon as that parallel request finishes, rather than at agent_settled.
-   * Pi and older Tau versions simply remain on the immediate first-message
-   * label until the run settles.
+   * Tau and the embedded Pi adapter generate the first-turn title with the
+   * active model while the agent run continues. Poll authoritative state so
+   * that title reaches the UI as soon as the parallel request finishes, rather
+   * than at agent_settled. Older JSONL runtimes simply remain on the immediate
+   * first-message label until the run settles.
    */
   private async watchSessionName(sessionId: string): Promise<void> {
     if (!sessionId || !this.runtime || this.watchingSessionNameFor === sessionId) return;
