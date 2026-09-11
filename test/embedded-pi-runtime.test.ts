@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { SessionManager, type AgentSession } from '@earendil-works/pi-coding-agent';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { CAPABILITY_RUNTIME_METHODS } from '../src/main/runtime/agent-runtime.js';
 import {
   EMBEDDED_PI_CAPABILITIES,
@@ -19,6 +20,118 @@ import { estimateTextTokens } from '../src/shared/token-estimate.js';
 
 const roots: string[] = [];
 let active: EmbeddedPiRuntime | null = null;
+
+type PiSessionEvent = Parameters<Parameters<AgentSession['subscribe']>[0]>[0];
+type PersistedMessage = Parameters<SessionManager['appendMessage']>[0];
+type CompleteSimpleStub = (model: unknown, context: unknown, options?: unknown) => Promise<unknown>;
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
+}
+
+function titleResponse(text: string, stopReason = 'stop') {
+  return {
+    content: text ? [{ type: 'text', text }] : [],
+    stopReason,
+  };
+}
+
+function createNamingFixture(
+  completeSimple: Mock<CompleteSimpleStub>,
+  messages: PersistedMessage[] = [],
+) {
+  const root = mkdtempSync(join(tmpdir(), 'tau-gui-session-name-'));
+  roots.push(root);
+  const cwd = join(root, 'project');
+  mkdirSync(cwd, { recursive: true });
+  const sessionManager = SessionManager.create(cwd, join(root, 'sessions'));
+  for (const message of messages) sessionManager.appendMessage(message);
+  const model = {
+    id: 'currently-selected',
+    name: 'Currently selected',
+    api: 'openai-completions',
+    provider: 'selected-provider',
+    baseUrl: 'https://example.invalid',
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 128_000,
+    maxTokens: 8_192,
+  } as NonNullable<AgentSession['model']>;
+  let listener: ((event: PiSessionEvent) => void) | null = null;
+  const setSessionName = vi.fn((name: string) => {
+    sessionManager.appendSessionInfo(name);
+    listener?.({ type: 'session_info_changed', name: sessionManager.getSessionName() });
+  });
+  const session = {
+    sessionId: sessionManager.getSessionId(),
+    get sessionName() {
+      return sessionManager.getSessionName();
+    },
+    model,
+    modelRuntime: { completeSimple, getModel: () => model },
+    messages,
+    sessionManager,
+    setSessionName,
+    subscribe(next: (event: PiSessionEvent) => void) {
+      listener = next;
+      return () => {
+        listener = null;
+      };
+    },
+  } as unknown as AgentSession;
+  const diagnostics: string[] = [];
+  let stateChanges = 0;
+  const runtime = new EmbeddedPiRuntime({
+    event: () => undefined,
+    status: () => undefined,
+    diagnostic: (message) => diagnostics.push(message),
+    stateChanged: () => {
+      stateChanges += 1;
+    },
+  });
+  const host = { session, dispose: () => Promise.resolve() };
+  const internals = runtime as unknown as {
+    runtime: typeof host | null;
+    bindSession: (next: AgentSession) => void;
+    automaticNameAbort: AbortController | null;
+  };
+  internals.runtime = host;
+  internals.bindSession.call(runtime, session);
+  active = runtime;
+
+  return {
+    runtime,
+    internals,
+    model,
+    session,
+    sessionManager,
+    setSessionName,
+    diagnostics,
+    get stateChanges() {
+      return stateChanges;
+    },
+    emit(event: PiSessionEvent) {
+      listener?.(event);
+      // AgentSession persists a completed user message immediately after it
+      // notifies subscribers; mirror that ordering in this adapter fixture.
+      if (event.type === 'message_end' && event.message.role === 'user') {
+        sessionManager.appendMessage(event.message);
+      }
+    },
+  };
+}
+
+function firstUserMessage(text: string): PiSessionEvent {
+  return {
+    type: 'message_end',
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text }],
+      timestamp: Date.now(),
+    },
+  };
+}
 
 afterEach(async () => {
   await active?.stop();
@@ -56,6 +169,128 @@ describe('EmbeddedPiRuntime', () => {
       extensionDialogs: false,
       providerLogin: false,
     });
+  });
+
+  it('uses the selected model to append a generated session_info name after the first prompt', async () => {
+    const completeSimple = vi
+      .fn<CompleteSimpleStub>()
+      .mockResolvedValue(titleResponse('"Fix broken CLI output now"'));
+    const fixture = createNamingFixture(completeSimple);
+
+    fixture.emit(firstUserMessage('Please fix the broken CLI output.'));
+
+    await vi.waitFor(() =>
+      expect(fixture.sessionManager.getSessionName()).toBe('Fix broken CLI output'),
+    );
+    expect(completeSimple).toHaveBeenCalledOnce();
+    const call = completeSimple.mock.calls[0];
+    const context = asRecord(call?.[1]);
+    const messages = Array.isArray(context['messages']) ? context['messages'] : [];
+    const prompt = asRecord(messages[0]);
+    const options = asRecord(call?.[2]);
+    expect(call?.[0]).toBe(fixture.model);
+    expect(context['systemPrompt']).toEqual(expect.stringContaining('maximum four words'));
+    expect(context['tools']).toEqual([]);
+    expect(prompt).toMatchObject({ role: 'user' });
+    expect(prompt['content']).toEqual(expect.stringContaining('Please fix the broken CLI output.'));
+    expect(options).toMatchObject({ cacheRetention: 'none', maxRetries: 0, maxTokens: 64 });
+    expect(fixture.setSessionName).toHaveBeenCalledWith('Fix broken CLI output');
+    expect(fixture.stateChanges).toBe(1);
+    expect(fixture.sessionManager.getEntries().map((entry) => entry.type)).toEqual([
+      'message',
+      'session_info',
+    ]);
+    expect(fixture.sessionManager.getEntries().at(-1)).toMatchObject({
+      type: 'session_info',
+      name: 'Fix broken CLI output',
+    });
+  });
+
+  it('auto-names a first message that only invokes a skill', async () => {
+    const completeSimple = vi
+      .fn<CompleteSimpleStub>()
+      .mockResolvedValue(titleResponse('Review authentication security'));
+    const fixture = createNamingFixture(completeSimple);
+    const skillInvocation = [
+      '<skill name="security-review" location="/skills/security-review/SKILL.md">',
+      '# Security review',
+      '',
+      'Inspect authentication boundaries.',
+      '</skill>',
+    ].join('\n');
+
+    fixture.emit(firstUserMessage(skillInvocation));
+
+    await vi.waitFor(() =>
+      expect(fixture.sessionManager.getSessionName()).toBe('Review authentication security'),
+    );
+    const call = completeSimple.mock.calls[0];
+    const context = asRecord(call?.[1]);
+    const messages = Array.isArray(context['messages']) ? context['messages'] : [];
+    const prompt = asRecord(messages[0]);
+    expect(prompt['content']).toEqual(expect.stringContaining('Invoked skill: security-review'));
+    expect(prompt['content']).toEqual(
+      expect.stringContaining('Inspect authentication boundaries.'),
+    );
+    expect(fixture.sessionManager.getEntries().at(-1)).toMatchObject({
+      type: 'session_info',
+      name: 'Review authentication security',
+    });
+  });
+
+  it('falls back to a bounded first-message name when title generation fails', async () => {
+    const completeSimple = vi.fn<CompleteSimpleStub>().mockResolvedValue({
+      ...titleResponse('Incomplete provider output', 'error'),
+      errorMessage: 'credential=secret',
+    });
+    const fixture = createNamingFixture(completeSimple);
+
+    fixture.emit(firstUserMessage('Investigate flaky session restore tests'));
+
+    await vi.waitFor(() =>
+      expect(fixture.sessionManager.getSessionName()).toBe('Investigate flaky session restore'),
+    );
+    expect(fixture.diagnostics).toContain(
+      'Automatic session naming failed; using the first-message fallback',
+    );
+    expect(fixture.diagnostics.join(' ')).not.toContain('credential=secret');
+  });
+
+  it('does not overwrite a manual name set while automatic naming is in flight', async () => {
+    let finish!: (response: unknown) => void;
+    const completion = new Promise<unknown>((resolve) => {
+      finish = resolve;
+    });
+    const completeSimple = vi.fn<CompleteSimpleStub>(() => completion);
+    const fixture = createNamingFixture(completeSimple);
+
+    fixture.emit(firstUserMessage('Generate a session name'));
+    await vi.waitFor(() => expect(completeSimple).toHaveBeenCalledOnce());
+    fixture.session.setSessionName('Manual name');
+    finish(titleResponse('Generated name'));
+    await vi.waitFor(() => expect(fixture.internals.automaticNameAbort).toBeNull());
+
+    expect(fixture.sessionManager.getSessionName()).toBe('Manual name');
+    expect(
+      fixture.sessionManager.getEntries().filter((entry) => entry.type === 'session_info'),
+    ).toHaveLength(1);
+  });
+
+  it('does not auto-name a resumed conversation', async () => {
+    const completeSimple = vi
+      .fn<CompleteSimpleStub>()
+      .mockResolvedValue(titleResponse('Unexpected name'));
+    const fixture = createNamingFixture(completeSimple, [
+      { role: 'user', content: 'Existing prompt', timestamp: Date.now() },
+    ]);
+
+    fixture.emit(firstUserMessage('Another prompt'));
+    await Promise.resolve();
+
+    expect(completeSimple).not.toHaveBeenCalled();
+    expect(fixture.sessionManager.getEntries().some((entry) => entry.type === 'session_info')).toBe(
+      false,
+    );
   });
 
   it('bounds live shell and restored entry/tree responses before IPC', async () => {
