@@ -501,6 +501,9 @@ function upsertStreamBlock(
           text,
           streaming: true,
           aborted: false,
+          // Streaming text is never the answer until message_end proves the
+          // model returned no tool calls.
+          final: false,
           timestamp: now,
         }
       : { kind: 'thinking', id, text, streaming: true, timestamp: now };
@@ -594,6 +597,9 @@ export function blocksFromMessage(
           text: message.text,
           streaming: false,
           aborted: message.stopReason === 'aborted',
+          // Only a response that asked for no further tool calls closes the
+          // turn; everything else is intermediate narration.
+          final: message.toolCalls.length === 0,
           timestamp: message.timestamp || now,
         });
       }
@@ -706,10 +712,11 @@ export type BlockGroup =
  * Groups the transcript into turns.
  *
  * A turn is everything between two user prompts. Reasoning, intermediate
- * narration, and tool calls form one activity feed; only the assistant message
- * that closes the turn is rendered as the answer. While work is active the feed
- * sits directly below the prompt. As soon as the answer starts streaming, the
- * same feed becomes a collapsed summary immediately before it.
+ * narration, and tool calls form one activity feed; only an assistant response
+ * that ended without requesting further tool calls is rendered as the answer.
+ * While the turn is still running the feed stays live and narration renders as
+ * a provisional message; the feed collapses into a summary only once the final
+ * response exists.
  */
 export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
@@ -735,10 +742,10 @@ export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
 function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
   const lastTool = body.findLastIndex((entry) => entry.kind === 'tool');
-  const lastAssistant = body.findLastIndex((entry) => entry.kind === 'assistant');
-  // Reasoning models narrate between tool calls, so an assistant message is
-  // only the answer once no tool call follows it.
-  const answerAt = lastAssistant > lastTool ? lastAssistant : -1;
+  // Only a response that requested no further tool calls is the final answer;
+  // streamed text can still be followed by more work, so it stays provisional.
+  const lastAnswer = body.findLastIndex((entry) => entry.kind === 'assistant' && entry.final);
+  const answerAt = lastAnswer > lastTool ? lastAnswer : -1;
   // Reasoning always belongs to the rail; narration joins it only when a later
   // tool call proved it was intermediate work rather than the answer.
   const isActivity = (entry: TranscriptBlock, entryIndex: number): boolean =>
@@ -763,10 +770,11 @@ function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): 
     activity,
   };
   const answer = answerAt === -1 ? null : body[answerAt];
-  // The first answer delta is enough to close the activity feed. Keeping the
-  // prompt and feed in the same stable group also lets the view animate the
-  // live rail into its summary instead of remounting it after message_end.
-  const settled = answer?.kind === 'assistant';
+  // The activity feed stays live until the turn has actually ended, i.e. until
+  // the model produced a response with no tool calls. Keeping the prompt and
+  // feed in the same stable group also lets the view animate the live rail into
+  // its summary instead of remounting it after message_end.
+  const settled = answerAt !== -1;
 
   groups.push(
     user

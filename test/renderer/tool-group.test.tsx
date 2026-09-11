@@ -141,6 +141,7 @@ describe('tool run rendering', () => {
             text: 'Exploring the repository.',
             streaming: false,
             aborted: false,
+            final: false,
             timestamp: 0,
           },
           blocks[0] as ToolBlock,

@@ -37,6 +37,12 @@ export interface AssistantBlock {
   text: string;
   streaming: boolean;
   aborted: boolean;
+  /**
+   * True once the assistant message has ended without requesting tool calls,
+   * which makes it the closing answer of its turn. Streaming text and
+   * narration followed by more tool calls are provisional, not the answer.
+   */
+  final: boolean;
   timestamp: number;
 }
 

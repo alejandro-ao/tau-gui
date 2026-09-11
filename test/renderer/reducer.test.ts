@@ -146,6 +146,31 @@ describe('streaming assembly', () => {
     expect(state.streamingAssistantId).toBeNull();
   });
 
+  it('marks a response final only when message_end returns no tool calls', () => {
+    const narrating = replay([
+      { type: 'agent_start' },
+      { type: 'message_delta', kind: 'text', delta: 'Looking.', message: assistant('Looking.') },
+      {
+        type: 'message_end',
+        message: {
+          ...assistant('Looking.'),
+          toolCalls: [{ id: 'c1', name: 'read', arguments: { path: 'a.ts' } }],
+        },
+      },
+    ]);
+    expect(narrating.blocks[0]).toMatchObject({
+      kind: 'assistant',
+      text: 'Looking.',
+      final: false,
+    });
+
+    const answered = replay([
+      { type: 'agent_start' },
+      { type: 'message_end', message: assistant('All done.') },
+    ]);
+    expect(answered.blocks[0]).toMatchObject({ kind: 'assistant', text: 'All done.', final: true });
+  });
+
   it('keeps thinking and text as separate blocks', () => {
     const state = replay([
       { type: 'agent_start' },
@@ -314,7 +339,7 @@ describe('tools', () => {
     expect(groups[0]?.kind === 'tools' && groups[0].blocks).toHaveLength(4);
   });
 
-  it('collapses tools as soon as the final answer starts streaming', () => {
+  it('keeps tools expanded until the answer ends without tool calls', () => {
     const user: TranscriptBlock = { kind: 'user', id: 'u', text: 'inspect', timestamp: 0 };
     const answer: TranscriptBlock = {
       kind: 'assistant',
@@ -322,6 +347,7 @@ describe('tools', () => {
       text: 'done',
       streaming: true,
       aborted: false,
+      final: false,
       timestamp: 2,
     };
     const tool = replay([
@@ -329,11 +355,14 @@ describe('tools', () => {
     ]).blocks[0];
     if (!tool) throw new Error('expected tool');
 
+    // Streamed text alone proves nothing: the turn may continue with more
+    // tool calls, so the feed stays live.
     const streaming = groupBlocks([user, tool, answer]);
     expect(streaming.map((group) => group.kind)).toEqual(['user-tools', 'single']);
-    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: true });
+    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: false });
 
-    const finished = groupBlocks([user, tool, { ...answer, streaming: false }]);
+    // A response that requested no tool calls ends the turn.
+    const finished = groupBlocks([user, tool, { ...answer, streaming: false, final: true }]);
     expect(finished.map((group) => group.kind)).toEqual(['user-tools', 'single']);
     expect(finished[0]).toMatchObject({ kind: 'user-tools', settled: true });
   });
@@ -372,6 +401,7 @@ describe('tools', () => {
       text: 'inspecting',
       streaming: false,
       aborted: false,
+      final: false,
       timestamp: 1,
     };
     const tool = replay([
@@ -404,6 +434,7 @@ describe('answer selection', () => {
     text,
     streaming: false,
     aborted: false,
+    final: true,
     timestamp,
   });
 
@@ -475,10 +506,11 @@ describe('answer selection', () => {
     const streaming = groupBlocks([
       user,
       thinking('t1', 'Still reasoning.', 1),
-      { ...message('a', 'Partial', 2), streaming: true } as TranscriptBlock,
+      { ...message('a', 'Partial', 2), streaming: true, final: false } as TranscriptBlock,
     ]);
     expect(streaming.map((group) => group.kind)).toEqual(['user-tools', 'single']);
-    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: true });
+    // A streamed response has not ended yet, so the feed stays live.
+    expect(streaming[0]).toMatchObject({ kind: 'user-tools', settled: false });
     expect(streaming[1]).toMatchObject({ block: { id: 'a', streaming: true } });
   });
 
