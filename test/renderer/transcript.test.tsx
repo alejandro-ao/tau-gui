@@ -19,6 +19,8 @@ function assistant(index: number): TranscriptBlock {
     text: `message ${index}`,
     streaming: false,
     aborted: false,
+    final: true,
+    endedWithoutTools: true,
     timestamp: index,
   };
 }

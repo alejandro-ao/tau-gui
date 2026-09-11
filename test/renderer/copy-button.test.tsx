@@ -42,6 +42,8 @@ describe('CopyButton', () => {
         text: 'answer',
         streaming: false,
         aborted: false,
+        final: true,
+        endedWithoutTools: true,
         timestamp: 2,
       },
     ];

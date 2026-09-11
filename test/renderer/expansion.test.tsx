@@ -62,6 +62,8 @@ async function renderAppWithTools(ids: string[]): Promise<Mounted> {
         text: 'done',
         streaming: false,
         aborted: false,
+        final: true,
+        endedWithoutTools: true,
         timestamp: 1,
       },
     });

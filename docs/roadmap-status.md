@@ -101,7 +101,9 @@ claims.
 
 - Role-based transcript styling with vertical role bars.
 - One answer per turn: reasoning and pre-tool narration stay on the activity
-  rail, which collapses into a duration summary before the answer.
+  rail, which collapses into a duration summary only once the turn ends — when
+  the model responds without requesting further tool calls. Retryable responses
+  remain live until continuation or settle, including textless provider errors.
 - Tool grouping, progress, previews, patch/diff rendering, expansion
   (global `Ctrl+O` plus per-block).
 - Sidebar and compact status row.

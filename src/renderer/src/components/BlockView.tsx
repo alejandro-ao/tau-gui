@@ -35,6 +35,9 @@ export function BlockView({
       );
 
     case 'assistant':
+      // Textless assistant blocks preserve turn-completion metadata for
+      // provider failures and thinking-only responses, but have no visible row.
+      if (!block.text.trim()) return null;
       return (
         <div className="message-block">
           <BlockFrame
