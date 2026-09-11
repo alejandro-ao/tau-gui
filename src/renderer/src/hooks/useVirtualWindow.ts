@@ -37,6 +37,7 @@ export function useVirtualWindow(
 ): VirtualWindow {
   const count = ids.length;
   const heights = useRef(new Map<string, number>());
+  const observers = useRef(new Map<string, ResizeObserver>());
   const idsRef = useRef(ids);
   idsRef.current = ids;
   const [range, setRange] = useState<Range>({ start: 0, end: count, topPad: 0, bottomPad: 0 });
@@ -116,16 +117,43 @@ export function useVirtualWindow(
     return () => element.removeEventListener('scroll', recompute);
   }, [recompute, viewport]);
 
+  useEffect(
+    () => () => {
+      for (const observer of observers.current.values()) observer.disconnect();
+      observers.current.clear();
+    },
+    [],
+  );
+
   const measure = useCallback(
     (index: number, element: HTMLElement | null) => {
       const id = idsRef.current[index];
-      if (!element || id === undefined) return;
-      const height = element.offsetHeight;
-      // jsdom and pre-layout frames report 0; keep the estimate in that case.
-      if (height <= 0) return;
-      if (Math.abs((heights.current.get(id) ?? ESTIMATED_HEIGHT) - height) < 1) return;
-      heights.current.set(id, height);
-      recompute();
+      if (id === undefined) return;
+      observers.current.get(id)?.disconnect();
+      observers.current.delete(id);
+      if (!element) return;
+
+      const recordHeight = (height: number): void => {
+        // jsdom and pre-layout frames report 0; keep the estimate in that case.
+        if (height <= 0) return;
+        if (Math.abs((heights.current.get(id) ?? ESTIMATED_HEIGHT) - height) < 1) return;
+        heights.current.set(id, height);
+        recompute();
+      };
+      recordHeight(element.offsetHeight);
+
+      // A disclosure's local React state can change its height without
+      // rerendering Transcript, so a ref callback alone misses that change.
+      // Observe each mounted group to keep spacer sizes and the visible range
+      // in sync immediately.
+      if (typeof ResizeObserver !== 'undefined') {
+        const observer = new ResizeObserver((entries) => {
+          const entry = entries[0];
+          if (entry) recordHeight(entry.contentRect.height);
+        });
+        observer.observe(element);
+        observers.current.set(id, observer);
+      }
     },
     [recompute],
   );
