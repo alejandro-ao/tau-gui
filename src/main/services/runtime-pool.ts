@@ -4,6 +4,7 @@ import type { BridgeEvent, RuntimeSnapshot, SessionTarget } from '../../shared/i
 import type { AgentRuntime } from '../runtime/agent-runtime.js';
 import type { SpawnSessionRequest, SpawnSessionResult } from '../runtime/spawn-session-tool.js';
 import type { SettingsStore } from './settings.js';
+import { compactHomePath } from './filesystem.js';
 import { PromptQueueService, type PromptQueueKind } from './prompt-queue.js';
 import { RuntimeManager, type RuntimeManagerOptions } from './runtime-manager.js';
 
@@ -185,11 +186,15 @@ export class RuntimePool {
       () => undefined,
       this.managerOptions,
     ).snapshot();
-    if (!this.failedRestart) return snapshot;
+    if (!this.failedRestart) {
+      const cwd = this.settings.current.cwd;
+      return { ...snapshot, displayCwd: cwd ? compactHomePath(cwd) : null };
+    }
     return {
       ...snapshot,
       runtime: this.failedRestart.runtime,
       cwd: this.failedRestart.cwd,
+      displayCwd: this.failedRestart.cwd ? compactHomePath(this.failedRestart.cwd) : null,
       recoveryTarget: this.failedRestart.target,
     };
   }

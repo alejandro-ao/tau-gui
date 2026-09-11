@@ -1,8 +1,9 @@
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import {
+  compactHomePath,
   completePaths,
   isAllowedSearchRoot,
   quoteForComposer,
@@ -86,6 +87,18 @@ describe('isAllowedSearchRoot', () => {
 });
 
 describe('path helpers', () => {
+  it('compacts paths within home without matching sibling prefixes', () => {
+    const home = join(root, 'home');
+    const nested = join(home, 'repos', 'tau-gui');
+
+    expect(compactHomePath(home, home)).toBe('~');
+    expect(compactHomePath(nested, home)).toBe(`~${sep}repos${sep}tau-gui`);
+    expect(compactHomePath(`${nested}${sep}`, home)).toBe(`~${sep}repos${sep}tau-gui${sep}`);
+    expect(compactHomePath(join(`${home}-backup`, 'repos'), home)).toBe(
+      join(`${home}-backup`, 'repos'),
+    );
+  });
+
   it('prefers relative display paths and falls back to absolute', () => {
     expect(toDisplayPath(root, join(root, 'src', 'index.ts'))).toBe('src/index.ts');
     expect(toDisplayPath(join(root, 'src'), '/etc/hosts')).toBe('/etc/hosts');

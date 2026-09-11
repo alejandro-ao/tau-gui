@@ -10,6 +10,7 @@ export const INITIAL_SNAPSHOT: RuntimeSnapshot = {
   runtimeVersion: null,
   capabilities: DEFAULT_CAPABILITIES,
   cwd: null,
+  displayCwd: null,
   gitBranch: null,
   state: null,
 };

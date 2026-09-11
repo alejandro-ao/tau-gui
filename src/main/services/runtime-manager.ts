@@ -16,6 +16,7 @@ import {
 } from '../runtime/agent-runtime.js';
 import { CAPABILITIES } from '../runtime/spec.js';
 import { probeRuntime } from './discovery.js';
+import { compactHomePath } from './filesystem.js';
 import type { SettingsStore } from './settings.js';
 
 const execFileAsync = promisify(execFile);
@@ -101,6 +102,7 @@ export class RuntimeManager {
       runtimeVersion: this.runtimeVersion,
       capabilities: this.runtime?.capabilities ?? CAPABILITIES[this.kind],
       cwd: this.cwd,
+      displayCwd: this.cwd ? compactHomePath(this.cwd) : null,
       gitBranch: this.gitBranch,
       state: this.state,
     };

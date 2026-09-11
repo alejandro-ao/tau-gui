@@ -113,6 +113,17 @@ export async function completePaths(
   return results.slice(0, limit);
 }
 
+/** Replace the user's home-directory prefix with `~` for compact display. */
+export function compactHomePath(path: string, home = homedir()): string {
+  const relativePath = relative(home, path);
+  if (relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath)) {
+    return path;
+  }
+
+  const trailingSeparator = path.endsWith(sep) ? sep : '';
+  return relativePath ? `~${sep}${relativePath}${trailingSeparator}` : `~${trailingSeparator}`;
+}
+
 /** Prefer cwd-relative display paths, fall back to absolute for outside paths. */
 export function toDisplayPath(cwd: string, absolutePath: string): string {
   const relativePath = relative(cwd, absolutePath);
