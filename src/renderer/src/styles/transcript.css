@@ -308,6 +308,58 @@
   background: transparent;
 }
 
+/* Runtime-expanded skills are resources, not user-authored prose. Their
+   contents remain plain text and are disclosed only on an explicit click. */
+.skill-invocation {
+  margin-bottom: var(--space-2);
+  border-left: var(--bar-width) solid var(--role-skill);
+  background: color-mix(in srgb, var(--role-skill) 8%, transparent);
+}
+
+.skill-invocation-header {
+  display: flex;
+  width: 100%;
+  align-items: baseline;
+  gap: var(--space-2);
+  border: 0;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.skill-invocation-header:hover,
+.skill-invocation-header:focus-visible {
+  background: color-mix(in srgb, var(--role-skill) 12%, transparent);
+}
+
+.skill-invocation-header:focus-visible {
+  outline: 1px solid var(--role-skill);
+  outline-offset: -1px;
+}
+
+.skill-invocation-label {
+  color: var(--role-skill);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.06em;
+  text-transform: lowercase;
+}
+
+.skill-invocation-name {
+  color: var(--role-skill);
+}
+
+.skill-invocation-content {
+  margin: 0;
+  padding: 0 var(--space-3) var(--space-3);
+  color: var(--text-dim);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  font-family: inherit;
+}
+
 .block-assistant {
   background: transparent;
 }

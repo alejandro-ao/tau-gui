@@ -67,6 +67,25 @@ export function normalizeThinkingLevel(value: unknown): ThinkingLevel {
 
 /* ---------------------------------------------------------------- messages */
 
+/**
+ * Pi persists explicit skill invocations as a self-contained XML-like block.
+ * Keep this protocol detail in the adapter: the renderer receives only the
+ * typed name/content pair and never tries to recognize runtime markup itself.
+ */
+function skillExpansion(text: string): { name: string; content: string; request: string } | null {
+  const match = text.match(
+    /^<skill name="([^"\n]+)" location="[^"\n]+">\n([\s\S]*?)\n<\/skill>(?:\n\n([\s\S]*))?$/,
+  );
+  if (!match) return null;
+  const [, name, content, request = ''] = match;
+  if (!name || content === undefined) return null;
+  return {
+    name: boundedText(name),
+    content: boundedToolText(content),
+    request: boundedToolText(request),
+  };
+}
+
 /** Concatenate the text of Pi/Tau `UserContent` (string or content blocks). */
 function contentText(content: unknown): string {
   if (typeof content === 'string') return content;
@@ -160,13 +179,19 @@ export function normalizeMessage(value: unknown): AgentMessage | null {
   if (!isWire(value)) return null;
   const timestamp = num(value['timestamp'], Date.now());
   switch (value['role']) {
-    case 'user':
+    case 'user': {
+      const text = contentText(value['content']);
+      const expansion = skillExpansion(text);
       return {
         role: 'user',
-        text: boundedToolText(contentText(value['content'])),
+        skill: expansion ? { name: expansion.name, content: expansion.content } : null,
+        // Pi appends the author's request after the expansion block. Keeping it
+        // separate avoids showing generated skill instructions as user prose.
+        text: expansion ? expansion.request : boundedToolText(text),
         images: contentImages(value['content']),
         timestamp,
       };
+    }
     case 'assistant':
       return normalizeAssistantMessage(value);
     case 'toolResult':

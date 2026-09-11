@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import { Markdown } from '../markdown.js';
+import type { SkillExpansion } from '../../../shared/domain.js';
 import type { ShellBlock, TranscriptBlock } from '../state/types.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
@@ -25,12 +26,17 @@ export function BlockView({
     case 'user':
       return (
         <div className="message-block message-block-user">
-          <BlockFrame kind="user">
-            <pre className="block-text">{block.text}</pre>
-          </BlockFrame>
-          <div className="message-actions">
-            <CopyButton text={block.text} label="message" />
-          </div>
+          {block.skill ? <SkillInvocationView skill={block.skill} /> : null}
+          {block.text ? (
+            <>
+              <BlockFrame kind="user">
+                <pre className="block-text">{block.text}</pre>
+              </BlockFrame>
+              <div className="message-actions">
+                <CopyButton text={block.text} label="message" />
+              </div>
+            </>
+          ) : null}
         </div>
       );
 
@@ -115,6 +121,26 @@ export function BlockView({
         </BlockFrame>
       );
   }
+}
+
+function SkillInvocationView({ skill }: { skill: SkillExpansion }): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  if (!skill) return null;
+  return (
+    <article className="skill-invocation" data-expanded={expanded}>
+      <button
+        type="button"
+        className="skill-invocation-header"
+        onClick={() => setExpanded((open) => !open)}
+        aria-expanded={expanded}
+        title={expanded ? 'Collapse skill contents' : 'Expand skill contents'}
+      >
+        <span className="skill-invocation-label">skill</span>
+        <span className="skill-invocation-name">{skill.name}</span>
+      </button>
+      {expanded ? <pre className="skill-invocation-content">{skill.content}</pre> : null}
+    </article>
+  );
 }
 
 function BlockFrame({

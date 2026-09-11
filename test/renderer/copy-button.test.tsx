@@ -67,4 +67,36 @@ describe('CopyButton', () => {
       'ARTICLE',
     ]);
   });
+
+  it('renders an invoked skill as a collapsed disclosure beside its user request', async () => {
+    installFakeBridge();
+    const { BlockView } = await import('../../src/renderer/src/components/BlockView.js');
+    mounted = await mount(
+      <BlockView
+        block={{
+          kind: 'user',
+          id: 'user-skill',
+          skill: { name: 'security-review', content: '# Review\n\nCheck auth.' },
+          text: 'Review the login flow',
+          timestamp: 1,
+        }}
+        expanded={false}
+        onToggle={() => undefined}
+      />,
+    );
+
+    const disclosure = query<HTMLButtonElement>(mounted.container, '.skill-invocation-header');
+    expect(disclosure.textContent).toContain('skill');
+    expect(disclosure.textContent).toContain('security-review');
+    expect(disclosure.getAttribute('aria-expanded')).toBe('false');
+    expect(mounted.container.textContent).toContain('Review the login flow');
+    expect(mounted.container.textContent).not.toContain('Check auth.');
+
+    act(() => disclosure.click());
+    expect(disclosure.getAttribute('aria-expanded')).toBe('true');
+    expect(query(mounted.container, '.skill-invocation-content').textContent).toContain(
+      'Check auth.',
+    );
+    expect(mounted.container.querySelector('.skill-invocation-content a')).toBeNull();
+  });
 });

@@ -28,6 +28,11 @@ const messageSchema = z.discriminatedUnion('role', [
   z
     .object({
       role: z.literal('user'),
+      skill: z
+        .object({ name: boundedString(128), content: boundedString() })
+        .strict()
+        .nullable()
+        .optional(),
       text: boundedString(),
       images: z
         .array(z.object({ mimeType: boundedString(), data: boundedString() }).strict())

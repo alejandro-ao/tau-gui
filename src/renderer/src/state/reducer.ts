@@ -667,6 +667,7 @@ export function blocksFromMessage(
         {
           kind: 'user',
           id: nextBlockId('user'),
+          skill: message.skill ?? null,
           text: message.text,
           timestamp: message.timestamp || now,
         },

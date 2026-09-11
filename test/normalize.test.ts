@@ -17,6 +17,7 @@ describe('normalizeMessage', () => {
   it('normalizes a string-content user message', () => {
     expect(normalizeMessage({ role: 'user', content: 'hi', timestamp: 5 })).toEqual({
       role: 'user',
+      skill: null,
       text: 'hi',
       images: [],
       timestamp: 5,
@@ -35,6 +36,39 @@ describe('normalizeMessage', () => {
     expect(message).toMatchObject({
       text: 'look',
       images: [{ mimeType: 'image/png', data: 'AAA' }],
+    });
+  });
+
+  it('normalizes Pi skill expansion markup into a typed resource and user request', () => {
+    const message = normalizeMessage({
+      role: 'user',
+      content:
+        '<skill name="security-review" location="/private/skills/security-review/SKILL.md">\nReferences are relative to /private/skills/security-review.\n\n# Review\n\nCheck auth.\n</skill>\n\nReview the login flow',
+      timestamp: 1,
+    });
+    expect(message).toEqual({
+      role: 'user',
+      skill: {
+        name: 'security-review',
+        content:
+          'References are relative to /private/skills/security-review.\n\n# Review\n\nCheck auth.',
+      },
+      text: 'Review the login flow',
+      images: [],
+      timestamp: 1,
+    });
+  });
+
+  it('does not mistake ordinary user text for a skill expansion', () => {
+    expect(
+      normalizeMessage({
+        role: 'user',
+        content: '<skill name="not-a-directive">documentation example</skill>',
+        timestamp: 1,
+      }),
+    ).toMatchObject({
+      skill: null,
+      text: '<skill name="not-a-directive">documentation example</skill>',
     });
   });
 

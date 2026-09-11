@@ -8,6 +8,7 @@ import type {
   ResourceCatalog,
   SessionStats,
   ThinkingLevel,
+  SkillExpansion,
 } from '../../../shared/domain.js';
 import type {
   ResourceReloadResult,
@@ -27,6 +28,7 @@ export type ToolState = 'running' | 'success' | 'error';
 export interface UserBlock {
   kind: 'user';
   id: string;
+  skill?: SkillExpansion | null;
   text: string;
   timestamp: number;
 }

@@ -9,6 +9,7 @@
 - Replace the composer's Tau prompt with one compact CLI-style spinner during active model work.
 - Mark resource-backed slash directives (skills, custom prompts) as coloured pills while typing, so drafts that expand inside the runtime read differently from GUI commands.
 - Render a `read` call that loads a `SKILL.md` as its own `skill <name>` call in the accent colour instead of a generic file read, kept out of file-read clusters.
+- Render an explicitly invoked skill expansion as a separate purple `skill <name>` disclosure. Keep any accompanying user request as user text, and reveal the untrusted skill contents only when the disclosure is expanded.
 - Interleave reasoning and clustered tool calls on one compact rail below the active user turn.
 - Render only the assistant message that closes a turn as the answer; reasoning and the narration a model writes before a tool call stay on the rail.
 - Collapse settled activity into a quiet duration/tool-count summary immediately before the answer.
