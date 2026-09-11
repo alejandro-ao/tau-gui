@@ -18,8 +18,29 @@ test('platform shortcuts toggle the left and right sidebars independently', asyn
   const left = page.getByTestId('sessions-rail');
   const right = page.getByTestId('sidebar');
 
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
   await expect(left).toBeVisible();
   await expect(right).toBeVisible();
+  for (const sidebar of [left, right]) {
+    const transition = await sidebar.evaluate((element) => {
+      const styles = (
+        globalThis as unknown as {
+          getComputedStyle: (target: unknown) => {
+            transitionDuration: string;
+            transitionProperty: string;
+          };
+        }
+      ).getComputedStyle(element);
+      return {
+        duration: styles.transitionDuration,
+        properties: styles.transitionProperty,
+      };
+    });
+    expect(transition.properties).toContain('flex-basis');
+    expect(transition.properties).toContain('opacity');
+    expect(transition.properties).toContain('transform');
+    expect(transition.duration).toContain('0.22s');
+  }
 
   await page.keyboard.press(`${primary}+b`);
   await expect(left).toBeHidden();

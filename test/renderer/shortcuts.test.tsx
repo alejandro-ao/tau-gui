@@ -105,19 +105,23 @@ describe('global shortcuts', () => {
     const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
 
     await press(window, 'b', { metaKey: true });
-    expect(left.hidden).toBe(true);
-    expect(right.hidden).toBe(false);
+    expect(left.dataset.open).toBe('false');
+    expect(left.getAttribute('aria-hidden')).toBe('true');
+    expect(left.hasAttribute('inert')).toBe(true);
+    expect(right.dataset.open).toBe('true');
 
     await press(window, 'b', { metaKey: true });
-    expect(left.hidden).toBe(false);
+    expect(left.dataset.open).toBe('true');
+    expect(left.getAttribute('aria-hidden')).toBe('false');
+    expect(left.hasAttribute('inert')).toBe(false);
 
     // macOS Option can change KeyboardEvent.key while code remains KeyB.
     await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
-    expect(left.hidden).toBe(false);
-    expect(right.hidden).toBe(true);
+    expect(left.dataset.open).toBe('true');
+    expect(right.dataset.open).toBe('false');
 
     await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
-    expect(right.hidden).toBe(false);
+    expect(right.dataset.open).toBe('true');
   });
 
   it('uses Ctrl for both sidebar shortcuts on Windows', async () => {
@@ -127,15 +131,15 @@ describe('global shortcuts', () => {
     const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
 
     await press(window, 'b', { metaKey: true });
-    expect(left.hidden).toBe(false);
+    expect(left.dataset.open).toBe('true');
 
     await press(window, 'b', { ctrlKey: true });
-    expect(left.hidden).toBe(true);
-    expect(right.hidden).toBe(false);
+    expect(left.dataset.open).toBe('false');
+    expect(right.dataset.open).toBe('true');
 
     await press(window, 'b', { ctrlKey: true, altKey: true });
-    expect(left.hidden).toBe(true);
-    expect(right.hidden).toBe(true);
+    expect(left.dataset.open).toBe('false');
+    expect(right.dataset.open).toBe('false');
   });
 
   it('opens the palette with Ctrl+K and closes the top modal with Escape', async () => {

@@ -71,7 +71,7 @@ export function App(): ReactNode {
       {/* With the macOS title bar hidden, this transparent strip is the window
           drag region; it stays invisible so the layout keeps no header. */}
       {platform() === 'darwin' ? <div className="titlebar-drag" aria-hidden="true" /> : null}
-      {narrow ? null : <SessionsRail hidden={!leftSidebarOpen} />}
+      {narrow ? null : <SessionsRail open={leftSidebarOpen} />}
       <main className="main">
         <ConnectionNotice />
         <Transcript />
@@ -92,7 +92,7 @@ export function App(): ReactNode {
         </button>
       ) : null}
 
-      {position !== 'off' ? <Sidebar id="session-sidebar" hidden={!rightSidebarVisible} /> : null}
+      {position !== 'off' ? <Sidebar id="session-sidebar" open={rightSidebarVisible} /> : null}
 
       <ModalHost />
     </div>
