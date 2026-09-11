@@ -11,7 +11,7 @@ import { groupSessionsByWorkingDirectory, sessionLabel } from '../state/working-
 import { formatRelativeTime } from './format.js';
 
 /** Resizable left rail grouping app-owned sessions by working directory. */
-export function SessionsRail(): ReactNode {
+export function SessionsRail({ hidden = false }: { hidden?: boolean }): ReactNode {
   const { state, actions } = useStore();
   const [width, setWidth] = useState(260);
   const [resizing, setResizing] = useState(false);
@@ -57,6 +57,7 @@ export function SessionsRail(): ReactNode {
       data-testid="sessions-rail"
       data-resizing={resizing}
       aria-label="working directories and recent sessions"
+      hidden={hidden}
       style={{ flexBasis: width }}
     >
       <div className="sessions-rail-header">

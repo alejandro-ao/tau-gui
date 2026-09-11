@@ -6,7 +6,8 @@ export interface GlobalKeyHandlers {
   closeModal: () => void;
   modalOpen: boolean;
   toggleExpandAll: () => void;
-  toggleSidebar: () => void;
+  toggleLeftSidebar: () => void;
+  toggleRightSidebar: () => void;
   cycleModel: () => void;
   cycleThinking: () => void;
   toggleThinking: () => void;
@@ -48,10 +49,13 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
       }
 
       const accelerator = event.ctrlKey || (isMac() && event.metaKey);
-      if (!accelerator || event.altKey) return;
+      if (!accelerator) return;
       const key = event.key.toLowerCase();
+      // Option can transform `event.key` on macOS (Option+B is commonly `∫`),
+      // while `code` continues to identify the intended shortcut key.
+      const sidebarKey = key === 'b' || event.code === 'KeyB';
 
-      if (key === 'k') {
+      if (key === 'k' && !event.altKey) {
         event.preventDefault();
         current.openPalette();
         return;
@@ -59,14 +63,18 @@ export function useGlobalKeys(handlers: GlobalKeyHandlers): void {
       // Remaining shortcuts stay out of the way while a modal owns the keyboard.
       if (current.modalOpen) return;
 
+      if (sidebarKey) {
+        event.preventDefault();
+        if (event.altKey) current.toggleRightSidebar();
+        else current.toggleLeftSidebar();
+        return;
+      }
+      if (event.altKey) return;
+
       switch (key) {
         case 'o':
           event.preventDefault();
           current.toggleExpandAll();
-          return;
-        case 'b':
-          event.preventDefault();
-          current.toggleSidebar();
           return;
         case 'p':
           event.preventDefault();

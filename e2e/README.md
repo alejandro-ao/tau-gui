@@ -86,6 +86,7 @@ it costs nothing and cannot depend on provider availability.
 | `models.spec.ts`        | model picker from the status row and the palette, status updates  |
 | `sessions.spec.ts`      | `/new` clears in-place; recent-session picker                     |
 | `sessions-rail.spec.ts` | Working-directory grouping and session selection                  |
+| `shortcuts.spec.ts`     | Platform-specific left/right sidebar visibility shortcuts         |
 | `modals.spec.ts`        | focus trap, Escape closes, draft preserved                        |
 | `crash.spec.ts`         | runtime SIGKILL → disconnected → restart keeps the draft          |
 | `preload.spec.ts`       | no Node integration, narrow bridge surface, IPC validation        |

@@ -16,10 +16,16 @@ export function App(): ReactNode {
   const { state, actions } = useStore();
   const narrow = useNarrowViewport(900);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightSidebarOpen, setRightSidebarOpen] = useState(true);
 
   const position = state.settings.sidebarPosition;
   const showThinking = state.settings.showThinking;
-  const toggleSidebar = useCallback(() => setDrawerOpen((open) => !open), []);
+  const toggleLeftSidebar = useCallback(() => setLeftSidebarOpen((open) => !open), []);
+  const toggleRightSidebar = useCallback(() => {
+    if (narrow) setDrawerOpen((open) => !open);
+    else setRightSidebarOpen((open) => !open);
+  }, [narrow]);
   useGlobalKeys(
     useMemo(
       () => ({
@@ -27,7 +33,8 @@ export function App(): ReactNode {
         closeModal: () => actions.openModal(null),
         modalOpen: state.modal !== null,
         toggleExpandAll: actions.toggleExpandAll,
-        toggleSidebar,
+        toggleLeftSidebar,
+        toggleRightSidebar,
         cycleModel: () => void actions.cycleModel(),
         cycleThinking: () => void actions.cycleThinking(),
         toggleThinking: () => void actions.updateSettings({ showThinking: !showThinking }),
@@ -38,11 +45,18 @@ export function App(): ReactNode {
         newSessionFromDirectoryPicker: () => void actions.newSessionFromDirectoryPicker(),
         restart: () => void actions.restart(),
       }),
-      [actions, showThinking, state.modal, state.sessionTransitioning, toggleSidebar],
+      [
+        actions,
+        showThinking,
+        state.modal,
+        state.sessionTransitioning,
+        toggleLeftSidebar,
+        toggleRightSidebar,
+      ],
     ),
   );
 
-  const sidebarVisible = position !== 'off' && (!narrow || drawerOpen);
+  const rightSidebarVisible = narrow ? drawerOpen : rightSidebarOpen;
 
   return (
     // `data-focused` mirrors the main-process focus signal that gates desktop
@@ -57,7 +71,7 @@ export function App(): ReactNode {
       {/* With the macOS title bar hidden, this transparent strip is the window
           drag region; it stays invisible so the layout keeps no header. */}
       {platform() === 'darwin' ? <div className="titlebar-drag" aria-hidden="true" /> : null}
-      {narrow ? null : <SessionsRail />}
+      {narrow ? null : <SessionsRail hidden={!leftSidebarOpen} />}
       <main className="main">
         <ConnectionNotice />
         <Transcript />
@@ -70,7 +84,7 @@ export function App(): ReactNode {
         <button
           type="button"
           className="ghost-button drawer-toggle"
-          onClick={toggleSidebar}
+          onClick={toggleRightSidebar}
           aria-expanded={drawerOpen}
           aria-controls="session-sidebar"
         >
@@ -78,7 +92,7 @@ export function App(): ReactNode {
         </button>
       ) : null}
 
-      {sidebarVisible ? <Sidebar id="session-sidebar" /> : null}
+      {position !== 'off' ? <Sidebar id="session-sidebar" hidden={!rightSidebarVisible} /> : null}
 
       <ModalHost />
     </div>

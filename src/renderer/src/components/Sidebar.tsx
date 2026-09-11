@@ -9,13 +9,13 @@ import { formatCost, formatPercent, formatTokens } from './format.js';
  * collapsible resource sections, and the version mark at the bottom.
  * Sections whose data is unavailable are omitted entirely.
  */
-export function Sidebar({ id }: { id?: string }): ReactNode {
+export function Sidebar({ id, hidden = false }: { id?: string; hidden?: boolean }): ReactNode {
   const { state } = useStore();
   const { snapshot, agent, stats, resources, contextFiles } = state;
   const cacheHitRate = cacheRate(stats?.tokens.cacheRead ?? 0, stats?.tokens.input ?? 0);
 
   return (
-    <aside id={id} className="sidebar" data-testid="sidebar" aria-label="session">
+    <aside id={id} className="sidebar" data-testid="sidebar" aria-label="session" hidden={hidden}>
       <section className="sidebar-section sidebar-title">
         <h1>{agent?.sessionName ?? 'untitled session'}</h1>
       </section>

@@ -1,33 +1,43 @@
 import type { ReactNode } from 'react';
+import { platform } from '../../bridge.js';
 import { useStore } from '../../state/store.js';
 import { Modal } from './Modal.js';
 
-const SHORTCUTS: { keys: string; description: string }[] = [
-  { keys: 'Enter', description: 'send now, or queue priority guidance during a run' },
-  { keys: 'Shift+Enter', description: 'newline in the composer' },
-  { keys: 'Alt+Enter', description: 'queue a follow-up' },
-  { keys: 'Esc', description: 'close the top modal, otherwise abort the active run' },
-  { keys: 'Up (empty composer)', description: 'remove and edit the newest queued prompt' },
-  { keys: 'Ctrl+C', description: 'clear the composer (never while text is selected)' },
-  { keys: 'Cmd/Ctrl+Z', description: 'undo composer editing' },
-  { keys: 'Cmd+Shift+Z / Ctrl+Y', description: 'redo composer editing' },
-  { keys: 'Ctrl+K', description: 'command palette' },
-  { keys: 'Ctrl+O', description: 'expand or collapse every block' },
-  { keys: 'Ctrl+P', description: 'cycle model' },
-  { keys: 'Shift+Tab', description: 'cycle thinking level' },
-  { keys: 'Ctrl+T', description: 'toggle thinking visibility' },
-  { keys: 'Ctrl+B', description: 'toggle the session sidebar' },
-  { keys: 'Ctrl+N', description: 'start a new session in the current directory' },
-  { keys: 'Shift+Ctrl+N', description: 'choose a directory for a new session' },
-  { keys: 'Ctrl+R', description: 'restart the runtime' },
-  { keys: '/', description: 'slash command completion in the composer' },
-  { keys: '@', description: 'file path completion in the composer' },
-  { keys: '! / !!', description: 'direct shell command, with or without context' },
-];
+function shortcutsForPlatform(os: string): { keys: string; description: string }[] {
+  const primary = os === 'darwin' ? 'Cmd' : 'Ctrl';
+  const alternate = os === 'darwin' ? 'Option' : 'Alt';
+  return [
+    { keys: 'Enter', description: 'send now, or queue priority guidance during a run' },
+    { keys: 'Shift+Enter', description: 'newline in the composer' },
+    { keys: 'Alt+Enter', description: 'queue a follow-up' },
+    { keys: 'Esc', description: 'close the top modal, otherwise abort the active run' },
+    { keys: 'Up (empty composer)', description: 'remove and edit the newest queued prompt' },
+    { keys: 'Ctrl+C', description: 'clear the composer (never while text is selected)' },
+    { keys: 'Cmd/Ctrl+Z', description: 'undo composer editing' },
+    { keys: 'Cmd+Shift+Z / Ctrl+Y', description: 'redo composer editing' },
+    { keys: 'Ctrl+K', description: 'command palette' },
+    { keys: 'Ctrl+O', description: 'expand or collapse every block' },
+    { keys: 'Ctrl+P', description: 'cycle model' },
+    { keys: 'Shift+Tab', description: 'cycle thinking level' },
+    { keys: 'Ctrl+T', description: 'toggle thinking visibility' },
+    { keys: `${primary}+B`, description: 'toggle the left projects sidebar' },
+    {
+      keys: `${primary}+${alternate}+B`,
+      description: 'toggle the right session details sidebar',
+    },
+    { keys: 'Ctrl+N', description: 'start a new session in the current directory' },
+    { keys: 'Shift+Ctrl+N', description: 'choose a directory for a new session' },
+    { keys: 'Ctrl+R', description: 'restart the runtime' },
+    { keys: '/', description: 'slash command completion in the composer' },
+    { keys: '@', description: 'file path completion in the composer' },
+    { keys: '! / !!', description: 'direct shell command, with or without context' },
+  ];
+}
 
 /** Local shortcut reference. */
 export function HotkeysModal(): ReactNode {
   const { actions } = useStore();
+  const shortcuts = shortcutsForPlatform(platform());
   return (
     <Modal
       name="hotkeys"
@@ -36,7 +46,7 @@ export function HotkeysModal(): ReactNode {
       onClose={() => actions.openModal(null)}
     >
       <dl className="hotkey-list">
-        {SHORTCUTS.map((shortcut) => (
+        {shortcuts.map((shortcut) => (
           <div className="hotkey-row" key={shortcut.keys}>
             <dt>{shortcut.keys}</dt>
             <dd>{shortcut.description}</dd>

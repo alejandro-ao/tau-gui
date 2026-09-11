@@ -98,6 +98,46 @@ describe('global shortcuts', () => {
     expect(actionsOf(bridge)).toContain('models.cycle');
   });
 
+  it('toggles the left and right sidebars independently on macOS', async () => {
+    const { view } = await renderApp({ platform: 'darwin' });
+    mounted = view;
+    const left = query<HTMLElement>(view.container, '[data-testid="sessions-rail"]');
+    const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(false);
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.hidden).toBe(false);
+
+    // macOS Option can change KeyboardEvent.key while code remains KeyB.
+    await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
+    expect(left.hidden).toBe(false);
+    expect(right.hidden).toBe(true);
+
+    await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
+    expect(right.hidden).toBe(false);
+  });
+
+  it('uses Ctrl for both sidebar shortcuts on Windows', async () => {
+    const { view } = await renderApp({ platform: 'win32' });
+    mounted = view;
+    const left = query<HTMLElement>(view.container, '[data-testid="sessions-rail"]');
+    const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.hidden).toBe(false);
+
+    await press(window, 'b', { ctrlKey: true });
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(false);
+
+    await press(window, 'b', { ctrlKey: true, altKey: true });
+    expect(left.hidden).toBe(true);
+    expect(right.hidden).toBe(true);
+  });
+
   it('opens the palette with Ctrl+K and closes the top modal with Escape', async () => {
     const { view } = await renderApp({});
     mounted = view;
