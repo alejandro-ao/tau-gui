@@ -55,6 +55,14 @@ import {
 import { createSpawnSessionTool, type SpawnSessionHandler } from './spawn-session-tool.js';
 import { boundJson, boundedToolText } from './untrusted.js';
 
+const SESSION_NAME_SYSTEM_PROMPT =
+  'You write concise coding-agent session names. Reply with only a short title, ' +
+  'maximum four words, no quotes, and no punctuation-only output.';
+const SESSION_NAME_INPUT_CHARACTERS = 4_000;
+const SESSION_NAME_OUTPUT_TOKENS = 64;
+const SESSION_NAME_MAX_CHARACTERS = 80;
+const SESSION_NAME_TIMEOUT_MS = 30_000;
+
 /**
  * Features executable through the complete desktop application contract.
  *
@@ -95,6 +103,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private readonly agentDir: string;
   private readonly home: string;
   private readonly spawnSession: SpawnSessionHandler | null;
+  private automaticNameAbort: AbortController | null = null;
+  private automaticNameAttemptedSession: string | null = null;
 
   constructor(
     sink: RuntimeSink,
@@ -193,6 +203,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   async stop(): Promise<void> {
     const runtime = this.runtime;
     this.runtime = null;
+    this.cancelAutomaticSessionName();
+    this.automaticNameAttemptedSession = null;
     this.unsubscribe?.();
     this.unsubscribe = null;
     if (runtime) await runtime.dispose();
@@ -200,18 +212,135 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   private bindSession(session: AgentSession): void {
+    this.cancelAutomaticSessionName();
+    this.automaticNameAttemptedSession = null;
     this.unsubscribe?.();
     this.unsubscribe = session.subscribe((event) => {
       const normalized = normalizeEvent(event);
-      if (normalized) this.sink.event(normalized);
-      // These Pi-native state events have no transcript equivalent, but the
-      // manager's authoritative refresh after terminal boundaries observes them.
-      else if (
-        !['entry_appended', 'session_info_changed', 'thinking_level_changed'].includes(event.type)
-      ) {
+      if (normalized) {
+        this.sink.event(normalized);
+        if (normalized.type === 'message_end' && normalized.message.role === 'user') {
+          this.maybeNameSession(session, normalized.message.text);
+        }
+      }
+      // Session metadata has no transcript-domain equivalent. Invalidate the
+      // manager snapshot directly so a title that finishes after agent_settled
+      // still reaches the UI immediately.
+      else if (event.type === 'session_info_changed') {
+        this.sink.stateChanged?.();
+      } else if (!['entry_appended', 'thinking_level_changed'].includes(event.type)) {
         this.sink.diagnostic(`Ignored unknown Pi event: ${event.type}`);
       }
     });
+  }
+
+  /** Start one transcript-free title completion as soon as Pi emits the first user message. */
+  private maybeNameSession(session: AgentSession, firstMessage: string): void {
+    const selectedModel = session.model;
+    const model = selectedModel
+      ? session.modelRuntime.getModel(selectedModel.provider, selectedModel.id)
+      : undefined;
+    const message = firstMessage.trim();
+    if (
+      !model ||
+      !message ||
+      this.runtime?.session !== session ||
+      session.sessionName ||
+      session.sessionManager
+        .getEntries()
+        .some((entry) => entry.type === 'message' && entry.message.role === 'user') ||
+      this.automaticNameAttemptedSession === session.sessionId
+    ) {
+      return;
+    }
+
+    this.automaticNameAttemptedSession = session.sessionId;
+    // AgentSession notifies subscribers immediately before it appends the
+    // completed user message. Defer one microtask so session_info follows that
+    // message in the runtime-owned tree even for an immediate model response.
+    queueMicrotask(() => {
+      if (
+        this.runtime?.session !== session ||
+        session.sessionName ||
+        this.automaticNameAttemptedSession !== session.sessionId
+      ) {
+        return;
+      }
+      const controller = new AbortController();
+      this.automaticNameAbort = controller;
+      void this.generateSessionName(session, model, message, controller).finally(() => {
+        if (this.automaticNameAbort === controller) this.automaticNameAbort = null;
+      });
+    });
+  }
+
+  private async generateSessionName(
+    session: AgentSession,
+    model: NonNullable<ReturnType<AgentSession['modelRuntime']['getModel']>>,
+    firstMessage: string,
+    controller: AbortController,
+  ): Promise<void> {
+    let generatedName: string | null = null;
+    let generationFailed = false;
+    try {
+      const response = await session.modelRuntime.completeSimple(
+        model,
+        {
+          systemPrompt: SESSION_NAME_SYSTEM_PROMPT,
+          messages: [
+            {
+              role: 'user',
+              content:
+                'Create a concise session name for this first user message. ' +
+                `Use at most four words.\n\nUser message:\n${boundedNameInput(firstMessage)}`,
+              timestamp: Date.now(),
+            },
+          ],
+          tools: [],
+        },
+        {
+          cacheRetention: 'none',
+          maxRetries: 0,
+          maxTokens: SESSION_NAME_OUTPUT_TOKENS,
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(SESSION_NAME_TIMEOUT_MS),
+          ]),
+        },
+      );
+      generationFailed = response.stopReason === 'error' || response.stopReason === 'aborted';
+      generatedName = normalizeSessionName(
+        response.content
+          .filter((block) => block.type === 'text')
+          .map((block) => block.text)
+          .join(' '),
+      );
+    } catch {
+      generationFailed = true;
+    }
+
+    // A manual rename or session replacement always wins an in-flight model response.
+    if (controller.signal.aborted || this.runtime?.session !== session || session.sessionName)
+      return;
+    if (generationFailed) {
+      this.sink.diagnostic('Automatic session naming failed; using the first-message fallback');
+    }
+    const name = generationFailed
+      ? normalizeSessionName(firstMessage)
+      : (generatedName ?? normalizeSessionName(firstMessage));
+    if (!name) return;
+    try {
+      // Pi's public setter appends the authoritative session_info entry. The
+      // title request itself never enters the conversation or session file.
+      session.setSessionName(name);
+    } catch {
+      this.sink.diagnostic('Failed to persist the automatic session name');
+    }
+  }
+
+  private cancelAutomaticSessionName(): void {
+    this.automaticNameAbort?.abort();
+    this.automaticNameAbort = null;
   }
 
   private get host(): AgentSessionRuntime {
@@ -703,6 +832,23 @@ function resourceCounts(session: AgentSession) {
     extensions: loader.getExtensions().extensions.length,
     tools: session.getAllTools().length,
   };
+}
+
+function boundedNameInput(value: string): string {
+  return [...value].slice(0, SESSION_NAME_INPUT_CHARACTERS).join('');
+}
+
+function normalizeSessionName(value: string): string | null {
+  const words = value
+    .replace(/[\p{Cc}\p{Cf}]+/gu, ' ')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .split(' ')
+    .map((word) => word.replace(/^[\p{P}\p{S}]+|[\p{P}\p{S}]+$/gu, ''))
+    .filter(Boolean)
+    .slice(0, 4);
+  const title = [...words.join(' ')].slice(0, SESSION_NAME_MAX_CHARACTERS).join('').trim();
+  return title || null;
 }
 
 function resourceDescription(value: string): string | null {
