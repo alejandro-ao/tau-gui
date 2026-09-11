@@ -40,6 +40,7 @@ import type {
   SessionStats,
   ThinkingLevel,
   TreeSnapshot,
+  UserMessage,
 } from '../../shared/domain.js';
 import type { AgentRuntime, RuntimeSink } from './agent-runtime.js';
 import {
@@ -220,7 +221,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       if (normalized) {
         this.sink.event(normalized);
         if (normalized.type === 'message_end' && normalized.message.role === 'user') {
-          this.maybeNameSession(session, normalized.message.text);
+          this.maybeNameSession(session, normalized.message);
         }
       }
       // Session metadata has no transcript-domain equivalent. Invalidate the
@@ -235,15 +236,15 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   }
 
   /** Start one transcript-free title completion as soon as Pi emits the first user message. */
-  private maybeNameSession(session: AgentSession, firstMessage: string): void {
+  private maybeNameSession(session: AgentSession, firstMessage: UserMessage): void {
+    const input = automaticNameInput(firstMessage);
     const selectedModel = session.model;
     const model = selectedModel
       ? session.modelRuntime.getModel(selectedModel.provider, selectedModel.id)
       : undefined;
-    const message = firstMessage.trim();
     if (
+      !input ||
       !model ||
-      !message ||
       this.runtime?.session !== session ||
       session.sessionName ||
       session.sessionManager
@@ -268,7 +269,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
       }
       const controller = new AbortController();
       this.automaticNameAbort = controller;
-      void this.generateSessionName(session, model, message, controller).finally(() => {
+      void this.generateSessionName(session, model, input, controller).finally(() => {
         if (this.automaticNameAbort === controller) this.automaticNameAbort = null;
       });
     });
@@ -277,7 +278,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
   private async generateSessionName(
     session: AgentSession,
     model: NonNullable<ReturnType<AgentSession['modelRuntime']['getModel']>>,
-    firstMessage: string,
+    input: AutomaticNameInput,
     controller: AbortController,
   ): Promise<void> {
     let generatedName: string | null = null;
@@ -292,7 +293,7 @@ export class EmbeddedPiRuntime implements AgentRuntime {
               role: 'user',
               content:
                 'Create a concise session name for this first user message. ' +
-                `Use at most four words.\n\nUser message:\n${boundedNameInput(firstMessage)}`,
+                `Use at most four words.\n\nUser message:\n${boundedNameInput(input.prompt)}`,
               timestamp: Date.now(),
             },
           ],
@@ -325,9 +326,8 @@ export class EmbeddedPiRuntime implements AgentRuntime {
     if (generationFailed) {
       this.sink.diagnostic('Automatic session naming failed; using the first-message fallback');
     }
-    const name = generationFailed
-      ? normalizeSessionName(firstMessage)
-      : (generatedName ?? normalizeSessionName(firstMessage));
+    const fallbackName = normalizeSessionName(input.fallback);
+    const name = generationFailed ? fallbackName : (generatedName ?? fallbackName);
     if (!name) return;
     try {
       // Pi's public setter appends the authoritative session_info entry. The
@@ -832,6 +832,25 @@ function resourceCounts(session: AgentSession) {
     extensions: loader.getExtensions().extensions.length,
     tools: session.getAllTools().length,
   };
+}
+
+interface AutomaticNameInput {
+  prompt: string;
+  fallback: string;
+}
+
+function automaticNameInput(message: UserMessage): AutomaticNameInput | null {
+  const request = message.text.trim();
+  const skillName = message.skill?.name.trim() ?? '';
+  const skillContent = message.skill?.content.trim() ?? '';
+  const fallback = request || skillName || skillContent;
+  if (!fallback) return null;
+  if (!message.skill) return { prompt: request, fallback };
+
+  const sections = [`Invoked skill: ${skillName}`];
+  if (request) sections.push(`User request:\n${request}`);
+  if (skillContent) sections.push(`Skill instructions:\n${skillContent}`);
+  return { prompt: sections.join('\n\n'), fallback };
 }
 
 function boundedNameInput(value: string): string {

@@ -206,6 +206,38 @@ describe('EmbeddedPiRuntime', () => {
     });
   });
 
+  it('auto-names a first message that only invokes a skill', async () => {
+    const completeSimple = vi
+      .fn<CompleteSimpleStub>()
+      .mockResolvedValue(titleResponse('Review authentication security'));
+    const fixture = createNamingFixture(completeSimple);
+    const skillInvocation = [
+      '<skill name="security-review" location="/skills/security-review/SKILL.md">',
+      '# Security review',
+      '',
+      'Inspect authentication boundaries.',
+      '</skill>',
+    ].join('\n');
+
+    fixture.emit(firstUserMessage(skillInvocation));
+
+    await vi.waitFor(() =>
+      expect(fixture.sessionManager.getSessionName()).toBe('Review authentication security'),
+    );
+    const call = completeSimple.mock.calls[0];
+    const context = asRecord(call?.[1]);
+    const messages = Array.isArray(context['messages']) ? context['messages'] : [];
+    const prompt = asRecord(messages[0]);
+    expect(prompt['content']).toEqual(expect.stringContaining('Invoked skill: security-review'));
+    expect(prompt['content']).toEqual(
+      expect.stringContaining('Inspect authentication boundaries.'),
+    );
+    expect(fixture.sessionManager.getEntries().at(-1)).toMatchObject({
+      type: 'session_info',
+      name: 'Review authentication security',
+    });
+  });
+
   it('falls back to a bounded first-message name when title generation fails', async () => {
     const completeSimple = vi.fn<CompleteSimpleStub>().mockResolvedValue({
       ...titleResponse('Incomplete provider output', 'error'),
