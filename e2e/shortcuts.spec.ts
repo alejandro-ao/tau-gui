@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { launchApp, type AppHandle } from './helpers.js';
 
 let handle: AppHandle;
@@ -10,6 +10,18 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await handle.close();
 });
+
+async function activeTransitionProperties(sidebar: Locator): Promise<string[]> {
+  return sidebar.evaluate((element) =>
+    (
+      element as unknown as {
+        getAnimations: () => { transitionProperty: string }[];
+      }
+    )
+      .getAnimations()
+      .map((animation) => animation.transitionProperty),
+  );
+}
 
 test('platform shortcuts toggle the left and right sidebars independently', async () => {
   const { page } = handle;
@@ -43,16 +55,20 @@ test('platform shortcuts toggle the left and right sidebars independently', asyn
   }
 
   await page.keyboard.press(`${primary}+b`);
+  expect(await activeTransitionProperties(left)).toContain('opacity');
   await expect(left).toBeHidden();
   await expect(right).toBeVisible();
 
   await page.keyboard.press(`${primary}+b`);
+  expect(await activeTransitionProperties(left)).toContain('opacity');
   await expect(left).toBeVisible();
 
   await page.keyboard.press(`${primary}+Alt+b`);
+  expect(await activeTransitionProperties(right)).toContain('opacity');
   await expect(left).toBeVisible();
   await expect(right).toBeHidden();
 
   await page.keyboard.press(`${primary}+Alt+b`);
+  expect(await activeTransitionProperties(right)).toContain('opacity');
   await expect(right).toBeVisible();
 });

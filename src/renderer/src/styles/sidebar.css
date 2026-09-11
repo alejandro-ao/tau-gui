@@ -96,12 +96,14 @@
   opacity: 1;
   transform: translateX(0);
   visibility: visible;
+  /* On reveal, layout starts first and the panel then fades in clearly instead
+     of having its opacity change disappear inside the slide. */
   transition:
     flex-basis 220ms cubic-bezier(0.16, 1, 0.3, 1),
     min-width 220ms cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 160ms ease,
+    opacity 180ms ease 40ms,
     transform 220ms cubic-bezier(0.16, 1, 0.3, 1),
-    border-color 160ms ease,
+    border-color 160ms ease 40ms,
     visibility 0s linear;
 }
 
@@ -115,7 +117,14 @@
   opacity: 0;
   pointer-events: none;
   visibility: hidden;
-  transition-delay: 0s, 0s, 0s, 0s, 0s, 220ms;
+  /* Fade first on close, then let the panel slide and yield its layout space. */
+  transition:
+    flex-basis 200ms cubic-bezier(0.16, 1, 0.3, 1) 50ms,
+    min-width 200ms cubic-bezier(0.16, 1, 0.3, 1) 50ms,
+    opacity 160ms ease-out,
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1) 50ms,
+    border-color 120ms ease-out,
+    visibility 0s linear 250ms;
 }
 
 .sidebar[data-open='false'] {
@@ -145,7 +154,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar,
-  .sessions-rail {
+  .sessions-rail,
+  .sidebar[data-open='false'],
+  .sessions-rail[data-open='false'] {
     transition: none;
   }
 }
