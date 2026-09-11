@@ -5,7 +5,7 @@
   min-width: 0;
   background: var(--panel);
   border-left: 1px solid var(--border);
-  overflow-y: auto;
+  overflow: hidden auto;
   font-size: var(--font-size-sm);
 }
 
@@ -87,6 +87,88 @@
   overflow: hidden;
   font-size: var(--font-size-sm);
   backdrop-filter: blur(24px);
+}
+
+/* Keep both panels mounted so local UI state survives. Hiding first fades the
+   contents for 140ms, then collapses the shell for 200ms. Showing performs the
+   exact reverse: expand the shell, then fade its contents back in. */
+.sidebar,
+.sessions-rail {
+  transform: translateX(0);
+  visibility: visible;
+  transition:
+    flex-basis 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    min-width 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 120ms ease,
+    visibility 0s linear;
+}
+
+.sidebar > *,
+.sessions-rail > * {
+  opacity: 1;
+  transition: opacity 140ms ease-out 200ms;
+}
+
+.sessions-rail[data-resizing='true'] {
+  transition: none;
+}
+
+.sidebar[data-open='false'],
+.sessions-rail[data-open='false'] {
+  border-color: transparent;
+  pointer-events: none;
+  visibility: hidden;
+  transition:
+    flex-basis 200ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+    min-width 200ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+    transform 200ms cubic-bezier(0.16, 1, 0.3, 1) 140ms,
+    border-color 120ms ease 140ms,
+    visibility 0s linear 340ms;
+}
+
+.sidebar[data-open='false'] > *,
+.sessions-rail[data-open='false'] > * {
+  opacity: 0;
+  transition: opacity 140ms ease-in;
+}
+
+.sidebar[data-open='false'] {
+  flex-basis: 0;
+  transform: translateX(12px);
+}
+
+.app[data-sidebar='left'] .sidebar[data-open='false'] {
+  border-color: transparent;
+  transform: translateX(-12px);
+}
+
+.sessions-rail[data-open='false'] {
+  min-width: 0;
+  transform: translateX(-12px);
+}
+
+/* The responsive details drawer keeps its full overlay width and slides beyond
+   the corresponding window edge instead of collapsing in place. */
+.app[data-narrow='true'] .sidebar[data-open='false'] {
+  transform: translateX(100%);
+}
+
+.app[data-narrow='true'][data-sidebar='left'] .sidebar[data-open='false'] {
+  transform: translateX(-100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .sessions-rail,
+  .sidebar > *,
+  .sessions-rail > *,
+  .sidebar[data-open='false'],
+  .sessions-rail[data-open='false'],
+  .sidebar[data-open='false'] > *,
+  .sessions-rail[data-open='false'] > * {
+    transition: none;
+  }
 }
 
 .sessions-rail-header {

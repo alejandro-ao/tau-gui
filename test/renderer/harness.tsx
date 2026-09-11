@@ -41,6 +41,7 @@ export interface FakeBridge {
 
 export interface FakeBridgeOptions {
   runtime?: RuntimeKind;
+  platform?: string;
   status?: RuntimeSnapshot['status'];
   detail?: string | null;
   capabilities?: Partial<RuntimeCapabilities>;
@@ -132,7 +133,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     },
     // Electron exposes dropped-file paths through the preload bridge only.
     pathForFile: (file: File): string => (file as File & { path?: string }).path ?? '',
-    platform: 'darwin',
+    platform: options.platform ?? 'darwin',
   };
 
   // The bridge type is intentionally narrow; the fake satisfies it structurally.
