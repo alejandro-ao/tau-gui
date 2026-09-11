@@ -258,6 +258,40 @@ describe('sticky user prompt', () => {
     expect(sticky.textContent).not.toContain('Inspect every page.');
     expect(sticky.querySelector('button')).toBeNull();
   });
+
+  it('clears a stale sticky skill immediately after its disclosure changes', async () => {
+    const { view, viewport, dispatch } = await renderTranscript(0);
+    await act(async () => {
+      dispatch({
+        type: 'localMessage',
+        block: {
+          kind: 'user',
+          id: 'skill-1',
+          text: '',
+          skill: { name: 'pdf', content: 'Inspect every page.' },
+          timestamp: 1,
+        },
+      });
+      dispatch({ type: 'localMessage', block: assistant(1) });
+      await Promise.resolve();
+    });
+
+    setGeometry(viewport, { scrollTop: 200, clientHeight: 300, scrollHeight: 800 });
+    viewport.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const prompt = query<HTMLElement>(viewport, '[data-user-group-index]');
+    let promptTop = -100;
+    prompt.getBoundingClientRect = () => ({ top: promptTop }) as DOMRect;
+    await scroll(viewport);
+    expect(view.container.querySelector('.pinned-skill-invocation')).not.toBeNull();
+
+    // Collapsing moves the turn back into view; no scroll event follows.
+    promptTop = 100;
+    await act(async () => {
+      dispatch({ type: 'toggleExpanded', id: 'skill-1' });
+      await Promise.resolve();
+    });
+    expect(view.container.querySelector('.pinned-skill-invocation')).toBeNull();
+  });
 });
 
 describe('transcript scroll anchoring', () => {

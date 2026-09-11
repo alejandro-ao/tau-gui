@@ -80,6 +80,11 @@ export function Transcript(): ReactNode {
 
   useEffect(() => updatePinnedUser(), [groups, updatePinnedUser, vwin.end, vwin.start]);
 
+  // Expanding or collapsing a skill changes its measured height without a
+  // scroll event. Recompute the sticky turn after React commits that layout so
+  // a stale pinned card cannot cover the transcript until the next scroll.
+  useEffect(() => updatePinnedUser(), [state.expanded, updatePinnedUser]);
+
   useEffect(() => {
     if (revealedUserIndex === null) return;
     const timeout = window.setTimeout(() => setRevealedUserIndex(null), 360);
