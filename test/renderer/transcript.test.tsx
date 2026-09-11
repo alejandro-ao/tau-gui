@@ -20,6 +20,7 @@ function assistant(index: number): TranscriptBlock {
     streaming: false,
     aborted: false,
     final: true,
+    endedWithoutTools: true,
     timestamp: index,
   };
 }

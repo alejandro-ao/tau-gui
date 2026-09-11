@@ -38,11 +38,12 @@ export interface AssistantBlock {
   streaming: boolean;
   aborted: boolean;
   /**
-   * True once the assistant message has ended without requesting tool calls,
-   * which makes it the closing answer of its turn. Streaming text and
-   * narration followed by more tool calls are provisional, not the answer.
+   * True once this response is confirmed as the closing answer of its turn.
+   * Streaming text and responses followed by retries remain provisional.
    */
   final: boolean;
+  /** True only after message_end reports that this response requested no tools. */
+  endedWithoutTools: boolean;
   timestamp: number;
 }
 

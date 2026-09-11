@@ -142,6 +142,7 @@ describe('tool run rendering', () => {
             streaming: false,
             aborted: false,
             final: false,
+            endedWithoutTools: false,
             timestamp: 0,
           },
           blocks[0] as ToolBlock,

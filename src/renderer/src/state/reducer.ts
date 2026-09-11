@@ -105,11 +105,15 @@ export function reducer(state: AppState, action: Action): AppState {
         return state;
       }
       return applyEvent(state, action.event, action.now);
-    case 'snapshot':
-      return switchDraftSession(
+    case 'snapshot': {
+      const next = switchDraftSession(
         { ...state, snapshot: action.snapshot, agent: action.snapshot.state ?? state.agent },
         sessionDraftKey(snapshotTarget(action.snapshot)),
       );
+      return isRuntimeWorking(state.snapshot.status) && !isRuntimeWorking(action.snapshot.status)
+        ? finalizeLatestResponse(next)
+        : next;
+    }
     case 'queue': {
       const target = snapshotTarget(state.snapshot);
       if (
@@ -224,7 +228,11 @@ export function reducer(state: AppState, action: Action): AppState {
       }
       return {
         ...state,
-        blocks: hydrateBlocks(action.messages, action.now),
+        blocks: hydrateBlocks(
+          action.messages,
+          action.now,
+          !isRuntimeWorking(state.snapshot.status),
+        ),
         streamingAssistantId: null,
         streamingThinkingId: null,
       };
@@ -282,9 +290,11 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
       return { ...state, streamingAssistantId: null, streamingThinkingId: null };
 
     case 'message_start': {
-      // Assistant text is assembled from deltas, and tool results are already
-      // represented by their tool block.
-      if (event.message.role === 'assistant' || event.message.role === 'toolResult') return state;
+      // Assistant text is assembled from deltas. A new assistant attempt also
+      // invalidates a prior candidate in this user turn before any text arrives.
+      if (event.message.role === 'assistant') return invalidateLatestResponse(state);
+      // Tool results are already represented by their tool block.
+      if (event.message.role === 'toolResult') return state;
       return {
         ...state,
         blocks: [...state.blocks, ...blocksFromMessage(event.message, now)],
@@ -292,7 +302,13 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
     }
 
     case 'message_delta': {
-      let next = state;
+      // Some runtime implementations can omit message_start, so the first
+      // delta provides the same continuation evidence. Avoid rescanning the
+      // transcript once this response already owns a provisional block.
+      let next =
+        state.streamingAssistantId === null && state.streamingThinkingId === null
+          ? invalidateLatestResponse(state)
+          : state;
       if (event.message.thinking) {
         next = upsertStreamBlock(next, 'thinking', event.message.thinking, now);
       }
@@ -385,8 +401,8 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
     case 'compaction_start':
       return appendStatus(state, `Compacting context (${event.reason})…`, 'info', now);
 
-    case 'compaction_end':
-      return appendStatus(
+    case 'compaction_end': {
+      const next = appendStatus(
         state,
         event.aborted
           ? `Compaction failed${event.errorMessage ? `: ${event.errorMessage}` : ''}`
@@ -394,13 +410,17 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
         event.aborted ? 'warn' : 'info',
         now,
       );
+      return event.willRetry ? invalidateLatestResponse(next) : next;
+    }
 
     case 'retry_start':
-      return appendStatus(
-        state,
-        `Retrying (attempt ${event.attempt}/${event.maxAttempts})${event.message ? `: ${event.message}` : ''}`,
-        'warn',
-        now,
+      return invalidateLatestResponse(
+        appendStatus(
+          state,
+          `Retrying (attempt ${event.attempt}/${event.maxAttempts})${event.message ? `: ${event.message}` : ''}`,
+          'warn',
+          now,
+        ),
       );
 
     case 'retry_end':
@@ -424,10 +444,21 @@ function applyEvent(state: AppState, event: AgentEvent, now: number): AppState {
         ],
       };
 
+    case 'agent_end':
+      return event.willRetry ? invalidateLatestResponse(state) : state;
+
     case 'agent_settled': {
-      const preview = lastAssistantText(state);
+      // Error and truncated responses cannot be considered terminal at
+      // message_end because Pi may retry or compact-and-continue them. Promote
+      // the latest no-tool candidate only once the whole run actually settles.
+      // RuntimeManager publishes the terminal snapshot before this event and
+      // deliberately leaves status active for a stale duplicate settle.
+      const settled = isRuntimeWorking(state.snapshot.status)
+        ? state
+        : finalizeLatestResponse(state);
+      const preview = lastAssistantText(settled);
       return {
-        ...state,
+        ...settled,
         streamingAssistantId: null,
         streamingThinkingId: null,
         lastCompletionPreview: preview,
@@ -452,6 +483,35 @@ function countKeptBefore(
     if (block && !provisional.has(block.id)) kept += 1;
   }
   return kept;
+}
+
+/** Updates only the latest assistant response in the current user turn. */
+function patchLatestAssistant(
+  state: AppState,
+  patch: (
+    block: Extract<TranscriptBlock, { kind: 'assistant' }>,
+  ) => Extract<TranscriptBlock, { kind: 'assistant' }> | null,
+): AppState {
+  const lastUser = state.blocks.findLastIndex((block) => block.kind === 'user');
+  const index = state.blocks.findLastIndex((block) => block.kind === 'assistant');
+  if (index <= lastUser) return state;
+  const block = state.blocks[index];
+  if (!block || block.kind !== 'assistant') return state;
+  const replacement = patch(block);
+  if (!replacement) return state;
+  const blocks = [...state.blocks];
+  blocks[index] = replacement;
+  return { ...state, blocks };
+}
+
+function invalidateLatestResponse(state: AppState): AppState {
+  return patchLatestAssistant(state, (block) => (block.final ? { ...block, final: false } : null));
+}
+
+function finalizeLatestResponse(state: AppState): AppState {
+  return patchLatestAssistant(state, (block) =>
+    block.endedWithoutTools && !block.final ? { ...block, final: true } : null,
+  );
 }
 
 /** Two blocks describe the same runtime message (provisional vs authoritative). */
@@ -504,6 +564,7 @@ function upsertStreamBlock(
           // Streaming text is never the answer until message_end proves the
           // model returned no tool calls.
           final: false,
+          endedWithoutTools: false,
           timestamp: now,
         }
       : { kind: 'thinking', id, text, streaming: true, timestamp: now };
@@ -539,7 +600,7 @@ function appendStatus(state: AppState, text: string, tone: 'info' | 'warn', now:
 function lastAssistantText(state: AppState): string | null {
   for (let index = state.blocks.length - 1; index >= 0; index -= 1) {
     const block = state.blocks[index];
-    if (block && block.kind === 'assistant' && block.text.trim()) return block.text.trim();
+    if (block?.kind === 'assistant') return block.text.trim() || null;
   }
   return null;
 }
@@ -551,7 +612,11 @@ function lastAssistantText(state: AppState): string | null {
  * of the assistant messages that requested them. That keeps the intent line and
  * tool grouping intact after a session switch, compaction, or fork.
  */
-export function hydrateBlocks(messages: AgentMessage[], now: number): TranscriptBlock[] {
+export function hydrateBlocks(
+  messages: AgentMessage[],
+  now: number,
+  settleTail = true,
+): TranscriptBlock[] {
   const toolArgs = new Map<string, Record<string, unknown>>();
   const blocks: TranscriptBlock[] = [];
   for (const message of messages) {
@@ -560,7 +625,34 @@ export function hydrateBlocks(messages: AgentMessage[], now: number): Transcript
     }
     blocks.push(...blocksFromMessage(message, now, toolArgs));
   }
-  return blocks;
+  return finalizeHydratedResponses(blocks, settleTail);
+}
+
+/** Finalizes the last no-tool response in each durable user turn. */
+function finalizeHydratedResponses(
+  blocks: TranscriptBlock[],
+  settleTail: boolean,
+): TranscriptBlock[] {
+  const settled = [...blocks];
+  let latestAssistant = -1;
+  const finalizeAt = (index: number): void => {
+    const block = settled[index];
+    if (block?.kind === 'assistant' && block.endedWithoutTools && !block.final) {
+      settled[index] = { ...block, final: true };
+    }
+  };
+
+  for (let index = 0; index < settled.length; index += 1) {
+    const block = settled[index];
+    if (block?.kind === 'user') {
+      finalizeAt(latestAssistant);
+      latestAssistant = -1;
+    } else if (block?.kind === 'assistant') {
+      latestAssistant = index;
+    }
+  }
+  if (settleTail) finalizeAt(latestAssistant);
+  return settled;
 }
 
 /** Converts a durable runtime message into renderable blocks. */
@@ -581,6 +673,7 @@ export function blocksFromMessage(
       ];
     case 'assistant': {
       const blocks: TranscriptBlock[] = [];
+      const endedWithoutTools = message.toolCalls.length === 0;
       if (message.thinking.trim()) {
         blocks.push({
           kind: 'thinking',
@@ -590,16 +683,21 @@ export function blocksFromMessage(
           timestamp: message.timestamp || now,
         });
       }
-      if (message.text.trim()) {
+      // A no-tool response needs a block even when it has no visible text: the
+      // block is the durable completion marker for thinking-only and provider
+      // failure responses, and groupBlocks omits it from rendered output.
+      if (message.text.trim() || endedWithoutTools) {
         blocks.push({
           kind: 'assistant',
           id: nextBlockId('assistant'),
           text: message.text,
           streaming: false,
           aborted: message.stopReason === 'aborted',
-          // Only a response that asked for no further tool calls closes the
-          // turn; everything else is intermediate narration.
-          final: message.toolCalls.length === 0,
+          // Error and length responses can be followed by an automatic retry.
+          // They become final at agent_settled if no continuation supersedes them.
+          final:
+            endedWithoutTools && message.stopReason !== 'error' && message.stopReason !== 'length',
+          endedWithoutTools,
           timestamp: message.timestamp || now,
         });
       }
@@ -742,25 +840,33 @@ export function groupBlocks(blocks: TranscriptBlock[]): BlockGroup[] {
 function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): BlockGroup[] {
   const groups: BlockGroup[] = [];
   const lastTool = body.findLastIndex((entry) => entry.kind === 'tool');
-  // Only a response that requested no further tool calls is the final answer;
-  // streamed text can still be followed by more work, so it stays provisional.
-  const lastAnswer = body.findLastIndex((entry) => entry.kind === 'assistant' && entry.final);
-  const answerAt = lastAnswer > lastTool ? lastAnswer : -1;
-  // Reasoning always belongs to the rail; narration joins it only when a later
-  // tool call proved it was intermediate work rather than the answer.
+  // A previous attempt cannot settle a turn while a newer assistant response is
+  // provisional. Only the latest response may be its closing answer.
+  const lastAssistant = body.findLastIndex((entry) => entry.kind === 'assistant');
+  const candidate = body[lastAssistant];
+  const answerAt =
+    lastAssistant > lastTool && candidate?.kind === 'assistant' && candidate.final
+      ? lastAssistant
+      : -1;
+  const hiddenAssistant = (entry: TranscriptBlock): boolean =>
+    entry.kind === 'assistant' && !entry.text.trim();
+  // Reasoning always belongs to the rail; visible narration joins it only when
+  // a later tool call proved it was intermediate work rather than the answer.
   const isActivity = (entry: TranscriptBlock, entryIndex: number): boolean =>
     entry.kind === 'tool' ||
     entry.kind === 'thinking' ||
-    (entry.kind === 'assistant' && entryIndex < lastTool);
+    (entry.kind === 'assistant' && !hiddenAssistant(entry) && entryIndex < lastTool);
   const activity = body.filter((entry, entryIndex): entry is ActivityTranscriptBlock =>
     isActivity(entry, entryIndex),
   );
   const standalone = (entry: TranscriptBlock, entryIndex: number): boolean =>
-    !isActivity(entry, entryIndex);
+    !hiddenAssistant(entry) && !isActivity(entry, entryIndex);
 
   if (activity.length === 0) {
     if (user) groups.push({ kind: 'single', block: user });
-    for (const entry of body) groups.push({ kind: 'single', block: entry });
+    for (const entry of body) {
+      if (!hiddenAssistant(entry)) groups.push({ kind: 'single', block: entry });
+    }
     return groups;
   }
 
@@ -797,6 +903,15 @@ function turnGroups(user: UserTranscriptBlock | null, body: TranscriptBlock[]): 
     if (standalone(entry, entryIndex)) groups.push({ kind: 'single', block: entry });
   });
   return groups;
+}
+
+function isRuntimeWorking(status: RuntimeSnapshot['status']): boolean {
+  return (
+    status === 'starting' ||
+    status === 'running' ||
+    status === 'compacting' ||
+    status === 'retrying'
+  );
 }
 
 export function isRunning(state: AppState): boolean {
