@@ -4,7 +4,7 @@ import { useVirtualWindow } from '../hooks/useVirtualWindow.js';
 import { groupBlocks, isExpanded, type BlockGroup } from '../state/reducer.js';
 import { useStore } from '../state/store.js';
 import type { TranscriptBlock } from '../state/types.js';
-import { BlockView } from './BlockView.js';
+import { BlockView, SkillInvocationView } from './BlockView.js';
 import { ToolGroupView } from './ToolGroupView.js';
 import { Welcome } from './Welcome.js';
 
@@ -93,10 +93,18 @@ export function Transcript(): ReactNode {
       {pinnedUser ? (
         <aside
           key={pinnedUser.id}
-          className="pinned-user-message"
-          aria-label="Current user message"
+          className={
+            pinnedUser.skill ? 'pinned-user-message pinned-skill-invocation' : 'pinned-user-message'
+          }
+          aria-label={
+            pinnedUser.skill ? `Current skill ${pinnedUser.skill.name}` : 'Current user message'
+          }
         >
-          <pre>{pinnedUser.text}</pre>
+          {pinnedUser.skill ? (
+            <SkillInvocationView skill={pinnedUser.skill} />
+          ) : (
+            <pre>{pinnedUser.text}</pre>
+          )}
         </aside>
       ) : null}
       <div className="transcript" ref={viewport} role="log" aria-label="transcript">

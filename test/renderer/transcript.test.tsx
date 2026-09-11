@@ -229,6 +229,34 @@ describe('sticky user prompt', () => {
     expect(view.container.querySelector('.pinned-user-message')).toBeNull();
     expect(prompts[0]?.classList.contains('user-message-reveal')).toBe(true);
   });
+
+  it('keeps an explicit skill invocation pinned while its turn is being read', async () => {
+    const { view, viewport, dispatch } = await renderTranscript(0);
+    await act(async () => {
+      dispatch({
+        type: 'localMessage',
+        block: {
+          kind: 'user',
+          id: 'skill-1',
+          text: '',
+          skill: { name: 'pdf', content: 'Inspect every page.' },
+          timestamp: 1,
+        },
+      });
+      dispatch({ type: 'localMessage', block: assistant(1) });
+      await Promise.resolve();
+    });
+
+    setGeometry(viewport, { scrollTop: 200, clientHeight: 300, scrollHeight: 800 });
+    viewport.getBoundingClientRect = () => ({ top: 100 }) as DOMRect;
+    const prompt = query<HTMLElement>(viewport, '[data-user-group-index]');
+    prompt.getBoundingClientRect = () => ({ top: -100 }) as DOMRect;
+    await scroll(viewport);
+
+    const sticky = query(view.container, '.pinned-skill-invocation');
+    expect(sticky.textContent).toContain('pdf');
+    expect(sticky.textContent).not.toContain('Inspect every page.');
+  });
 });
 
 describe('transcript scroll anchoring', () => {

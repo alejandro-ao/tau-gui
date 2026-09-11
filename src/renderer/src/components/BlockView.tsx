@@ -123,7 +123,7 @@ export function BlockView({
   }
 }
 
-function SkillInvocationView({ skill }: { skill: SkillExpansion }): ReactNode {
+export function SkillInvocationView({ skill }: { skill: SkillExpansion }): ReactNode {
   const [expanded, setExpanded] = useState(false);
   if (!skill) return null;
   return (
