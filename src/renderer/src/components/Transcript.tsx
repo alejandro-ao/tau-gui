@@ -101,7 +101,7 @@ export function Transcript(): ReactNode {
           }
         >
           {pinnedUser.skill ? (
-            <SkillInvocationView skill={pinnedUser.skill} />
+            <SkillInvocationView skill={pinnedUser.skill} interactive={false} />
           ) : (
             <pre>{pinnedUser.text}</pre>
           )}

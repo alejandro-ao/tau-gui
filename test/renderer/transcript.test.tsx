@@ -256,6 +256,7 @@ describe('sticky user prompt', () => {
     const sticky = query(view.container, '.pinned-skill-invocation');
     expect(sticky.textContent).toContain('pdf');
     expect(sticky.textContent).not.toContain('Inspect every page.');
+    expect(sticky.querySelector('button')).toBeNull();
   });
 });
 

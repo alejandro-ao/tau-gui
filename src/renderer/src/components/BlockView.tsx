@@ -123,22 +123,38 @@ export function BlockView({
   }
 }
 
-export function SkillInvocationView({ skill }: { skill: SkillExpansion }): ReactNode {
+export function SkillInvocationView({
+  skill,
+  interactive = true,
+}: {
+  skill: SkillExpansion;
+  /** Sticky copies identify the active skill without duplicating its disclosure. */
+  interactive?: boolean;
+}): ReactNode {
   const [expanded, setExpanded] = useState(false);
   if (!skill) return null;
   return (
-    <article className="skill-invocation" data-expanded={expanded}>
-      <button
-        type="button"
-        className="skill-invocation-header"
-        onClick={() => setExpanded((open) => !open)}
-        aria-expanded={expanded}
-        title={expanded ? 'Collapse skill contents' : 'Expand skill contents'}
-      >
-        <span className="skill-invocation-label">skill</span>
-        <span className="skill-invocation-name">{skill.name}</span>
-      </button>
-      {expanded ? <pre className="skill-invocation-content">{skill.content}</pre> : null}
+    <article className="skill-invocation" data-expanded={interactive && expanded}>
+      {interactive ? (
+        <button
+          type="button"
+          className="skill-invocation-header"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          title={expanded ? 'Collapse skill contents' : 'Expand skill contents'}
+        >
+          <span className="skill-invocation-label">skill</span>
+          <span className="skill-invocation-name">{skill.name}</span>
+        </button>
+      ) : (
+        <div className="skill-invocation-header" aria-label={`Current skill ${skill.name}`}>
+          <span className="skill-invocation-label">skill</span>
+          <span className="skill-invocation-name">{skill.name}</span>
+        </div>
+      )}
+      {interactive && expanded ? (
+        <pre className="skill-invocation-content">{skill.content}</pre>
+      ) : null}
     </article>
   );
 }
