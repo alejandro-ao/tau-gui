@@ -9,7 +9,7 @@ export interface PickerItem {
   detail?: string | null;
   /** Right-aligned metadata such as a provider or timestamp. */
   hint?: string | null;
-  /** Origin marker: `backend`, `frontend`, `local`, … */
+  /** Short metadata such as `unavailable`, `scoped`, or an origin. */
   badge?: string | null;
   /** Present when the entry cannot run; always shown to the user. */
   reason?: string | null;
