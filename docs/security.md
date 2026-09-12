@@ -50,6 +50,8 @@
   characters, and truncated to 80 characters before it leaves the main process.
 - Inbound events are shape-checked in the preload before reaching React.
 - Introspection and reload responses are independently parsed in both main and preload. Requests accept no renderer payload beyond the existing session address, so the renderer cannot supply a path, prompt, schema, or loader option.
+- Authentication has separate strict actions for catalog/start/respond/cancel/logout. A prompt response is capped at 16,384 characters, accepted only for the exact active flow/prompt IDs, consumed once, and resolves to `null`; its value is never copied to an event, result, error, diagnostic, reducer action, or GUI setting.
+- Empty prompt responses are forwarded to Pi so providers can apply native defaults, such as GitHub Copilot's public GitHub domain. Reopening `/login` after switching to the command palette restores any active login; closing the login dialog cancels it.
 
 ## Embedded agent safety
 
@@ -57,7 +59,16 @@
   runtime executable or shell-built launch command exists.
 - Pi events and objects are normalized before IPC. SDK sessions, credentials,
   provider headers, environment values, resource contents, and extension
-  implementations never enter renderer state.
+  implementations never enter renderer state. Sanitized auth state contains only
+  bounded provider IDs/names, method labels/types, configured/stored booleans,
+  provider instructions/URLs/device codes, and prompt metadata.
+- The main-process `PiAuthService` calls public `ModelRuntime.login()`,
+  `listCredentials()`, and `logout()` only. Pi remains the sole writer/remover at
+  its standard agent-directory `auth.json`; GUI code neither parses nor writes
+  credential files. Browser/device flows use provider-native callbacks and open
+  only validated HTTP(S) destinations. Renderer key/manual-code fields are
+  uncontrolled, cleared synchronously on submit, and sent once over the dedicated
+  response action; no native secure-input dependency is used.
 - Third-party Pi extensions are disabled by the embedded resource loader until a
   desktop trust decision and bounded UI contract exist. Extensions execute
   arbitrary Node.js and are not a sandbox.
@@ -87,8 +98,10 @@
 
 ## Secrets
 
-- Credentials are owned by Pi's main-process model runtime and standard agent
-  configuration. The renderer never reads, stores, or forwards provider keys.
+- Stored credentials are owned by Pi's main-process model runtime and standard
+  agent configuration; they are never returned to or read by the renderer. A
+  newly entered key or authorization code is forwarded once through the bounded
+  `auth.login.respond` IPC action, then cleared without being retained or echoed.
 - `process.env` is passed to the child process but never sent to the renderer or
   written to logs.
 - Settings persisted by the GUI contain only binary paths, provider/model names,

@@ -16,11 +16,13 @@ import { probeRuntime } from './services/discovery.js';
 import { completePaths, toDisplayPath } from './services/filesystem.js';
 import { discoverTauResources } from './services/resources.js';
 import type { RuntimePool } from './services/runtime-pool.js';
+import type { PiAuthService } from './services/pi-auth.js';
 import type { SettingsStore } from './services/settings.js';
 
 export interface HandlerContext {
   settings: SettingsStore;
   manager: RuntimePool;
+  auth?: PiAuthService;
   window: () => BrowserWindow | null;
 }
 
@@ -32,6 +34,10 @@ export async function handleRequest(
   request: IpcEnvelope,
 ): Promise<IpcResult<IpcAction>> {
   const { settings, manager } = context;
+  const auth = (): PiAuthService => {
+    if (!context.auth) throw new Error('Provider authentication is unavailable');
+    return context.auth;
+  };
   // Session-scoped commands are routed by the transcript identity the renderer
   // acted on, so an in-flight session switch cannot redirect them.
   const target = request.session ?? null;
@@ -195,6 +201,18 @@ export async function handleRequest(
 
     case 'commands.list':
       return read((runtime) => runtime.listCommands());
+    case 'auth.providers':
+      return auth().listProviders();
+    case 'auth.login.start':
+      return auth().startLogin(request.payload.providerId, request.payload.authType);
+    case 'auth.login.respond':
+      auth().respond(request.payload.flowId, request.payload.promptId, request.payload.value);
+      return null;
+    case 'auth.login.cancel':
+      auth().cancel(request.payload.flowId);
+      return null;
+    case 'auth.logout':
+      return auth().logout(request.payload.providerId);
     case 'agent.inspectSystemPrompt':
       return read(async (runtime) => {
         if (!runtime.inspectSystemPrompt) {

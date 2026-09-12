@@ -167,7 +167,7 @@ describe('EmbeddedPiRuntime', () => {
       sessionClone: false,
       sessionList: false,
       extensionDialogs: false,
-      providerLogin: false,
+      providerLogin: true,
     });
   });
 

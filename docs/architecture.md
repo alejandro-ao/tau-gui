@@ -12,7 +12,7 @@ Preload
   minimal context-isolated API
        ↓ Electron IPC
 Main process
-  per-session prompt scheduler, runtime pool/managers, settings, filesystem, notifications
+  per-session prompt scheduler, runtime pool/managers, auth, settings, filesystem, notifications
        ↓ normalized embedded-Pi adapter
 Pinned Pi SDK
   one AgentSession/AgentSessionRuntime owner per live desktop session
@@ -20,7 +20,7 @@ Pinned Pi SDK
 
 ## Core rule
 
-The renderer never consumes Pi SDK objects or raw Pi events. The embedded adapter normalizes them into stable application-domain types. This preserves a narrow, validated IPC contract and keeps credentials, environment data, executable tools, extensions, and filesystem access out of the sandboxed renderer. `/system` and `/tools` expose only bounded inspection DTOs: prompt text stays local to an ephemeral modal, while tool definitions are reduced to bounded plain metadata, canonical origins, active state, and recursively bounded JSON schemas. Neither flow appends a message or calls `AgentSession.prompt()`.
+The renderer never consumes Pi SDK objects or raw Pi events. The embedded adapter normalizes them into stable application-domain types. This preserves a narrow, validated IPC contract and keeps credentials, environment data, executable tools, extensions, and filesystem access out of the sandboxed renderer. `/login` and `/logout` are owned by a main-process auth service using the active session's public `ModelRuntime` APIs and Pi's standard credential store. Only bounded provider metadata and auth interaction state cross to React. User-entered keys and manual OAuth codes make one validated, bounded, one-way IPC trip to satisfy the current native prompt, are consumed once, and are never echoed in results/events, reducer state, diagnostics, or GUI persistence. `/system` and `/tools` expose only bounded inspection DTOs: prompt text stays local to an ephemeral modal, while tool definitions are reduced to bounded plain metadata, canonical origins, active state, and recursively bounded JSON schemas. Neither flow appends a message or calls `AgentSession.prompt()`.
 
 ## Session boundary
 
@@ -46,6 +46,6 @@ These calls remain transcript-addressed through the existing optional `{ runtime
 
 ## Migration state
 
-Production uses the embedded Pi adapter. System-prompt inspection, tool-catalog inspection, and resource reload now have complete desktop flows. It also has direct SDK access to images, cancellable/streaming bash, retries, cloning, session listing, and provider authentication, but those remaining desktop flows stay capability-gated until each surface has bounded domain types and tests.
+Production uses the embedded Pi adapter. Provider login/logout, system-prompt inspection, tool-catalog inspection, and resource reload now have complete desktop flows. It also has direct SDK access to images, cancellable/streaming bash, retries, cloning, and session listing, but those remaining desktop flows stay capability-gated until each surface has bounded domain types and tests.
 
 The JSONL adapter remains only as an explicitly enabled deterministic E2E/contract-test harness (`TAU_GUI_TEST_RPC_RUNTIME=1`). It is not selected by application settings and is scheduled for removal once tests inject fake Pi sessions/services directly. Third-party Pi extensions are disabled in the embedded loader until extension trust and desktop UI contracts are implemented.

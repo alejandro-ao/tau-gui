@@ -6,6 +6,15 @@
  */
 import { z } from 'zod';
 import {
+  AUTH_LIMITS,
+  authFlowSchema,
+  authLogoutResultSchema,
+  authProviderListSchema,
+  type AuthFlow,
+  type AuthLogoutResult,
+  type AuthProvider,
+} from './auth.js';
+import {
   resourceReloadResultSchema,
   systemPromptInspectionSchema,
   toolCatalogSchema,
@@ -244,6 +253,44 @@ export const requestSchema = z.discriminatedUnion('action', [
   z.object({ action: z.literal('shell.abort') }),
 
   z.object({ action: z.literal('commands.list') }),
+  z.object({ action: z.literal('auth.providers') }).strict(),
+  z
+    .object({
+      action: z.literal('auth.login.start'),
+      payload: z
+        .object({
+          providerId: z.string().min(1).max(AUTH_LIMITS.providerIdCharacters),
+          authType: z.enum(['api_key', 'oauth']),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('auth.login.respond'),
+      payload: z
+        .object({
+          flowId: z.string().min(1).max(128),
+          promptId: z.string().min(1).max(128),
+          value: z.string().max(AUTH_LIMITS.responseCharacters),
+        })
+        .strict(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('auth.login.cancel'),
+      payload: z.object({ flowId: z.string().min(1).max(128) }).strict(),
+    })
+    .strict(),
+  z
+    .object({
+      action: z.literal('auth.logout'),
+      payload: z
+        .object({ providerId: z.string().min(1).max(AUTH_LIMITS.providerIdCharacters) })
+        .strict(),
+    })
+    .strict(),
   z.object({ action: z.literal('resources.list') }).strict(),
   z.object({ action: z.literal('resources.reload') }).strict(),
   z.object({ action: z.literal('agent.inspectSystemPrompt') }).strict(),
@@ -271,6 +318,9 @@ export const requestSchema = z.discriminatedUnion('action', [
 ]);
 
 export {
+  authFlowSchema,
+  authLogoutResultSchema,
+  authProviderListSchema,
   resourceCatalogSchema,
   entrySnapshotSchema,
   resourceReloadResultSchema,
@@ -379,6 +429,11 @@ export interface IpcResultMap {
   'shell.run': BashResult;
   'shell.abort': null;
   'commands.list': CommandInfo[];
+  'auth.providers': AuthProvider[];
+  'auth.login.start': AuthFlow;
+  'auth.login.respond': null;
+  'auth.login.cancel': null;
+  'auth.logout': AuthLogoutResult;
   'resources.list': ResourceCatalog;
   'resources.reload': ResourceReloadResult;
   'agent.inspectSystemPrompt': SystemPromptInspection;
@@ -412,6 +467,7 @@ export type BridgeEvent =
   | { type: 'diagnostic'; message: string }
   | { type: 'settings'; settings: AppSettings }
   | { type: 'sessionActivity'; activity: SessionActivity }
+  | { type: 'auth'; flow: AuthFlow }
   | { type: 'focus'; focused: boolean };
 
 /** Payload extraction helper for typed bridge signatures. */

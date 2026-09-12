@@ -511,6 +511,20 @@ describe('capability-gated and adapter-contract actions', () => {
     await expect(result).rejects.not.toThrow(/maximum call stack|RangeError/i);
   });
 
+  it('routes auth responses one-way through the dedicated service action', async () => {
+    const { context } = makeContext();
+    const respond = vi.fn();
+    context.auth = { respond } as unknown as NonNullable<Context['auth']>;
+
+    await expect(
+      handleRequest(context, {
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow-1', promptId: 'prompt-1', value: 'one-use-secret' },
+      }),
+    ).resolves.toBeNull();
+    expect(respond).toHaveBeenCalledWith('flow-1', 'prompt-1', 'one-use-secret');
+  });
+
   it('routes agent.entries with and without a cursor', async () => {
     const { context, calls } = makeContext();
     expect(await handleRequest(context, { action: 'agent.entries' })).toMatchObject({

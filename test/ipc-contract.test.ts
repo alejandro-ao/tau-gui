@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { AUTH_LIMITS } from '../src/shared/auth.js';
 import {
+  authFlowSchema,
+  authLogoutResultSchema,
+  authProviderListSchema,
   bashResultSchema,
   contextFilesSchema,
   entrySnapshotSchema,
@@ -56,6 +60,19 @@ describe('IPC request validation', () => {
     expect(requestSchema.safeParse({ action: 'runtime.restart' }).success).toBe(true);
     expect(
       requestSchema.safeParse({ action: 'ui.copyText', payload: { text: 'copy me' } }).success,
+    ).toBe(true);
+    expect(requestSchema.safeParse({ action: 'auth.providers' }).success).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.start',
+        payload: { providerId: 'anthropic', authType: 'api_key' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'ephemeral-secret' },
+      }).success,
     ).toBe(true);
   });
 
@@ -304,6 +321,78 @@ describe('IPC request validation', () => {
         })),
       }).success,
     ).toBe(false);
+  });
+
+  it('bounds one-way auth responses and sanitized auth results', () => {
+    // Native providers may request an empty answer to select a default.
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: '' },
+      }).success,
+    ).toBe(true);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'x'.repeat(16_385) },
+      }).success,
+    ).toBe(false);
+    expect(
+      requestSchema.safeParse({
+        action: 'auth.login.respond',
+        payload: { flowId: 'flow', promptId: 'prompt', value: 'secret', echo: true },
+      }).success,
+    ).toBe(false);
+    expect(
+      authProviderListSchema.safeParse([
+        {
+          id: 'anthropic',
+          name: 'Anthropic',
+          methods: [{ type: 'api_key', label: 'API key', interactive: true }],
+          configured: true,
+          storedCredential: 'api_key',
+          credential: 'must-not-cross',
+        },
+      ]).success,
+    ).toBe(false);
+    expect(
+      authLogoutResultSchema.safeParse({
+        providers: [],
+        warning: 'x'.repeat(2_049),
+      }).success,
+    ).toBe(false);
+    expect(
+      authFlowSchema.safeParse({
+        id: 'flow',
+        providerId: 'anthropic',
+        providerName: 'Anthropic',
+        authType: 'api_key',
+        revision: 0,
+        status: 'prompt',
+        prompt: { id: 'prompt', type: 'secret', message: 'Enter key' },
+        notices: [],
+        message: null,
+        value: 'must-not-cross',
+      }).success,
+    ).toBe(false);
+    const boundedFlow = {
+      id: 'flow',
+      providerId: 'anthropic',
+      providerName: 'Anthropic',
+      authType: 'api_key',
+      revision: AUTH_LIMITS.flowRevision,
+      status: 'running',
+      prompt: null,
+      notices: [],
+      message: 'Starting',
+    };
+    expect(authFlowSchema.safeParse(boundedFlow).success).toBe(true);
+    expect(
+      authFlowSchema.safeParse({ ...boundedFlow, revision: AUTH_LIMITS.flowRevision + 1 }).success,
+    ).toBe(false);
+    const missingRevision: Record<string, unknown> = { ...boundedFlow };
+    delete missingRevision['revision'];
+    expect(authFlowSchema.safeParse(missingRevision).success).toBe(false);
   });
 
   it('rejects unknown actions', () => {

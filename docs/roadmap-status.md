@@ -19,7 +19,7 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Removed Tau/Pi switch entries from the command palette.
 - Third-party extensions are deliberately disabled pending the trust and desktop extension-UI work tracked in #17.
 - The strict JSONL runtime remains only as an explicit fake adapter for deterministic unit, contract, and Electron tests; production cannot select it.
-- Remaining session listing/clone/import/export UI, provider auth, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
+- Remaining session listing/clone/import/export UI, images, retries, extension UI, test-fake conversion, and compatibility-code deletion remain tracked in #17.
 
 ## Active desktop contract audit
 
@@ -50,7 +50,7 @@ are additional requirements.
 | session clone            | Pi SDK primitive only              | missing          | no         | add an application-domain clone flow              |
 | session listing          | Pi `SessionManager.listAll()` only | app recents only | no         | add bounded listing and rail integration          |
 | extension dialogs        | extensions intentionally disabled  | missing          | no         | define trust and isolation first                  |
-| provider login/logout    | Pi SDK primitive only              | missing          | no         | add main-owned auth flows                         |
+| provider login/logout    | `authModelRuntime` + auth service  | complete         | yes        | maintain native-flow/security tests               |
 | resource reload          | `reloadResources`                  | complete         | yes        | maintain lifecycle/count/diagnostic tests         |
 | system prompt inspection | `inspectSystemPrompt`              | complete         | yes        | keep output local-only and bounded                |
 | tool catalog             | `listTools`                        | complete         | yes        | keep schemas/origins bounded and plain-text       |
@@ -59,7 +59,7 @@ The next implementation order is:
 
 1. replace app-owned-only recents with Pi-native session listing, then add clone
    and complete import/export flows;
-2. add provider authentication and Pi-owned retry/settings controls;
+2. add Pi-owned retry/settings controls;
 3. add images and extension interactions after their security boundaries are
    defined;
 4. remove the compatibility runtime and JSONL test infrastructure, then finish
@@ -129,7 +129,8 @@ claims.
   Slash completion accepts with Enter (run) or Tab (complete text); unknown slash
   input is sent as a normal prompt. Registered commands are parsed locally before
   prompting because RPC `prompt` does not execute TUI commands. Arguments work for
-  `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, and `/theme`.
+  `/name`, `/resume`, `/compact`, `/export`, `/model`, `/thinking`, `/theme`, and
+  `/login <provider>`.
   Runtime-reported built-ins are deduplicated against GUI handlers.
 - Skills and prompt templates come from the embedded Pi SDK's authoritative
   resource loader. The desktop adapter supplies project-root and home
@@ -152,10 +153,13 @@ claims.
   (`src/renderer/src/components/completion/directives.ts`). Only names present in
   the catalog match, so the pill distinguishes runtime expansions from GUI commands
   before Enter is pressed. Slash completion entries use the same colours.
-- Commands with no GUI implementation (`/login`, `/logout`, `/clone`, and
-  extension commands that RPC can list but not execute)
-  are listed as unavailable with the reason instead of being sent incorrectly to
-  the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
+- `/login` opens Pi's supported API-key/subscription provider methods and drives
+  provider-native prompts, browser URLs, device codes, and manual-code steps.
+  `/logout` lists only Pi-stored credentials and removes the selected entry through
+  Pi's public API; environment and model configuration remain unchanged. Commands
+  with no GUI implementation (`/clone` and extension commands that RPC can list but
+  not execute) are listed as unavailable with the reason instead of being sent
+  incorrectly to the model. `/clone` stays unavailable even on Pi, where the runtime supports it,
   because the desktop app has no clone flow yet.
   The registry enforces this: an entry without a handler must declare a reason,
   and running it reports that reason instead of doing nothing.

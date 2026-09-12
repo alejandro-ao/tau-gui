@@ -7,6 +7,9 @@ import type {
   SessionTarget,
 } from '../shared/ipc.js';
 import {
+  authFlowSchema,
+  authLogoutResultSchema,
+  authProviderListSchema,
   bashResultSchema,
   contextFilesSchema,
   entrySnapshotSchema,
@@ -74,6 +77,15 @@ const bridge: TauBridge = {
     if (action === 'shell.run') {
       return bashResultSchema.parse(response.value) as IpcResult<typeof action>;
     }
+    if (action === 'auth.providers') {
+      return authProviderListSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'auth.logout') {
+      return authLogoutResultSchema.parse(response.value) as IpcResult<typeof action>;
+    }
+    if (action === 'auth.login.start') {
+      return authFlowSchema.parse(response.value) as IpcResult<typeof action>;
+    }
     return response.value as IpcResult<typeof action>;
   },
   subscribe(listener) {
@@ -99,6 +111,7 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
   if (typeof value !== 'object' || value === null) return false;
   const record = value as {
     type?: unknown;
+    flow?: unknown;
     sessionId?: unknown;
     runtime?: unknown;
     snapshot?: unknown;
@@ -113,6 +126,7 @@ function isBridgeEvent(value: unknown): value is BridgeEvent {
     type === 'diagnostic' ||
     type === 'settings' ||
     type === 'sessionActivity' ||
+    (type === 'auth' && authFlowSchema.safeParse(record.flow).success) ||
     type === 'focus'
   );
 }
