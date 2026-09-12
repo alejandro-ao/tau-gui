@@ -41,9 +41,12 @@ export interface FakeBridge {
 
 export interface FakeBridgeOptions {
   runtime?: RuntimeKind;
+  platform?: string;
   status?: RuntimeSnapshot['status'];
   detail?: string | null;
   capabilities?: Partial<RuntimeCapabilities>;
+  cwd?: string | null;
+  displayCwd?: string | null;
   settings?: Partial<AppSettings>;
   stats?: SessionStats | null;
   agent?: AgentState | null;
@@ -55,12 +58,14 @@ export interface FakeBridgeOptions {
 export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
   const listeners = new Set<(event: BridgeEvent) => void>();
   const calls: InvokeCall[] = [];
+  const cwd = options.cwd === undefined ? '/work/project' : options.cwd;
   const snapshot: RuntimeSnapshot = {
     runtime: options.runtime ?? 'tau',
     status: options.status ?? 'idle',
     detail: options.detail ?? null,
     capabilities: { ...DEFAULT_CAPABILITIES, ...options.capabilities },
-    cwd: '/work/project',
+    cwd,
+    displayCwd: options.displayCwd === undefined ? cwd : options.displayCwd,
     gitBranch: 'main',
     state: options.agent ?? null,
     runtimeVersion: '9.9.9-fake',
@@ -128,7 +133,7 @@ export function installFakeBridge(options: FakeBridgeOptions = {}): FakeBridge {
     },
     // Electron exposes dropped-file paths through the preload bridge only.
     pathForFile: (file: File): string => (file as File & { path?: string }).path ?? '',
-    platform: 'darwin',
+    platform: options.platform ?? 'darwin',
   };
 
   // The bridge type is intentionally narrow; the fake satisfies it structurally.

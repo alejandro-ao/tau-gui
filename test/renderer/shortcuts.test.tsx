@@ -98,6 +98,50 @@ describe('global shortcuts', () => {
     expect(actionsOf(bridge)).toContain('models.cycle');
   });
 
+  it('toggles the left and right sidebars independently on macOS', async () => {
+    const { view } = await renderApp({ platform: 'darwin' });
+    mounted = view;
+    const left = query<HTMLElement>(view.container, '[data-testid="sessions-rail"]');
+    const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.dataset.open).toBe('false');
+    expect(left.getAttribute('aria-hidden')).toBe('true');
+    expect(left.hasAttribute('inert')).toBe(true);
+    expect(right.dataset.open).toBe('true');
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.dataset.open).toBe('true');
+    expect(left.getAttribute('aria-hidden')).toBe('false');
+    expect(left.hasAttribute('inert')).toBe(false);
+
+    // macOS Option can change KeyboardEvent.key while code remains KeyB.
+    await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
+    expect(left.dataset.open).toBe('true');
+    expect(right.dataset.open).toBe('false');
+
+    await press(window, '∫', { code: 'KeyB', metaKey: true, altKey: true });
+    expect(right.dataset.open).toBe('true');
+  });
+
+  it('uses Ctrl for both sidebar shortcuts on Windows', async () => {
+    const { view } = await renderApp({ platform: 'win32' });
+    mounted = view;
+    const left = query<HTMLElement>(view.container, '[data-testid="sessions-rail"]');
+    const right = query<HTMLElement>(view.container, '[data-testid="sidebar"]');
+
+    await press(window, 'b', { metaKey: true });
+    expect(left.dataset.open).toBe('true');
+
+    await press(window, 'b', { ctrlKey: true });
+    expect(left.dataset.open).toBe('false');
+    expect(right.dataset.open).toBe('true');
+
+    await press(window, 'b', { ctrlKey: true, altKey: true });
+    expect(left.dataset.open).toBe('false');
+    expect(right.dataset.open).toBe('false');
+  });
+
   it('opens the palette with Ctrl+K and closes the top modal with Escape', async () => {
     const { view } = await renderApp({});
     mounted = view;

@@ -26,7 +26,9 @@ tracked there. See [docs/roadmap-status.md](docs/roadmap-status.md).
   in the active session's directory and worktree. The rail plus button or
   `Shift+Ctrl+N` (`Shift+Cmd+N` on macOS) opens the native folder chooser; `/new`
   also starts in the active session's directory without prompting.
-- Prompt and watch text, thinking, and tool activity stream live.
+- Prompt and watch text, thinking, and tool activity stream live. After the first
+  prompt, the selected model generates a concise session name that Pi persists as
+  session metadata; an in-flight automatic name never overwrites a manual rename.
 - Let an agent start independent background sessions with the app-owned
   `spawn_session` tool. A target may be the current directory or another existing
   directory/worktree; spawned work appears in the sessions rail without changing

@@ -60,7 +60,7 @@ The chosen presentation is:
 - Render only the assistant message that **closes the turn** as the answer.
 - Put reasoning and pre-tool narration on the same compact activity rail as tool calls.
 - Keep the rail visible while work is active.
-- Collapse settled activity into a quiet summary such as `Worked for … · N tool calls` immediately before the answer.
+- Collapse settled activity into a quiet summary such as `Worked for … · N tool calls` immediately before the answer. A streamed response alone does not settle the rail: it stays live until the model's response arrives with no tool calls. Error and truncated responses remain provisional while the runtime may retry, and textless terminal responses still close the activity once the runtime settles.
 - Render reasoning-only work as a collapsible `Thought for …` rail.
 - Preserve the exact underlying content; changing presentation must not discard durable messages.
 - Allow reasoning to be hidden (`Ctrl+T`) without hiding the final answer.

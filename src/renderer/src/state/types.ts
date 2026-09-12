@@ -9,6 +9,7 @@ import type {
   ResourceCatalog,
   SessionStats,
   ThinkingLevel,
+  SkillExpansion,
 } from '../../../shared/domain.js';
 import type {
   ResourceReloadResult,
@@ -28,6 +29,7 @@ export type ToolState = 'running' | 'success' | 'error';
 export interface UserBlock {
   kind: 'user';
   id: string;
+  skill?: SkillExpansion | null;
   text: string;
   timestamp: number;
 }
@@ -38,6 +40,13 @@ export interface AssistantBlock {
   text: string;
   streaming: boolean;
   aborted: boolean;
+  /**
+   * True once this response is confirmed as the closing answer of its turn.
+   * Streaming text and responses followed by retries remain provisional.
+   */
+  final: boolean;
+  /** True only after message_end reports that this response requested no tools. */
+  endedWithoutTools: boolean;
   timestamp: number;
 }
 

@@ -117,9 +117,19 @@ export type MessageRole =
 
 export interface UserMessage {
   role: 'user';
+  /**
+   * Pi's explicit `/skill:<name>` expansion, normalized by the runtime. The
+   * renderer presents this as an untrusted, collapsible transcript resource.
+   */
+  skill?: SkillExpansion | null;
   text: string;
   images: { mimeType: string; data: string }[];
   timestamp: number;
+}
+
+export interface SkillExpansion {
+  name: string;
+  content: string;
 }
 
 export interface AssistantMessage {

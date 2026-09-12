@@ -350,6 +350,8 @@ export interface RuntimeSnapshot {
   runtimeVersion: string | null;
   capabilities: RuntimeCapabilities;
   cwd: string | null;
+  /** Working directory compacted against the user's home for display. */
+  displayCwd: string | null;
   gitBranch: string | null;
   state: AgentState | null;
   /** Queue address retained while a failed restart leaves no live runtime state. */
