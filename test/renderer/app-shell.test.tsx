@@ -41,12 +41,16 @@ async function renderApp(options: {
   status?: 'idle' | 'running' | 'failed';
   detail?: string | null;
   sidebarPosition?: SidebarPosition;
+  cwd?: string | null;
+  displayCwd?: string | null;
   stats?: SessionStats | null;
   results?: NonNullable<Parameters<typeof installFakeBridge>[0]>['results'];
 }): Promise<Mounted> {
   const bridge = installFakeBridge({
     status: options.status ?? 'idle',
     detail: options.detail ?? null,
+    cwd: options.cwd,
+    displayCwd: options.displayCwd,
     settings: { sidebarPosition: options.sidebarPosition ?? 'right' },
     stats: options.stats ?? null,
     results: options.results,
@@ -74,6 +78,15 @@ describe('app shell', () => {
   it('omits the sidebar entirely when disabled', async () => {
     const view = await renderApp({ sidebarPosition: 'off' });
     expect(view.container.querySelector('.sidebar')).toBeNull();
+  });
+
+  it('shows a home-compacted working directory in the footer', async () => {
+    const cwd = '/Users/alejandro/repos/tau-gui';
+    const view = await renderApp({ cwd, displayCwd: '~/repos/tau-gui' });
+    const path = query(view.container, '.status-left span');
+
+    expect(path.textContent).toBe('~/repos/tau-gui');
+    expect(path.getAttribute('title')).toBe(cwd);
   });
 
   it('follows the TUI section structure and omits unreported data', async () => {

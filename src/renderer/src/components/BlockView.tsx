@@ -1,6 +1,7 @@
-import type { ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useElapsedSeconds } from '../hooks/useElapsed.js';
 import { Markdown } from '../markdown.js';
+import type { SkillExpansion } from '../../../shared/domain.js';
 import type { ShellBlock, TranscriptBlock } from '../state/types.js';
 import { CopyButton } from './CopyButton.js';
 import { Diff, looksLikeDiff } from './Diff.js';
@@ -25,16 +26,24 @@ export function BlockView({
     case 'user':
       return (
         <div className="message-block message-block-user">
-          <BlockFrame kind="user">
-            <pre className="block-text">{block.text}</pre>
-          </BlockFrame>
-          <div className="message-actions">
-            <CopyButton text={block.text} label="message" />
-          </div>
+          {block.skill ? <SkillInvocationView skill={block.skill} /> : null}
+          {block.text ? (
+            <>
+              <BlockFrame kind="user">
+                <pre className="block-text">{block.text}</pre>
+              </BlockFrame>
+              <div className="message-actions">
+                <CopyButton text={block.text} label="message" />
+              </div>
+            </>
+          ) : null}
         </div>
       );
 
     case 'assistant':
+      // Textless assistant blocks preserve turn-completion metadata for
+      // provider failures and thinking-only responses, but have no visible row.
+      if (!block.text.trim()) return null;
       return (
         <div className="message-block">
           <BlockFrame
@@ -112,6 +121,42 @@ export function BlockView({
         </BlockFrame>
       );
   }
+}
+
+export function SkillInvocationView({
+  skill,
+  interactive = true,
+}: {
+  skill: SkillExpansion;
+  /** Sticky copies identify the active skill without duplicating its disclosure. */
+  interactive?: boolean;
+}): ReactNode {
+  const [expanded, setExpanded] = useState(false);
+  if (!skill) return null;
+  return (
+    <article className="skill-invocation" data-expanded={interactive && expanded}>
+      {interactive ? (
+        <button
+          type="button"
+          className="skill-invocation-header"
+          onClick={() => setExpanded((open) => !open)}
+          aria-expanded={expanded}
+          title={expanded ? 'Collapse skill contents' : 'Expand skill contents'}
+        >
+          <span className="skill-invocation-label">skill</span>
+          <span className="skill-invocation-name">{skill.name}</span>
+        </button>
+      ) : (
+        <div className="skill-invocation-header" aria-label={`Current skill ${skill.name}`}>
+          <span className="skill-invocation-label">skill</span>
+          <span className="skill-invocation-name">{skill.name}</span>
+        </div>
+      )}
+      {interactive && expanded ? (
+        <pre className="skill-invocation-content">{skill.content}</pre>
+      ) : null}
+    </article>
+  );
 }
 
 function BlockFrame({

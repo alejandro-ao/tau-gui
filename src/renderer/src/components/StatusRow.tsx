@@ -6,6 +6,7 @@ export function StatusRow(): ReactNode {
   const { state, actions } = useStore();
   const { snapshot, agent, stats, settings } = state;
   const cwd = snapshot.cwd ?? settings.cwd;
+  const displayCwd = snapshot.displayCwd ?? cwd;
   const model = agent?.model ?? null;
   const thinking = agent?.thinkingLevel ?? null;
   const context = stats?.contextUsage ?? null;
@@ -14,7 +15,7 @@ export function StatusRow(): ReactNode {
   return (
     <footer className="status-row" data-state={snapshot.status} data-testid="status-row">
       <div className="status-left">
-        {cwd ? <span title={cwd}>{cwd}</span> : null}
+        {cwd ? <span title={cwd}>{displayCwd}</span> : null}
         {snapshot.gitBranch ? <span>· {snapshot.gitBranch}</span> : null}
       </div>
       <div className="status-right">

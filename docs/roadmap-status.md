@@ -7,6 +7,10 @@ Issue #1 is the historical Tau/Pi RPC roadmap. The active architecture migration
 - Pinned `@earendil-works/pi-coding-agent` as an application dependency; production no longer requires an installed runtime executable.
 - Added `EmbeddedPiRuntime`, preserving normalized application-domain events and the renderer/preload/main security boundary.
 - Pi SDK now owns production sessions, models, thinking, compaction, bash, tree navigation, HTML export, resources, and context-file metadata.
+- The first user prompt starts a bounded, tool-free naming request with the model
+  selected for that session. Pi persists the sanitized result through an
+  authoritative `session_info` entry, while manual names and session changes win
+  any in-flight race.
 - `/system`, `/tools`, and `/reload` now use bounded main-process SDK operations, validated preload results, and local desktop modals. Inspection never creates model/session messages; reload reports category counts and diagnostics.
 - The app injects a trusted `spawn_session` SDK tool that creates an independently
   running session in the current directory or another existing directory. The
@@ -101,7 +105,9 @@ claims.
 
 - Role-based transcript styling with vertical role bars.
 - One answer per turn: reasoning and pre-tool narration stay on the activity
-  rail, which collapses into a duration summary before the answer.
+  rail, which collapses into a duration summary only once the turn ends — when
+  the model responds without requesting further tool calls. Retryable responses
+  remain live until continuation or settle, including textless provider errors.
 - Tool grouping, progress, previews, patch/diff rendering, expansion
   (global `Ctrl+O` plus per-block).
 - Sidebar and compact status row.
